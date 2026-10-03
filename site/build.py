@@ -100,7 +100,8 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
         bench = bool(x.benchmark_500m) and not bool(x.subordinated)
         # minimum denomination (FIRDS nominal value per unit); Bunds have EUR 0.01, which rounds to 1
         unit = max(1, round(x.nominal_unit)) if pd.notna(x.nominal_unit) and 0 < x.nominal_unit <= 1e6 else 1000
-        rows.append([isin, str(x.issuer), str(x.full_name)[:48], x.sector, int(bool(x.subordinated)), r(cpn, 4),
+        name = x.full_name if pd.notna(x.full_name) and str(x.full_name).strip() else (x.fisn if pd.notna(x.fisn) else isin)
+        rows.append([isin, str(x.issuer), str(name)[:48], x.sector, int(bool(x.subordinated)), r(cpn, 4),
                      x.mat.isoformat(), r(x.issued_amt / 1e6, 0) if pd.notna(x.issued_amt) else None,
                      r(x.bid_px, 3), r(x.ask_px, 3), int(firm), r(a["ytm"] * 100, 3),
                      r(a["zspread"] * 1e4, 1) if a.get("zspread") is not None else None,

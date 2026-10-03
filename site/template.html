@@ -672,7 +672,7 @@ function writeError(e) {
 // Every minute GitHub Actions pushes the latest Deutsche Börse minute file's quotes as live.json, the only
 // file on the branch 'live'. The page reads the branch head's commit id from the GitHub API and fetches the
 // file by that id from raw.githubusercontent.com, which is a new URL each minute (no stale CDN copy).
-const LIVE = { sha: null, data: null, err: null, checked: null };
+const LIVE = { sha: null, data: null, raw: null, err: null, checked: null };
 const tradeDay = () => LIVE.data?.day || DATA.asof;
 const valSettle = () => LIVE.data ? addBD(LIVE.data.day, 2) : DATA.settle;
 const utcToCet = (s) => s ? new Date(s.endsWith("Z") ? s : s + "Z").toLocaleTimeString("en-GB", { timeZone: "Europe/Berlin", hour12: false, hour: "2-digit", minute: "2-digit" }) : "–";
@@ -705,15 +705,15 @@ async function pollLive() {
         const sha = (await r.json()).object.sha;
         if (sha !== LIVE.sha) {
           const j = await (await fetch(`https://raw.githubusercontent.com/${REPO.owner}/${REPO.name}/${sha}/live.json`)).json();
-          LIVE.sha = sha;
+          LIVE.sha = sha; LIVE.raw = j;
           if (applyLive(j)) {
             DRAWN = "";
             if (!document.activeElement?.closest?.("input, select, textarea")) render(); else renderStatus();
           }
         }
         LIVE.err = null;
-      } else LIVE.err = r.status === 404 ? null : r.status;
-    } catch { LIVE.err = "network"; }
+      } else LIVE.err = r.status === 404 ? "no feed published yet" : r.status === 403 ? "GitHub rate limit, sign in for more" : `GitHub ${r.status}`;
+    } catch { LIVE.err = "network error"; }
     LIVE.checked = new Date();
     renderStamp(); renderStatus();
   }
@@ -722,16 +722,31 @@ async function pollLive() {
 }
 
 // ------------------------------------------------------------------ chrome
+// the feed runs on business days 07:45-17:45 Frankfurt time (live.py)
+function feedOpen() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Berlin", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })
+    .formatToParts(new Date()).map(x => [x.type, x.value]));
+  const hm = `${p.hour}:${p.minute}`;
+  return !["Sat", "Sun"].includes(p.weekday) && hm >= "07:45" && hm < "17:45";
+}
+const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m < 120 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
 function renderStamp() {
-  const L = LIVE.data;
-  const age = L ? (Date.now() - new Date(L.gen)) / 60000 : null;
-  $("#stamp").innerHTML = (L
-    ? `<span>PX <b>BÖRSE FRANKFURT ${dTerm(L.day)} ${utcToCet(L.msg)} CET</b> <span class="${age > 5 ? "neg" : "pos"}">INTRADAY${age > 5 ? " · STALE" : ""}</span> delayed, updated each minute</span>`
-    : `<span>PX <b>BÖRSE FRANKFURT ${dTerm(DATA.asof)}</b> last two-way before 17:30 CET</span>`) +
-    `<span>SETTLE <b>${dTerm(valSettle())}</b> T+2</span>` +
-    `<span>CURVE <b>ECB AAA ${dTerm(DATA.curve.date)}</b></span>`;
+  const L = LIVE.data, R = LIVE.raw, open = feedOpen();
+  const px = L
+    ? `<span>PX <b>BÖRSE FRANKFURT ${dTerm(L.day)} ${utcToCet(L.msg)} CET</b> intraday, delayed</span>`
+    : `<span>PX <b>BÖRSE FRANKFURT ${dTerm(DATA.asof)}</b> close (last two-way before 17:30 CET)</span>`;
+  const stale = R && open && (Date.now() - new Date(R.gen)) / 60000 > 5;
+  const state = !LIVE.checked ? `<span class="muted">checking…</span>`
+    : LIVE.err && !R ? `<span class="neg">UNAVAILABLE</span> <span class="muted">${esc(String(LIVE.err))}</span>`
+    : stale ? `<span class="neg">STALE</span>`
+    : L ? `<span class="pos">LIVE</span>`
+    : `<span class="muted">${open ? "WAITING FOR TODAY'S FIRST FILE" : "MARKET CLOSED"}</span>`;
+  const last = R ? ` · latest quote <b>${dTerm(R.day)} ${utcToCet(R.msg)} CET</b> · published ${ago(R.gen)}` : "";
+  const feed = `<span title="Deutsche Börse minute files via GitHub Actions; the page checks every ${gh.token ? 1 : 2} min">FEED ${state}${last}${LIVE.checked ? ` · checked ${LIVE.checked.toLocaleTimeString("en-GB", { hour12: false })}` : ""}</span>`;
+  $("#stamp").innerHTML = px + feed + `<span>SETTLE <b>${dTerm(valSettle())}</b> T+2</span>` + `<span>CURVE <b>ECB AAA ${dTerm(DATA.curve.date)}</b></span>`;
 }
 renderStamp();
+setInterval(renderStamp, 30000);
 
 let toastTimer;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3500); }
