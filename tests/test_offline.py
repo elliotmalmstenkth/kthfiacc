@@ -523,3 +523,31 @@ def test_market_sources_parse_and_fail_soft(monkeypatch, tmp_path):
     S = market.build("2026-10-02", str(tmp_path / "none.sqlite"))   # no curve DB and €STR offline: left out
     assert S["EURUSD"]["v"] == [1.12, 1.1225] and S["VIXCLS"]["src"] == "FRED"
     assert "ESTR" not in S and "AAA10" not in S
+
+
+def test_live_merges_quotes_and_futures(tmp_path):
+    import live
+    pre = tmp_path / "pre.json.gz"
+    with gzip.open(pre, "wt") as f:
+        for m in [dict(priceNotation=2, instrumentIdentificationCode="DE0001", bestBid="99.5", bestBidQty="100000", updateDateAndTime="2026-10-05T08:00:01.1"),
+                  dict(priceNotation=2, instrumentIdentificationCode="DE0001", bestAsk="99.7", bestAskQty="50000", updateDateAndTime="2026-10-05T08:00:02.1"),
+                  dict(priceNotation=2, instrumentIdentificationCode="XS9999", bestBid="80", updateDateAndTime="2026-10-05T08:00:03"),   # not on the site
+                  dict(priceNotation=1, instrumentIdentificationCode="DE0001", bestBid="1", updateDateAndTime="2026-10-05T08:00:04"),    # equity row
+                  dict(priceNotation=2, instrumentIdentificationCode="DE0001", bestBid="0", updateDateAndTime="2026-10-05T08:00:05")]:  # bid withdrawn
+            f.write(json.dumps(m) + "\n")
+    post = tmp_path / "post.json.gz"
+    with gzip.open(post, "wt") as f:
+        for m in [dict(messageId="posttrade", instrumentIdentificationCode="DE0009652644", contractDate="2027-03-08", price=120.0, quantity=1, mmtTradingMode="2", tradingDateAndTime="2026-10-05T08:00:01"),
+                  dict(messageId="posttrade", instrumentIdentificationCode="DE0009652644", contractDate="2026-12-08", price=121.5, quantity=10, mmtTradingMode="2", tradingDateAndTime="2026-10-05T08:00:02"),
+                  dict(messageId="posttrade", instrumentIdentificationCode="DE0009652644", contractDate="2026-12-08", price=121.4, quantity=5, mmtTradingMode="5", tradingDateAndTime="2026-10-05T08:00:03"),   # block
+                  dict(messageId="posttrade", instrumentIdentificationCode="DE0009652644", contractDate="2026-12-08", price=121.6, quantity=2, mmtTradingMode="2", tradingDateAndTime="2026-10-05T08:00:04")]:
+            f.write(json.dumps(m) + "\n")
+    lv = live.Live("2026-10-05", {"DE0001"})
+    lv.apply_pre(str(pre)); lv.apply_post(str(post))
+    out = lv.to_json("2026-10-05T06:00")
+    assert out["bonds"] == {"DE0001": [None, 99.7, None, 50000.0, "08:00:05"]}
+    assert out["fut"]["FGBL"] == ["2026-12-08", 121.6, 121.6, 121.5, 2, 12, "08:00:04"]   # front month, on-book only
+    assert out["msg"] == "2026-10-05T08:00:05"
+    resumed = live.Live("2026-10-05", {"DE0001"}, json.loads(json.dumps(out)))
+    assert resumed.bonds == out["bonds"] and resumed.done == out["cursor"]
+    assert live.Live("2026-10-06", None, out).bonds == {}                                    # a new day starts empty

@@ -16,6 +16,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `analytics.py` | – | Accrued interest, YTM, modified duration, Z-spread vs the ECB curve, conversion factors and CTD for the Bund-family futures, issuer spread curves (rich/cheap) |
 | `site/build.py` | data + ECB curve + €STR | Builds the portfolio site (`site/template.html` → `index.html`) with the day's data embedded; writes `data/history/<date>.csv.gz` and the `hist/` time series |
 | `market.py` | ECB (curves, €STR, EUR/USD), NY Fed (SOFR), FRED (ICE BofA OAS, VIX) | End-of-day market monitor and the risk-factor history for VaR |
+| `live.py` | Deutsche Börse minute files (DFRA-pretrade, DEUR-posttrade) | Intraday quotes for the site: a GitHub Actions job streams each minute file and pushes `live.json` to the branch `live` every minute |
 | `ci.py` | all of the above | Daily GitHub Actions job: fetch, build, archive each business day as a draft release, publish the site |
 
 ```bash
@@ -79,6 +80,12 @@ Tue–Sat and a FIRDS snapshot on Sundays. Each business day becomes a **draft r
 to collaborators): marks at 12:00/17:25/close, bond classification, Eurex futures, and raw data (bond rows from
 DFRA-pretrade ~340 MB, post-trade ~75 MB). The site is then rebuilt and deployed to GitHub Pages, and
 `data/log.csv` gets one row per day. Manual run: Actions → Market data → Run workflow (`daily`, `site` or `firds`).
+
+`.github/workflows/live.yml` runs `live.py` on business days from 07:45 to 17:45 Frankfurt time: one long job per
+half day (GitHub schedules cannot run every minute) reads each new minute file and force-pushes `live.json` (one
+commit, no history) to the branch `live`. The page polls the branch every minute when signed in (every two minutes
+otherwise, for GitHub's anonymous API limit) and marks bonds and futures at the intraday prices; yields and Z-spreads
+are moved by −Δprice / (dirty × modified duration) from the evening's analytics. Free MiFID data is delayed.
 
 Download a day: `gh release download data-2026-10-02 -D dl/` (requires write access, as releases are drafts).
 

@@ -1,0 +1,31 @@
+# Intraday prices: one long-running job per half day picks up each Deutsche Börse minute file as it is
+# published and pushes live.json to the branch 'live' every minute (live.py). GitHub's schedule cannot run
+# more often than every 5 minutes, so the loop runs inside the job instead.
+name: Live prices
+
+on:
+  schedule:
+    # Runs queue behind the running one (concurrency) and take over when it stops (~5h45 per job, below the
+    # 6-hour limit). Two starts cover summer and winter time; a start before the open waits for 07:45 Frankfurt.
+    - cron: "40 5,6 * * 1-5"
+    - cron: "10 11,12 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # push to the branch 'live'
+
+concurrency: { group: live-prices, cancel-in-progress: false }
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Stream minute files until the close
+        run: python live.py run --publish

@@ -330,7 +330,7 @@ const couponsBetween = (b, s0, s1) => { const a = dParse(s0).getTime(), z = dPar
 const repoRate = (qty) => qty >= 0 ? state.repo : state.repo - state.special / 100;
 // Carry since the trade settled: coupon accrual (and coupons paid) minus funding (ACT/360) on the dirty trade value.
 function carryOf(p, b) {
-  const s0 = p.settle || addBD(p.date || (p.at || DATA.asof).slice(0, 10), 2), s1 = DATA.settle;
+  const s0 = p.settle || addBD(p.date || (p.at || DATA.asof).slice(0, 10), 2), s1 = valSettle();
   const days = (dParse(s1) - dParse(s0)) / DAY;
   if (!(days > 0)) return { cpn: 0, fund: 0, total: 0, days: 0 };
   const cpn = p.qty / 100 * (accruedAt(b, s1) - accruedAt(b, s0) + couponsBetween(b, s0, s1) * b.cpn / (b.freq || 1));
@@ -641,7 +641,7 @@ function describe(p) {
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 async function addPositions(list, label = "") {
   if (!state.canWrite) { openLogin(); return false; }
-  const rows = list.map(p => ({ id: newId(), ...p, date: DATA.asof, by: gh.login, at: new Date().toISOString() }));
+  const rows = list.map(p => ({ id: newId(), ...p, date: tradeDay(), by: gh.login, at: new Date().toISOString() }));
   try {
     state.positions = await gh.save(cur => [...cur, ...rows], `Portfolio: ${label ? label + ": " : ""}${rows.map(describe).join(", ")} (${gh.login})`);
     render(); return true;
@@ -668,11 +668,70 @@ function writeError(e) {
   else toast("Could not save the trade. Please try again.");
 }
 
+// ------------------------------------------------------------------ intraday prices (live.py -> branch 'live')
+// Every minute GitHub Actions pushes the latest Deutsche Börse minute file's quotes as live.json, the only
+// file on the branch 'live'. The page reads the branch head's commit id from the GitHub API and fetches the
+// file by that id from raw.githubusercontent.com, which is a new URL each minute (no stale CDN copy).
+const LIVE = { sha: null, data: null, err: null, checked: null };
+const tradeDay = () => LIVE.data?.day || DATA.asof;
+const valSettle = () => LIVE.data ? addBD(LIVE.data.day, 2) : DATA.settle;
+const utcToCet = (s) => s ? new Date(s.endsWith("Z") ? s : s + "Z").toLocaleTimeString("en-GB", { timeZone: "Europe/Berlin", hour12: false, hour: "2-digit", minute: "2-digit" }) : "–";
+function applyLive(j) {
+  if (!j || !j.day || j.day <= DATA.asof) return false;   // the evening build already covers this day
+  LIVE.data = j;
+  for (const [isin, q] of Object.entries(j.bonds || {})) {
+    const b = BY_ISIN.get(isin);
+    if (!b) continue;
+    b.eod ??= { mid: b.mid, ytm: b.ytm, z: b.z };
+    const [bid, ask, bq, aq, t] = q;
+    if (bid == null || ask == null || ask < bid) continue;   // one-sided now: keep the last two-way mark
+    Object.assign(b, { bid, ask, mid: (bid + ask) / 2, firm: bq > 0 && aq > 0 ? 1 : 0, live: t });
+    // first-order repricing from the end-of-day analytics: Δy = −Δprice / (dirty × modified duration)
+    const dy = -(b.mid - b.eod.mid) / (b.eod.mid + b.acc) / b.mdur * 100;
+    b.ytm = b.eod.ytm + dy;
+    if (b.eod.z != null) b.z = b.eod.z + dy * 100;
+  }
+  for (const [code, x] of Object.entries(j.fut || {})) {
+    const f = FUT.get(code);
+    if (f && x[0] === f.contract) Object.assign(f, { last: x[1], high: x[2], low: x[3], trades: x[4], lots: x[5], live: x[6] });
+  }
+  return true;
+}
+async function pollLive() {
+  if (!document.hidden) {
+    try {
+      const r = await fetch(`${API}/git/ref/heads/live`, { headers: gh.headers(), cache: "no-store" });
+      if (r.ok) {
+        const sha = (await r.json()).object.sha;
+        if (sha !== LIVE.sha) {
+          const j = await (await fetch(`https://raw.githubusercontent.com/${REPO.owner}/${REPO.name}/${sha}/live.json`)).json();
+          LIVE.sha = sha;
+          if (applyLive(j)) {
+            DRAWN = "";
+            if (!document.activeElement?.closest?.("input, select, textarea")) render(); else renderStatus();
+          }
+        }
+        LIVE.err = null;
+      } else LIVE.err = r.status === 404 ? null : r.status;
+    } catch { LIVE.err = "network"; }
+    LIVE.checked = new Date();
+    renderStamp(); renderStatus();
+  }
+  // signed in: 5,000 GitHub API calls an hour; anonymous: 60, shared with loading the book
+  setTimeout(pollLive, (gh.token ? 60 : 120) * 1000);
+}
+
 // ------------------------------------------------------------------ chrome
-$("#stamp").innerHTML =
-  `<span>PX <b>BÖRSE FRANKFURT ${dTerm(DATA.asof)}</b> last two-way before 17:30 CET</span>` +
-  `<span>SETTLE <b>${dTerm(DATA.settle)}</b> T+2</span>` +
-  `<span>CURVE <b>ECB AAA ${dTerm(DATA.curve.date)}</b></span>`;
+function renderStamp() {
+  const L = LIVE.data;
+  const age = L ? (Date.now() - new Date(L.gen)) / 60000 : null;
+  $("#stamp").innerHTML = (L
+    ? `<span>PX <b>BÖRSE FRANKFURT ${dTerm(L.day)} ${utcToCet(L.msg)} CET</b> <span class="${age > 5 ? "neg" : "pos"}">INTRADAY${age > 5 ? " · STALE" : ""}</span> delayed, updated each minute</span>`
+    : `<span>PX <b>BÖRSE FRANKFURT ${dTerm(DATA.asof)}</b> last two-way before 17:30 CET</span>`) +
+    `<span>SETTLE <b>${dTerm(valSettle())}</b> T+2</span>` +
+    `<span>CURVE <b>ECB AAA ${dTerm(DATA.curve.date)}</b></span>`;
+}
+renderStamp();
 
 let toastTimer;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3500); }
@@ -876,7 +935,7 @@ function renderHold() {
     `</tbody></table>` : `<div class="empty">No bond positions.</div>`;
 
   $("#v-hold").innerHTML = kpiStrip(bk) +
-    panel("blot", "Position blotter", blot, { sub: `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${dTerm(DATA.asof)}`, tools }) +
+    panel("blot", "Position blotter", blot, { sub: `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${LIVE.data ? `${dTerm(LIVE.data.day)} ${utcToCet(LIVE.data.msg)} CET intraday` : dTerm(DATA.asof)}`, tools }) +
     panel("strat", "Strategies", stratTbl, { sub: `${strats.length} pairs / flies · level = long − short (pair), 2 × body − wings (fly)` }) +
     panel("attr", "P&amp;L attribution", attr, { sub: "EUR, total P&L by strategy and position" }) +
     panel("sum", "Summary by sector", fund + sum + `<p class="note pad"><b>Total P&amp;L</b> = clean-price P&amp;L versus the trade price + carry. <b>Carry</b> = coupon accrual (including coupons paid) since the trade settled, minus funding at the repo rate (ACT/360) on the dirty trade value; shorts pay the coupon and earn repo less the specialness. Futures carry is in the price. Weights use gross bond market value.</p>`);
@@ -1248,12 +1307,12 @@ function renderTicket() {
       <div class="chips">${[250000, 500000, 1000000, 5000000].map(v => `<button data-nom="${v}" aria-pressed="${state.nominal === v}">${v >= 1e6 ? v / 1e6 + "M" : v / 1e3 + "K"}</button>`).join("")}</div>`;
     calc = () => { const px = state.side > 0 ? b.ask : b.bid, dirty = px + b.acc, n = state.nominal;
       return { px, html: `<dl class="kv"><dt>Clean price (${state.side > 0 ? "offer" : "bid"})</dt><dd class="big">${fmt(px, 3)}</dd><dt>Accrued interest</dt><dd>${fmt(n * b.acc / 100, 2)}</dd>
-        <dt>Settlement amount</dt><dd class="big">EUR ${fmt(n * dirty / 100, 2)}</dd><dt>Settles</dt><dd>${dTerm(DATA.settle)}</dd>
+        <dt>Settlement amount</dt><dd class="big">EUR ${fmt(n * dirty / 100, 2)}</dd><dt>Settles</dt><dd>${dTerm(valSettle())}</dd>
         <dt>DV01</dt><dd class="${cls(state.side)}">${fmtS(state.side * n * dirty / 100 * b.mdur * 1e-4, 0)} EUR/bp</dd>
         ${(() => { const c = carryRoll3m(b, state.side * n); return `<dt title="coupon accrual minus funding at ${fmt(repoRate(state.side * n), 3)}% repo">Carry 3M</dt><dd class="${cls(c.carry)}">${fmtS(c.carry, 0)} EUR</dd>
         <dt title="price gain from rolling down the curve, unchanged curve">Roll-down 3M</dt><dd class="${cls(c.roll)}">${fmtS(c.roll, 0)} EUR</dd>`; })()}
         ${n % b.unit ? `<dt></dt><dd class="neg">not a multiple of the ${fmt(b.unit, 0)} denomination</dd>` : ""}</dl>`,
-        order: { kind: "bond", isin: b.isin, qty: state.side * n, price: px, settle: DATA.settle }, ok: n > 0 && !(n % b.unit), desc: `EUR ${fmt(n, 0)} ${b.name}` }; };
+        order: { kind: "bond", isin: b.isin, qty: state.side * n, price: px, settle: valSettle() }, ok: n > 0 && !(n % b.unit), desc: `EUR ${fmt(n, 0)} ${b.name}` }; };
   } else {
     const f = FUT.get(s.id), d = f.type === "credit" ? indexDur(f.code) : null;
     $("#tktSub").textContent = `${f.code} ${f.contract}`;
@@ -1347,7 +1406,7 @@ function renderStratTicket() {
     const sid = newId(), name = (state.stratName || "").trim() || type.toUpperCase();
     const strat = (i) => ({ id: sid, name, type, leg: i, y0: levelOf(type, cur.legs, "y"), z0: levelOf(type, cur.legs, "z") });
     const orders = cur.legs.map((x, i) => x.kind === "bond"
-      ? { kind: "bond", isin: x.id, qty: x.qty, price: x.px, settle: DATA.settle, strat: strat(i) }
+      ? { kind: "bond", isin: x.id, qty: x.qty, price: x.px, settle: valSettle(), strat: strat(i) }
       : { kind: "future", code: x.id, contract: x.f.contract, qty: x.qty, price: x.px, strat: strat(i) });
     const btn = $("#tkBook"); btn.disabled = true;
     const done = await addPositions(orders, name);
@@ -1429,6 +1488,7 @@ async function init() {
   state.canWrite = !!(gh.token && gh.login);
   setView(state.view);
   await loadPositions();
+  pollLive();
   // reload when the tab becomes visible again (at most every 2 minutes, for GitHub's rate limit)
   document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - state.loadedAt > 120000) loadPositions(); });
 }
