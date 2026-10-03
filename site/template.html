@@ -1,50 +1,59 @@
 <title>KTH FICC Portfolio</title>
 <style>
-/* Terminal layout: fixed app shell (header, function-key bar, workspace, status line). Each workspace is an
-   asymmetric CSS grid of bordered panels that scroll internally, so the book's key numbers stay above the fold. */
+/* Terminal layout: fixed app shell (header, red function bar, workspace, status line). Each workspace is an
+   asymmetric CSS grid of bordered panels that scroll internally, so the book's key numbers stay above the fold.
+   Colour roles follow the Bloomberg Terminal: black ground; white numbers; amber only for identifiers (security
+   names, codes) and as the fill of small editable fields; grey bands for headers; a red function bar; blue for
+   focus/selection; green/red reserved for up/down (blue/red in CVD mode). */
 :root {
-  --bg: #000000; --panel: #070707; --panel-2: #0e0e0e; --line: #2b2b2b; --line-2: #181818;
-  --amber: #ffb000; --amber-2: #b37b00; --fg: #e8e8e8; --fg-2: #a3a3a3; --fg-3: #6e6e6e;
-  --cyan: #2ec4ff; --pos: #18e36c; --neg: #ff3434; --sel: #2a1d00; --hover: #151515;
+  --bg: #000000; --panel: #050505; --band: #262626; --band-2: #1a1a1a; --line: #333333; --line-2: #1c1c1c;
+  --fg: #e6e6e6; --fg-2: #a6a6a6; --fg-3: #6f6f6f;
+  --amber: #f39a1e; --field: #fc9c2a; --field-ink: #000000;
+  --red-bar: #b81c26; --red-bar-2: #d52b36; --red-bar-sel: #6e0a10;
+  --blue: #2fb5f5; --sel: #12355b; --hover: #161616;
+  --pos: #1ee36f; --neg: #ff3b30; --pos-bg: #0b3a1d; --neg-bg: #3f0e0b;
   --mono: "SF Mono", SFMono-Regular, ui-monospace, Consolas, "Liberation Mono", Menlo, "Courier New", monospace;
   color-scheme: dark;
 }
+:root[data-cvd="1"] { --pos: #3fa9ff; --pos-bg: #0b2a45; }   /* Bloomberg's CVD scheme: blue up, red down */
 *, *::before, *::after { box-sizing: border-box; border-radius: 0 !important; box-shadow: none !important; transition: none !important; animation: none !important; }
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 12px/1.25 var(--mono); font-variant-numeric: tabular-nums; }
 button, input, select { font: inherit; font-variant-numeric: tabular-nums; color: inherit; }
-a { color: var(--cyan); }
-:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+a { color: var(--blue); }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 
 /* ---- shell ---- */
 .app { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; padding-inline: 16px; }
-.top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; padding-block: 6px; border-bottom: 1px solid var(--line); min-width: 0; }
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; padding-block: 6px; min-width: 0; }
 .brand { color: var(--amber); font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
-.brand span { color: var(--fg); font-weight: 400; }
+.brand span { color: var(--fg-2); font-weight: 400; }
 .stamp { display: flex; flex-wrap: wrap; gap: 2px 14px; color: var(--fg-3); min-width: 0; }
 .stamp b { color: var(--fg); font-weight: 400; }
 .acct { margin-left: auto; display: flex; gap: 10px; align-items: center; color: var(--fg-2); white-space: nowrap; }
-.clock { color: var(--amber); }
-.fkeys { display: flex; gap: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
-.fkeys button { background: var(--bg); border: 0; border-right: 1px solid var(--line); color: var(--fg-2); padding: 5px 14px; cursor: pointer; white-space: nowrap; letter-spacing: .04em; }
-.fkeys button kbd { color: var(--amber); font: inherit; margin-right: 6px; }
-.fkeys button:hover { background: var(--hover); color: var(--fg); }
-.fkeys button[aria-selected="true"] { background: var(--amber); color: #000; }
-.fkeys button[aria-selected="true"] kbd { color: #000; }
+.clock { color: var(--fg); }
+/* function bar: grey band with a red rule; the active function is the red Bloomberg menu-bar block */
+.fkeys { display: flex; gap: 1px; background: var(--band-2); border-bottom: 2px solid var(--red-bar); overflow-x: auto; }
+.fkeys button { background: var(--band-2); border: 0; color: var(--fg-2); padding: 4px 14px; cursor: pointer; white-space: nowrap; letter-spacing: .04em; }
+.fkeys button kbd { font: inherit; margin-right: 6px; color: var(--fg); }
+.fkeys button:hover { background: #333; color: #fff; }
+.fkeys button[aria-selected="true"] { background: var(--red-bar); color: #fff; }
+.fkeys button[aria-selected="true"] kbd { color: #fff; }
 .views { min-height: 0; padding-block: 8px; }
 .view { display: grid; gap: 8px; height: 100%; min-height: 0; }
 .status { display: flex; flex-wrap: wrap; gap: 2px 18px; align-items: center; border-top: 1px solid var(--line); padding-block: 4px; color: var(--fg-3); min-width: 0; }
+.status b { color: var(--fg); font-weight: 400; }
 .status .msg { color: var(--amber); }
 .status .err { color: var(--neg); }
 .status .keys { margin-left: auto; }
-.status kbd { color: var(--amber); font: inherit; }
+.status kbd { color: var(--fg); font: inherit; }
 
 /* ---- panels ---- */
 .panel { background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.ph { display: flex; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--line); background: var(--panel-2); min-width: 0; }
-.ph h2 { margin: 0; font: inherit; font-weight: 700; color: var(--amber); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
-.ph .sub { color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ph { display: flex; align-items: center; gap: 10px; padding: 3px 8px; background: var(--band); min-width: 0; }
+.ph h2 { margin: 0; font: inherit; font-weight: 700; color: #fff; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
+.ph .sub { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ph .tools { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 .pb { flex: 1; min-height: 0; overflow: auto; }
 .pad { padding: 8px; }
@@ -53,93 +62,108 @@ a { color: var(--cyan); }
 
 /* ---- KPI strip ---- */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); border: 1px solid var(--line); background: var(--line); gap: 1px; }
-.kpi { background: var(--panel); padding: 5px 8px; min-width: 0; }
-.kpi .l { color: var(--amber); letter-spacing: .06em; font-size: 11px; }
-.kpi .v { font-size: 19px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi { background: var(--panel); padding: 4px 8px; min-width: 0; }
+.kpi .l { color: var(--fg-2); letter-spacing: .06em; font-size: 11px; }
+.kpi .v { font-size: 19px; line-height: 1.2; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi .v.pos { color: var(--pos); } .kpi .v.neg { color: var(--neg); }
 .kpi .s { color: var(--fg-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- tables ---- */
 table.t { border-collapse: collapse; width: 100%; }
-.t th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); color: var(--amber); font-weight: 400; font-size: 11px; letter-spacing: .04em; text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line-2); white-space: nowrap; }
-.t td { padding: 2px 6px; border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line-2); white-space: nowrap; }
+.t th { position: sticky; top: 0; z-index: 1; background: var(--band-2); color: var(--fg-2); font-weight: 400; font-size: 11px; letter-spacing: .03em; text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line-2); white-space: nowrap; }
+.t td { padding: 2px 6px; border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line-2); white-space: nowrap; color: var(--fg); }
 .t th:last-child, .t td:last-child { border-right: 0; }
 .t .n { text-align: right; }
 .t th.sort { cursor: pointer; user-select: none; }
-.t th.sort:hover { color: var(--fg); }
+.t th.sort:hover { color: #fff; }
 .t tbody tr:hover td { background: var(--hover); }
-.t tbody tr.sel td { background: var(--sel); }
-.t tbody tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--amber) !important; }
+.t tr.click:hover { outline: 1px solid #ffffff; outline-offset: -1px; }        /* Bloomberg: white box = clickable */
+.t tbody tr.sel td { background: var(--sel); color: #fff; }
+.t tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--blue) !important; }
 .t tr.click { cursor: pointer; }
-.t td.nm { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-.t tfoot td { border-top: 1px solid var(--line); color: var(--fg); background: var(--panel-2); }
-.muted { color: var(--fg-3); } .dim { color: var(--fg-2); } .amb { color: var(--amber); } .cy { color: var(--cyan); }
-.pos { color: var(--pos); } .neg { color: var(--neg); }
+.t td.nm { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--amber); }   /* identifiers in amber */
+.t tbody tr.sel td.nm { color: #ffc56b; }
+.t td.amb, .t .amb { color: var(--amber); } .t td.dim { color: var(--fg-2); }
+.t td.desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
+.t tfoot td { border-top: 1px solid var(--line); color: #fff; background: var(--band-2); }
+.muted { color: var(--fg-3); } .dim { color: var(--fg-2); } .amb { color: var(--amber); } .cy { color: var(--blue); }
+.t td.pos, .pos { color: var(--pos); } .t td.neg, .neg { color: var(--neg); }
 .tag { display: inline-block; min-width: 3.2em; text-align: center; font-size: 11px; padding: 0 3px; }
-.tag.l { background: #0d3a1f; color: var(--pos); } .tag.s { background: #3f0d0d; color: var(--neg); }
-.ind { color: var(--amber-2); text-decoration: underline dotted; }
+.tag.l { background: var(--pos-bg); color: var(--pos); } .tag.s { background: var(--neg-bg); color: var(--neg); }
+.ind { color: var(--fg-2); text-decoration: underline dotted; }
 
 /* ---- controls ---- */
 a.btn { text-decoration: none; display: inline-block; }
-.btn { background: #000; border: 1px solid var(--amber); color: var(--amber); padding: 2px 9px; cursor: pointer; white-space: nowrap; letter-spacing: .03em; }
-.btn:hover { background: var(--amber); color: #000; }
-.btn.solid { background: var(--amber); color: #000; }
-.btn.solid:hover { background: #ffd060; }
-.btn.buy { border-color: var(--pos); color: var(--pos); } .btn.buy:hover, .btn.buy[aria-pressed="true"] { background: var(--pos); color: #000; }
-.btn.sell { border-color: var(--neg); color: var(--neg); } .btn.sell:hover, .btn.sell[aria-pressed="true"] { background: var(--neg); color: #000; }
-.btn.x { border-color: #5a1a1a; color: var(--neg); padding: 0 6px; }
+.btn { background: #2e2e2e; border: 1px solid #4a4a4a; color: var(--fg); padding: 1px 9px; cursor: pointer; white-space: nowrap; letter-spacing: .03em; }
+.btn:hover { background: #474747; color: #fff; border-color: #6a6a6a; }
+.btn.solid { background: #e6e6e6; border-color: #e6e6e6; color: #000; font-weight: 700; }
+.btn.solid:hover { background: #ffffff; }
+.btn.buy { background: #000; border-color: var(--pos); color: var(--pos); } .btn.buy:hover, .btn.buy[aria-pressed="true"] { background: var(--pos); color: #000; }
+.btn.sell { background: #000; border-color: var(--neg); color: var(--neg); } .btn.sell:hover, .btn.sell[aria-pressed="true"] { background: var(--neg); color: #000; }
+.btn.x { background: #000; border-color: #5a1a1a; color: var(--neg); padding: 0 6px; }
 .btn.x:hover, .btn.x.armed { background: var(--neg); color: #000; border-color: var(--neg); }
 .btn:disabled { opacity: .35; cursor: not-allowed; }
-.btn:disabled:hover { background: #000; color: var(--amber); }
-input, select { background: #000; border: 1px solid var(--line); padding: 2px 6px; caret-color: var(--amber); }
-input:hover, select:hover { border-color: var(--fg-3); }
+.btn:disabled:hover { background: #2e2e2e; color: var(--fg); }
+/* Bloomberg "amber fields": editable inputs are amber with black text */
+input, select { background: var(--field); color: var(--field-ink); border: 1px solid var(--field); padding: 1px 6px; caret-color: #000; }
+input:hover, select:hover { border-color: #ffd08a; }
+input::placeholder { color: #6b3f00; }
 input.num { text-align: right; width: 8.5em; }
+input.cmd { background: #000; color: var(--amber); border: 1px solid var(--line); caret-color: var(--amber); }   /* command line */
+input.cmd::placeholder { color: var(--fg-3); }
+input.cmd:hover { border-color: var(--fg-3); }
 .chips { display: flex; flex-wrap: wrap; gap: 0; }
-.chips button, .tog { background: #000; border: 1px solid var(--line); margin: 0 -1px -1px 0; color: var(--fg-2); padding: 2px 8px; cursor: pointer; white-space: nowrap; }
-.chips button:hover, .tog:hover { color: var(--fg); border-color: var(--fg-3); }
-.chips button[aria-pressed="true"], .tog[aria-pressed="true"] { background: var(--amber); color: #000; border-color: var(--amber); }
+.chips button, .tog { background: var(--band-2); border: 1px solid var(--line); margin: 0 -1px -1px 0; color: var(--fg-2); padding: 1px 8px; cursor: pointer; white-space: nowrap; }
+.chips button::before, .tog::before { content: "\25A1\00A0"; color: var(--fg-3); }            /* Bloomberg-style check boxes */
+.chips button:hover, .tog:hover { color: #fff; background: #2a2a2a; }
+.chips button[aria-pressed="true"], .tog[aria-pressed="true"] { background: #3b3b3b; color: #fff; border-color: #5a5a5a; }
+.chips button[aria-pressed="true"]::before, .tog[aria-pressed="true"]::before { content: "\25A0\00A0"; color: #fff; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .filters input[type="search"] { flex: 1 1 220px; min-width: 0; }
-.more { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 4px 8px; border-top: 1px solid var(--line); color: var(--fg-3); }
+.more { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 3px 8px; border-top: 1px solid var(--line); color: var(--fg-3); }
 
 /* ---- bars / chart ---- */
 .bars { display: grid; gap: 3px; padding: 8px; }
 .bar { display: grid; grid-template-columns: minmax(80px, 130px) 1fr minmax(64px, auto); gap: 8px; align-items: center; }
 .bar .lb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
 .bar .tr { height: 9px; position: relative; background: var(--line-2); }
-.bar .f { position: absolute; top: 0; bottom: 0; background: var(--amber); }
+.bar .f { position: absolute; top: 0; bottom: 0; background: #9a9a9a; }
 .bar .f.p { background: var(--pos); } .bar .f.n { background: var(--neg); }
-.bar .z { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--fg-3); left: 50%; }
-.bar .v { text-align: right; }
+.bar .z { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--fg-2); left: 50%; }
+.bar .v { text-align: right; color: var(--fg); }
 svg.chart { display: block; }
 #curveBox { overflow: hidden; }
 svg.chart text { fill: var(--fg-3); font: 10px var(--mono); }
 svg.chart .grid { stroke: var(--line-2); stroke-width: 1; }
 svg.chart .axis { stroke: var(--line); stroke-width: 1; }
-svg.chart .curve { fill: none; stroke: var(--amber); stroke-width: 2; }
-svg.chart .dot { fill: var(--cyan); stroke: #000; stroke-width: 1; }
+svg.chart .curve { fill: none; stroke: #e6e6e6; stroke-width: 1.5; }
+svg.chart .dot { fill: var(--amber); stroke: #000; stroke-width: 1; }
 svg.chart .dot.short { fill: var(--neg); }
+svg.chart .lg { fill: var(--fg-2); }
 
 /* ---- ticket / key-value ---- */
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 12px; }
-.kv dt { color: var(--fg-3); } .kv dd { margin: 0; text-align: right; }
-.kv dd.big { font-size: 15px; }
+.kv dt { color: var(--fg-3); } .kv dd { margin: 0; text-align: right; color: var(--fg); }
+.kv dd.big { font-size: 15px; color: #fff; }
+.kv dd.big.pos { color: var(--pos); } .kv dd.big.neg { color: var(--neg); }
 .sect { border-top: 1px solid var(--line); padding: 8px; display: grid; gap: 6px; }
 .sect:first-child { border-top: 0; }
 .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.lbl { color: var(--amber); letter-spacing: .05em; font-size: 11px; }
+.lbl { color: var(--fg-2); letter-spacing: .05em; font-size: 11px; }
 .empty { padding: 16px 10px; color: var(--fg-2); }
 .empty p { margin: 4px 0; max-width: 60ch; }
-.who { color: var(--cyan); }
+.empty .hd { color: #fff; }
+.who { color: var(--blue); }
 
 /* ---- dialogs & toast ---- */
-dialog { background: #000; color: var(--fg); border: 1px solid var(--amber); padding: 0; width: min(520px, calc(100vw - 32px)); }
+dialog { background: #000; color: var(--fg); border: 1px solid var(--line); padding: 0; width: min(520px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgb(0 0 0 / .75); }
-dialog .ph { background: var(--amber); } dialog .ph h2 { color: #000; }
+dialog .ph { background: var(--red-bar); } dialog .ph h2 { color: #fff; }
 dialog .pb { padding: 10px; display: grid; gap: 8px; }
 dialog ol { margin: 0; padding-left: 18px; color: var(--fg-2); display: grid; gap: 3px; }
 dialog code { color: var(--amber); }
-dialog label { display: grid; gap: 3px; color: var(--amber); }
-.toast { position: fixed; right: 16px; bottom: calc(30px + env(safe-area-inset-bottom, 0px)); background: #000; border: 1px solid var(--amber); color: var(--amber); padding: 5px 10px; max-width: calc(100vw - 32px); z-index: 10; }
+dialog label { display: grid; gap: 3px; color: var(--fg-2); }
+.toast { position: fixed; right: 16px; bottom: calc(30px + env(safe-area-inset-bottom, 0px)); background: var(--band); border: 1px solid #5a5a5a; color: #fff; padding: 5px 10px; max-width: calc(100vw - 32px); z-index: 10; }
 
 /* ---- workspace grids ---- */
 #v-dash { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1.15fr) minmax(0, 1fr);
@@ -290,7 +314,7 @@ const state = {
   q: "", sectors: new Set(store("sectors") || ["CORP_NONFIN", "CORP_FIN"]), bench: store("bench") ?? true,
   firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1], limit: 200,
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
-  sel: store("sel") || null, side: 1, nominal: 1e6, lots: 1,
+  sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   positions: [], dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
 };
 
@@ -398,16 +422,18 @@ function renderStatus() {
   const n = state.positions.length;
   const db = state.dbState === "loading" ? `<span class="msg">LOADING BOOK…</span>`
     : state.dbState === "error" ? `<span class="err">BOOK UNAVAILABLE${state.loadErr === 403 ? " (GITHUB RATE LIMIT, SIGN IN OR RETRY)" : ""}</span> <button class="btn" id="retry">RETRY</button>`
-    : `<span>BOOK <b class="amb">${n}</b> POSITION${n === 1 ? "" : "S"} · ${REPO.path}</span>`;
+    : `<span>BOOK <b>${n}</b> POSITION${n === 1 ? "" : "S"} · ${REPO.path}</span>`;
   $("#status").innerHTML = `${db}<span>${state.canWrite ? "TRADING ENABLED" : "READ-ONLY"}</span>
     <a href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>
-    <span>UNIVERSE <b class="amb">${fmt(BONDS.length, 0)}</b> EUR BONDS · ${DATA.futures.length} FUTURES</span>
+    <span>UNIVERSE <b>${fmt(BONDS.length, 0)}</b> EUR BONDS · ${DATA.futures.length} FUTURES</span>
+    <button class="tog" id="cvd" aria-pressed="${state.cvd}" title="Colour-vision-deficiency scheme: blue up / red down (as on the Bloomberg Terminal)">CVD</button>
     <span class="keys"><kbd>1-4</kbd> VIEW · <kbd>/</kbd> SEARCH · <kbd>↑↓</kbd> SELECT · <kbd>ENTER</kbd> TICKET · <kbd>ESC</kbd> CLOSE</span>`;
 }
 
 document.addEventListener("click", e => {
   if (e.target.closest("[data-login]")) openLogin();
   if (e.target.closest("#retry")) loadPositions();
+  if (e.target.closest("#cvd")) { state.cvd = !state.cvd; store("cvd", state.cvd); applyCvd(); render(); }
   if (e.target.closest("#logout")) { gh.token = gh.login = null; store("ghToken", null); store("ghLogin", null); state.canWrite = false; render(); toast("Signed out"); }
   const go = e.target.closest("[data-go]"); if (go) setView(go.dataset.go);
   const del = e.target.closest("[data-del]");
@@ -443,7 +469,7 @@ function bars(items, fmtv, kind = "amber") {
   const hasNeg = items.some(i => i.v < 0);
   return `<div class="bars">` + items.map(i => {
     const w = Math.abs(i.v) / max * (hasNeg ? 50 : 100), left = hasNeg ? (i.v < 0 ? 50 - w : 50) : 0;
-    const c = kind === "pnl" ? (i.v < 0 ? "n" : "p") : hasNeg && i.v < 0 ? "n" : "";
+    const c = kind === "pnl" ? (i.v < 0 ? "n" : "p") : "";
     return `<div class="bar" title="${esc(i.l)}: ${esc(fmtv(i.v))}"><span class="lb">${esc(i.l)}</span><span class="tr">${hasNeg ? `<span class="z"></span>` : ""}` +
       `<span class="f ${c}" style="left:${left}%;width:${w}%"></span></span><span class="v ${kind === "pnl" ? cls(i.v) : ""}">${esc(fmtv(i.v))}</span></div>`;
   }).join("") + `</div>`;
@@ -452,7 +478,7 @@ function bars(items, fmtv, kind = "amber") {
 function emptyBook(compact) {
   if (state.dbState === "loading") return `<div class="empty">Loading the club's positions…</div>`;
   if (state.dbState === "error") return `<div class="empty">The book could not be loaded from GitHub. <button class="btn" id="retry">RETRY</button></div>`;
-  return `<div class="empty"><p class="amb">NO POSITIONS</p><p>Open the Market Desk, select a bond or future and book a trade. Buys execute at the offer, sells at the bid; the trade is committed to the repo and visible to everyone.</p>
+  return `<div class="empty"><p class="hd">NO POSITIONS</p><p>Open the Market Desk, select a bond or future and book a trade. Buys execute at the offer, sells at the bid; the trade is committed to the repo and visible to everyone.</p>
     ${compact ? "" : `<p class="muted">${state.canWrite ? "" : "Sign in with GitHub to trade."}</p>`}<p><button class="btn solid" data-go="desk">OPEN MARKET DESK [4]</button></p></div>`;
 }
 
@@ -488,7 +514,7 @@ function renderDash() {
     panel("mkt", "Market monitor", mkt, { sub: `Eurex last · ${dTerm(DATA.asof)}` }) +
     panel("buck", "DV01 by bucket", bars(buckItems, v => fmtS(v, 0)), { sub: "EUR/bp, net", tools: `<button class="btn" data-go="risk">RISK [3]</button>` }) +
     panel("sect", "Sector allocation", bars(sectItems, v => fmt(v / 1e6, 2) + "M"), { sub: "market value" }) +
-    panel("curve", "ECB AAA curve vs holdings", "", { sub: "spot % (cont.) · dots = holdings YTM", id: "curveBox" });
+    panel("curve", "ECB AAA curve vs holdings", "", { sub: "spot % (cont.) vs holdings YTM", id: "curveBox" });
   drawCurve(bk);
 }
 // Draw at the panel's real pixel size so text and dots are not distorted.
@@ -514,7 +540,8 @@ function curveChart(bk, W = 600, H = 230) {
   for (const x of [0, 2, 5, 10, 20, 30]) g += `<line class="grid" x1="${X(x)}" x2="${X(x)}" y1="${T}" y2="${H - B}"/><text x="${X(x)}" y="${H - B + 13}" text-anchor="middle">${x}Y</text>`;
   const path = xs.map((x, i) => `${i ? "L" : "M"}${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join("");
   const dots = pts.map(p => `<circle class="dot${p.s ? " short" : ""}" cx="${X(p.x)}" cy="${Y(p.y)}" r="4"><title>${esc(p.n)}: YTM ${fmt(p.y, 2)}% at ${fmt(p.x, 1)}y</title></circle>`).join("");
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="ECB AAA spot curve with holdings yields">${g}<line class="axis" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/><path class="curve" d="${path}"/>${dots}</svg>`;
+  const lg = `<text class="lg" x="${W - R - 4}" y="${T + 10}" text-anchor="end">— ECB AAA SPOT   ● LONG   <tspan fill="var(--neg)">●</tspan> SHORT</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="ECB AAA spot curve with holdings yields">${g}${lg}<line class="axis" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/><path class="curve" d="${path}"/>${dots}</svg>`;
 }
 
 // ------------------------------------------------------------------ HOLDINGS & P&L
@@ -634,7 +661,7 @@ function renderDesk() {
     el.innerHTML =
       `<div class="panel" style="grid-area:scr"><div class="ph"><h2>Bond screener</h2><span class="sub" id="scrCount"></span><span class="tools"><button class="btn" id="csvScr">EXPORT CSV</button></span></div>
         <div class="filters">
-          <input type="search" id="q" placeholder="/  search issuer, ticker or ISIN" aria-label="Search bonds">
+          <input type="search" id="q" class="cmd" placeholder="/  search issuer, ticker or ISIN" aria-label="Search bonds">
           <div class="chips" id="sectors" aria-label="Sector">${Object.entries(SECT).map(([k, l]) => `<button data-s="${k}">${l.toUpperCase()}</button>`).join("")}</div>
           <div class="chips" id="mat" aria-label="Maturity">${[["all", "ALL"], ["0-3", "0-3Y"], ["3-7", "3-7Y"], ["7-15", "7-15Y"], ["15+", "15Y+"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
           <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">BENCHMARK ≥€500M SENIOR</button>
@@ -685,7 +712,7 @@ function renderFutures() {
       const per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
       const durIn = f.type === "credit" ? `<input class="num" style="width:4.5em" data-dur="${f.code}" value="${fmt(d, 1)}" aria-label="Index duration ${f.code}">` : "";
       const ctd = f.ctd ? `${esc(f.ctd.name)} <span class="muted">CF ${fmt(f.ctd.cf, 4)} · basis ${fmt(f.ctd.basis, 3)}</span>` : `<span class="muted">${f.type === "credit" ? "cash-settled" : "–"}</span>`;
-      return `<tr class="click${f.code === selCode ? " sel" : ""}" data-pick="${f.code}" data-kind="fut"><td class="amb">${f.code}</td><td class="nm dim">${esc(f.name)}</td><td>${f.contract}</td>
+      return `<tr class="click${f.code === selCode ? " sel" : ""}" data-pick="${f.code}" data-kind="fut"><td class="amb">${f.code}</td><td class="desc">${esc(f.name)}</td><td>${f.contract}</td>
         <td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.low, 3)}</td><td class="n">${fmt(f.high, 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(f.lots, 0)}</td><td class="n">${fmt(f.block, 0)}</td>
         <td class="n">${fmt(f.last * f.mult, 0)} ${f.ccy}</td><td class="n">${fmt(per, 1)}</td><td>${durIn}</td><td>${ctd}</td></tr>`;
     }).join("") + `</tbody></table>`;
@@ -702,7 +729,7 @@ function renderTicket() {
   const s = state.sel, body = $("#tktBody");
   if (!s || (s.kind === "bond" && !BY_ISIN.has(s.id)) || (s.kind === "fut" && !FUT.has(s.id))) {
     $("#tktSub").textContent = "";
-    body.innerHTML = `<div class="empty"><p class="amb">NO INSTRUMENT SELECTED</p><p>Click a bond or future, or use <span class="amb">↑ ↓</span> in the screener. <span class="amb">ENTER</span> jumps to the size field.</p><p class="muted">Buys execute at the offer, sells at the bid (futures at last).</p></div>`;
+    body.innerHTML = `<div class="empty"><p class="hd">NO INSTRUMENT SELECTED</p><p>Click a bond or future, or use <span class="amb">↑ ↓</span> in the screener. <span class="amb">ENTER</span> jumps to the size field.</p><p class="muted">Buys execute at the offer, sells at the bid (futures at last).</p></div>`;
     return;
   }
   const held = state.positions.filter(p => (s.kind === "bond" ? p.isin : p.code) === s.id).reduce((a, p) => a + p.qty, 0);
@@ -818,7 +845,10 @@ async function loadPositions() {
   render();
 }
 
+function applyCvd() { document.documentElement.dataset.cvd = state.cvd ? "1" : "0"; }
+
 async function init() {
+  applyCvd();
   state.canWrite = !!(gh.token && gh.login);
   setView(state.view);
   await loadPositions();
