@@ -95,9 +95,13 @@ a.btn { text-decoration: none; display: inline-block; }
 .btn { background: #2e2e2e; border: 1px solid #4a4a4a; color: var(--fg); padding: 1px 9px; cursor: pointer; white-space: nowrap; letter-spacing: .03em; }
 .btn:hover { background: #474747; color: #fff; border-color: #6a6a6a; }
 .btn.solid { background: #e6e6e6; border-color: #e6e6e6; color: #000; font-weight: 700; }
-.btn.solid:hover { background: #ffffff; }
-.btn.buy { background: #000; border-color: var(--pos); color: var(--pos); } .btn.buy:hover, .btn.buy[aria-pressed="true"] { background: var(--pos); color: #000; }
-.btn.sell { background: #000; border-color: var(--neg); color: var(--neg); } .btn.sell:hover, .btn.sell[aria-pressed="true"] { background: var(--neg); color: #000; }
+.btn.solid:hover { background: #ffffff; outline: 1px solid #fff; outline-offset: 1px; }
+/* buy/sell: filled = selected side; hover = tint plus the white "clickable" outline, also on the selected side */
+.btn.buy { background: #000; border-color: var(--pos); color: var(--pos); } .btn.buy:hover { background: var(--pos-bg); }
+.btn.buy[aria-pressed="true"] { background: var(--pos); color: #000; }
+.btn.sell { background: #000; border-color: var(--neg); color: var(--neg); } .btn.sell:hover { background: var(--neg-bg); }
+.btn.sell[aria-pressed="true"] { background: var(--neg); color: #000; }
+.btn.buy:hover, .btn.sell:hover { outline: 1px solid #fff; outline-offset: 1px; }
 .btn.x { background: #000; border-color: #5a1a1a; color: var(--neg); padding: 0 6px; }
 .btn.x:hover, .btn.x.armed { background: var(--neg); color: #000; border-color: var(--neg); }
 .btn:disabled { opacity: .35; cursor: not-allowed; }
@@ -203,7 +207,7 @@ dialog label { display: grid; gap: 3px; color: var(--fg-2); }
     <button role="tab" data-view="dash" aria-selected="true" title="Key 1">DASHBOARD</button>
     <button role="tab" data-view="hold" aria-selected="false" title="Key 2">HOLDINGS &amp; P&amp;L</button>
     <button role="tab" data-view="risk" aria-selected="false" title="Key 3">RISK ANALYTICS</button>
-    <button role="tab" data-view="desk" aria-selected="false" title="Key 4">MARKET DESK</button>
+    <button role="tab" data-view="desk" aria-selected="false" title="Key 4">TRADE</button>
   </nav>
   <main class="views">
     <section class="view" id="v-dash"></section>
@@ -492,8 +496,8 @@ function bars(items, fmtv, kind = "amber") {
 function emptyBook(compact) {
   if (state.dbState === "loading") return `<div class="empty">Loading the club's positions…</div>`;
   if (state.dbState === "error") return `<div class="empty">The book could not be loaded from GitHub. <button class="btn" id="retry">RETRY</button></div>`;
-  return `<div class="empty"><p class="hd">NO POSITIONS</p><p>Open the Market Desk, select a bond or future and book a trade. Buys execute at the offer, sells at the bid; the trade is committed to the repo and visible to everyone.</p>
-    ${compact ? "" : `<p class="muted">${state.canWrite ? "" : "Sign in with GitHub to trade."}</p>`}<p><button class="btn solid" data-go="desk">OPEN MARKET DESK [4]</button></p></div>`;
+  return `<div class="empty"><p class="hd">NO POSITIONS</p><p>Open Trade, select a bond or future and book a trade. Buys execute at the offer, sells at the bid; the trade is committed to the repo and visible to everyone.</p>
+    ${compact ? "" : `<p class="muted">${state.canWrite ? "" : "Sign in with GitHub to trade."}</p>`}<p><button class="btn solid" data-go="desk">OPEN TRADE [4]</button></p></div>`;
 }
 
 const instr = (p, r) => p.kind === "bond"
@@ -633,7 +637,7 @@ function renderRisk() {
 
   const meth = `<p class="note"><b>DV01</b> is the EUR P&amp;L for a 1 bp fall in yield. Bonds: dirty market value × modified duration × 0.0001.</p>
     <p class="note"><b>Govt futures</b> (Schatz, Bobl, Bund, Buxl): DV01 of the cheapest-to-deliver divided by its conversion factor, per EUR 100,000 contract. The CTD is the deliverable Bund with the lowest gross basis (clean price − futures price × CF) in today's data. The CF is the clean price at a 6% yield (Buxl: 4%) on the delivery date.</p>
-    <p class="note"><b>CS01</b> per credit futures contract: index level × multiplier × spread duration × 0.0001. Index durations are not in the Eurex feed; the values on the Market Desk are editable assumptions. Check them against the index factsheet.</p>
+    <p class="note"><b>CS01</b> per credit futures contract: index level × multiplier × spread duration × 0.0001. Index durations are not in the Eurex feed; the values on the Trade screen are editable assumptions. Check them against the index factsheet.</p>
     <p class="note"><b>Buckets</b> map exposure to the German futures by modified duration: Schatz &lt; 3.3, Bobl 3.3–6.2, Bund 6.2–13, Buxl &gt; 13. Credit futures fall in the bucket of their index duration.</p>
     <p class="note">Contract counts are rounded to whole lots. BTP, OAT and BONO futures are tradeable on the desk but not used in the proposal, as their CTD is not computed here. Sovereign bonds carry no CS01.</p>`;
 
@@ -653,7 +657,7 @@ function renderRisk() {
 }
 function setHedgePct(v) { state.hedgePct = Math.max(0, Math.min(200, v)); store("hedgePct", state.hedgePct); renderRisk(); }
 
-// ------------------------------------------------------------------ MARKET DESK
+// ------------------------------------------------------------------ TRADE
 const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
   ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["mdur", "MOD DUR", 2]];
 let VISIBLE = [];
