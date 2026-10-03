@@ -8,3 +8,4 @@ firds_raw/
 !overrides.csv
 __pycache__/
 .pytest_cache/
+site/portfolio.html

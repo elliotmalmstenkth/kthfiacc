@@ -1,0 +1,486 @@
+<title>KTH FICC Portfölj</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a trading-desk sheet. Top bar with the data stamp, three tabs, dense tables with mono figures. */
+:root {
+  --bg: #eef2f0; --panel: #ffffff; --ink: #14201c; --ink-2: #44514c; --ink-3: #6c7873;
+  --line: #d3dcd8; --line-2: #e4eae7; --accent: #0b6b56; --accent-ink: #ffffff; --accent-soft: #dcefe8;
+  --pos: #1d7a3e; --neg: #b3361f; --warn: #8a5a00; --warn-soft: #fbf0d9; --bar: #0b6b56; --bar-neg: #b3361f;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1513; --panel: #161e1b; --ink: #e3ebe7; --ink-2: #b2bfb9; --ink-3: #85938d;
+  --line: #2a3632; --line-2: #212b28; --accent: #4cc3a1; --accent-ink: #062019; --accent-soft: #173a30;
+  --pos: #5ccf86; --neg: #f08068; --warn: #e7b357; --warn-soft: #3a2e14; --bar: #4cc3a1; --bar-neg: #f08068;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1513; --panel: #161e1b; --ink: #e3ebe7; --ink-2: #b2bfb9; --ink-3: #85938d;
+  --line: #2a3632; --line-2: #212b28; --accent: #4cc3a1; --accent-ink: #062019; --accent-soft: #173a30;
+  --pos: #5ccf86; --neg: #f08068; --warn: #e7b357; --warn-soft: #3a2e14; --bar: #4cc3a1; --bar-neg: #f08068;
+  color-scheme: dark }
+
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px; padding-block: 18px 12px; border-bottom: 1px solid var(--line); }
+header.top h1 { font: 600 22px/1.1 var(--f-display); letter-spacing: .01em; margin: 0; }
+header.top h1 span { color: var(--accent); }
+.stamp { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-3); min-width: 0; }
+.stamp b { color: var(--ink-2); font-weight: 500; }
+nav.tabs { display: flex; gap: 2px; margin-block: 14px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav.tabs button { font: 500 14px var(--f-body); color: var(--ink-2); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+nav.tabs button:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h2 { font: 600 16px/1.2 var(--f-display); letter-spacing: .02em; margin: 0; text-wrap: balance; }
+h3 { font: 600 13px/1.2 var(--f-body); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin: 0 0 8px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; min-width: 0; }
+.stack { display: grid; gap: 16px; align-content: start; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
+.grid2 > * { min-width: 0; }
+select { max-width: 100%; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.kpi { background: var(--panel); padding: 12px 14px; min-width: 0; }
+.kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.kpi .v { font: 500 20px/1.3 var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kpi .s { font-size: 12px; color: var(--ink-3); }
+.num, td.n, th.n { font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.muted { color: var(--ink-3); } .pos { color: var(--pos); } .neg { color: var(--neg); }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { font: 500 11px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; white-space: nowrap; }
+th.sort { cursor: pointer; user-select: none; } th.sort:hover { color: var(--ink); }
+th .arr { color: var(--accent); }
+td { padding: 6px 10px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--accent-soft); }
+td.name { min-width: 220px; } td.name .t { font-weight: 500; } td.name .i { font: 11px var(--f-mono); color: var(--ink-3); }
+.chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
+.chip.ind { border-style: dashed; color: var(--warn); border-color: var(--warn); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 10px; }
+.filters > * { min-width: 0; max-width: 100%; }
+.filters input[type="search"] { flex: 1 1 240px; min-width: 0; }
+input, select { font: 14px var(--f-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; }
+input.numin { font-family: var(--f-mono); text-align: right; width: 9em; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; }
+.seg button, .tog { font: 12px var(--f-body); border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); border-radius: 99px; padding: 4px 10px; cursor: pointer; }
+.seg button[aria-pressed="true"], .tog[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.btn { font: 500 13px var(--f-body); border-radius: 5px; padding: 6px 12px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+button.btn.ghost { background: transparent; color: var(--accent); }
+button.btn.small { padding: 2px 9px; font-size: 12px; }
+button.btn.danger { border-color: var(--neg); color: var(--neg); background: transparent; }
+button.btn.danger.armed { background: var(--neg); color: var(--panel); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.more { display: flex; justify-content: center; gap: 10px; align-items: center; padding: 10px; font-size: 12px; color: var(--ink-3); }
+.empty { padding: 28px 16px; text-align: center; color: var(--ink-2); }
+.empty p { max-width: 52ch; margin: 6px auto; }
+.note { font-size: 12px; color: var(--ink-3); max-width: 90ch; }
+.notice { background: var(--warn-soft); color: var(--ink); border: 1px solid var(--warn); border-radius: var(--r); padding: 8px 12px; font-size: 13px; }
+.bars { display: grid; gap: 7px; }
+.bar { display: grid; grid-template-columns: minmax(90px, 140px) 1fr minmax(70px, auto); gap: 10px; align-items: center; font-size: 12px; }
+.bar .track { height: 10px; position: relative; }
+.bar .fill { position: absolute; top: 0; bottom: 0; background: var(--bar); border-radius: 0 4px 4px 0; min-width: 2px; }
+.bar .fill.neg { background: var(--bar-neg); border-radius: 4px 0 0 4px; }
+.bar .zero { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--ink-3); }
+.bar .val { font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-2); }
+dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); padding: 18px; width: min(460px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(0 0 0 / .35); }
+.form { display: grid; gap: 12px; }
+.form label { display: grid; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; min-width: 0; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-size: 13px; }
+.kv dt { color: var(--ink-3); } .kv dd { margin: 0; font-family: var(--f-mono); text-align: right; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 6px; font-size: 13px; max-width: calc(100vw - 32px); }
+.tag { font: 500 10px var(--f-body); letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; }
+.tag.buy { background: var(--accent-soft); color: var(--accent); } .tag.sell { background: var(--warn-soft); color: var(--neg); }
+.who { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-2); }
+.who img { width: 18px; height: 18px; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { tbody tr td { transition: background .12s } }
+@media (max-width: 560px) { .bar { grid-template-columns: 90px 1fr 64px } header.top h1 { font-size: 19px } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>KTH FICC <span>Portfölj</span></h1>
+    <div class="stamp" id="stamp"></div>
+  </header>
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-pf" aria-selected="true" data-tab="pf">Portfölj</button>
+    <button role="tab" id="tab-bonds" aria-selected="false" data-tab="bonds">Obligationer</button>
+    <button role="tab" id="tab-hedge" aria-selected="false" data-tab="hedge">Terminer och hedge</button>
+  </nav>
+
+  <section id="pf" class="stack"></section>
+  <section id="bonds" class="stack" hidden></section>
+  <section id="hedge" class="stack" hidden></section>
+</div>
+
+<dialog id="ticket"><form class="form" id="ticketForm" method="dialog"></form></dialog>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+// ------------------------------------------------------------------ data
+const SECT = { CORP_NONFIN: "Företag", CORP_FIN: "Finans", COVERED: "Säkerställd", SOV: "Stat",
+               SUBSOV: "Delstat/kommun", AGENCY: "Agency", SUPRA: "Supranationell" };
+const BONDS = DATA.bonds.map(r => Object.fromEntries(DATA.cols.map((c, i) => [c, r[i]])));
+const BY_ISIN = new Map(BONDS.map(b => [b.isin, b]));
+const FUT = new Map(DATA.futures.map(f => [f.code, f]));
+const ASOF = new Date(DATA.asof + "T12:00:00");
+const SETTLE = new Date(DATA.settle + "T12:00:00");
+for (const b of BONDS) { b.mid = (b.bid + b.ask) / 2; b.yrs = (new Date(b.mat + "T12:00:00") - SETTLE) / 3.15576e10; }
+
+const nf = (d) => new Intl.NumberFormat("sv-SE", { minimumFractionDigits: d, maximumFractionDigits: d });
+const F = new Proxy({}, { get: (c, d) => c[d] ??= nf(+d) });
+const fmt = (x, d = 2) => x == null || !isFinite(x) ? "–" : F[d].format(x);
+const fmtS = (x, d = 0) => x == null || !isFinite(x) ? "–" : (x > 0 ? "+" : "") + F[d].format(x || 0);
+const dateSv = (s) => new Date(s + "T12:00:00").toLocaleDateString("sv-SE", { day: "numeric", month: "short", year: "numeric" });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem("ficc." + k)); localStorage.setItem("ficc." + k, JSON.stringify(v)); } catch { return null; } }
+
+// ------------------------------------------------------------------ risk
+// DV01/CS01: EUR-förändring när räntan/spreaden faller 1 bp (positivt för en lång obligation).
+const BUCKETS = [["FGBS", "Schatz", 0, 3.3], ["FGBM", "Bobl", 3.3, 6.2], ["FGBL", "Bund", 6.2, 13], ["FGBX", "Buxl", 13, 1e9]];
+const bucketOf = (dur) => BUCKETS.find(([, , lo, hi]) => dur >= lo && dur < hi)[0];
+const indexDur = (code) => (state.dur[code] ?? FUT.get(code)?.dur ?? null);
+
+function risk(p) {
+  if (p.kind === "bond") {
+    const b = BY_ISIN.get(p.isin);
+    if (!b) return { missing: true };
+    const dirty = b.mid + b.acc, mv = p.qty * dirty / 100;
+    const dv01 = mv * b.mdur * 1e-4;
+    return { b, mv, dv01, cs01: b.sector === "SOV" ? 0 : dv01, pnl: p.qty * (b.mid - p.price) / 100,
+             now: b.mid, bucket: bucketOf(b.mdur), y: b.ytm, z: b.z, dur: b.mdur, notional: p.qty };
+  }
+  const f = FUT.get(p.code);
+  if (!f) return { missing: true };
+  const notional = p.qty * f.last * f.mult, pnl = p.qty * (f.last - p.price) * f.mult;
+  if (f.type === "credit") {
+    const d = indexDur(f.code), dv = d ? notional * d * 1e-4 : null;
+    return { f, mv: 0, notional, dv01: dv, cs01: dv, pnl, now: f.last, bucket: d ? bucketOf(d) : null, dur: d };
+  }
+  return { f, mv: 0, notional, dv01: f.dv01 != null ? p.qty * f.dv01 : null, cs01: 0, pnl, now: f.last,
+           bucket: f.dv01 != null ? f.code : null };
+}
+
+// ------------------------------------------------------------------ state
+const state = {
+  tab: store("tab") || "pf",
+  q: "", sectors: new Set(store("sectors") || ["CORP_NONFIN", "CORP_FIN"]), bench: store("bench") ?? true,
+  firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["z", -1], limit: 100,
+  dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
+  positions: [], dbState: "loading", canWrite: null, me: null, profiles: {},
+};
+let db = null, user = null;
+
+// ------------------------------------------------------------------ chrome
+document.getElementById("stamp").innerHTML =
+  `<span>Kurser <b>Börse Frankfurt ${dateSv(DATA.asof)}</b>, senaste tvåsidiga före 17:30</span>` +
+  `<span>Likviddag <b>${dateSv(DATA.settle)}</b></span>` +
+  `<span>Kurva <b>ECB AAA ${dateSv(DATA.curve.date)}</b></span>`;
+
+function setTab(t) {
+  state.tab = t; store("tab", t);
+  for (const b of document.querySelectorAll("nav.tabs button")) b.setAttribute("aria-selected", b.dataset.tab === t);
+  for (const id of ["pf", "bonds", "hedge"]) document.getElementById(id).hidden = id !== t;
+  render();
+}
+document.querySelector("nav.tabs").addEventListener("click", e => { const t = e.target.closest("button")?.dataset.tab; if (t) setTab(t); });
+
+let toastTimer;
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3500); }
+
+function bars(items, fmtv) {
+  const max = Math.max(1e-9, ...items.map(i => Math.abs(i.v)));
+  const hasNeg = items.some(i => i.v < 0);
+  return `<div class="bars">` + items.map(i => {
+    const w = Math.abs(i.v) / max * (hasNeg ? 50 : 100);
+    const left = hasNeg ? (i.v < 0 ? 50 - w : 50) : 0;
+    return `<div class="bar" title="${esc(i.l)}: ${esc(fmtv(i.v))}"><span>${esc(i.l)}</span><span class="track">` +
+      (hasNeg ? `<span class="zero" style="left:50%"></span>` : "") +
+      `<span class="fill${i.v < 0 ? " neg" : ""}" style="left:${left}%;width:${w}%"></span></span><span class="val">${esc(fmtv(i.v))}</span></div>`;
+  }).join("") + `</div>`;
+}
+
+// ------------------------------------------------------------------ portfolio tab
+function renderPf() {
+  const el = document.getElementById("pf");
+  const rows = state.positions.map(p => ({ p, r: risk(p) }));
+  const ok = rows.filter(x => !x.r.missing);
+  const bondsR = ok.filter(x => x.p.kind === "bond");
+  const mv = bondsR.reduce((s, x) => s + x.r.mv, 0);
+  const wavg = (k) => mv > 0 ? bondsR.reduce((s, x) => s + x.r.mv * (x.r[k] ?? 0), 0) / mv : null;
+  const dv01 = ok.reduce((s, x) => s + (x.r.dv01 ?? 0), 0);
+  const cs01 = ok.reduce((s, x) => s + (x.r.cs01 ?? 0), 0);
+  const pnl = ok.reduce((s, x) => s + x.r.pnl, 0);
+  const ids = [...new Set(state.positions.map(p => p.by).filter(Boolean))];
+
+  let dbNote = "";
+  if (state.dbState === "none") dbNote = `<div class="notice">Den gemensamma portföljen kräver att du är inloggad på claude.ai och har fått sidan delad med dig. Obligationslistan och terminerna fungerar ändå.</div>`;
+  else if (state.canWrite === false) dbNote = `<div class="notice">Du kan se portföljen men inte ändra den. Be ägaren att bjuda in dig som redigerare.</div>`;
+
+  const kpis = `<div class="kpis">
+    <div class="kpi"><div class="l">Marknadsvärde</div><div class="v">${fmt(mv / 1e6, 2)} mn</div><div class="s">EUR, inkl. upplupen ränta</div></div>
+    <div class="kpi"><div class="l">Resultat</div><div class="v ${pnl > 0 ? "pos" : pnl < 0 ? "neg" : ""}">${fmtS(pnl, 0)}</div><div class="s">EUR, kursförändring sedan köp</div></div>
+    <div class="kpi"><div class="l">Yield</div><div class="v">${fmt(wavg("y"), 2)} %</div><div class="s">värdeviktad, obligationer</div></div>
+    <div class="kpi"><div class="l">Z-spread</div><div class="v">${fmt(wavg("z"), 0)} bp</div><div class="s">mot ECB AAA</div></div>
+    <div class="kpi"><div class="l">Duration</div><div class="v">${fmt(wavg("dur"), 2)}</div><div class="s">modifierad, obligationer</div></div>
+    <div class="kpi"><div class="l">DV01</div><div class="v">${fmtS(dv01, 0)}</div><div class="s">EUR per bp, inkl. terminer</div></div>
+    <div class="kpi"><div class="l">CS01</div><div class="v">${fmtS(cs01, 0)}</div><div class="s">EUR per bp spread</div></div>
+  </div>`;
+
+  if (!state.positions.length) {
+    el.innerHTML = dbNote + kpis + `<div class="panel empty">
+      <h2>Portföljen är tom</h2>
+      <p>${state.dbState === "loading" ? "Hämtar klubbens positioner…" : "Gå till Obligationer, filtrera fram en obligation och välj Köp. Positionen sparas för alla som har sidan."}</p>
+      <p class="muted">Köp sker till säljkurs och försäljning till budkurs, som på riktigt.</p>
+      <p><button class="btn" id="goBonds">Visa obligationer</button></p></div>`;
+    document.getElementById("goBonds").onclick = () => setTab("bonds");
+    return;
+  }
+
+  const sect = {}, buck = {};
+  for (const x of bondsR) sect[SECT[x.r.b.sector]] = (sect[SECT[x.r.b.sector]] || 0) + x.r.mv;
+  for (const x of ok) if (x.r.bucket && x.r.dv01) buck[x.r.bucket] = (buck[x.r.bucket] || 0) + x.r.dv01;
+
+  const tbl = `<div class="tablebox"><table><thead><tr>
+      <th>Instrument</th><th class="n">Antal / nominellt</th><th class="n">Köpkurs</th><th class="n">Kurs nu</th>
+      <th class="n">Marknadsvärde</th><th class="n">Resultat</th><th class="n">Yield %</th><th class="n">Z bp</th>
+      <th class="n">Dur</th><th class="n">DV01</th><th>Tillagd av</th><th></th></tr></thead><tbody>` +
+    rows.map(({ p, r }) => {
+      const who = p.by ? state.profiles[p.by] : null;
+      const whoHtml = who ? `<span class="who"><img alt="" src="${esc(who.avatarUrl)}"><span>${esc(who.name || "Någon")}</span></span>` : "";
+      const name = p.kind === "bond"
+        ? (r.b ? `<div class="t">${esc(r.b.name)}</div><div class="i">${esc(p.isin)} · ${esc(SECT[r.b.sector])}</div>` : `<div class="t">${esc(p.isin)}</div><div class="i">saknar kurs i dagens data</div>`)
+        : `<div class="t">${esc(p.code)} ${esc(r.f ? r.f.contract.slice(0, 7) : "")}</div><div class="i">${esc(r.f?.name || "")}</div>`;
+      const side = p.qty >= 0 ? `<span class="tag buy">Lång</span>` : `<span class="tag sell">Kort</span>`;
+      const qty = p.kind === "bond" ? fmt(p.qty, 0) : fmt(p.qty, 0) + " kontr.";
+      return `<tr><td class="name">${side} ${name}</td><td class="n">${qty}</td><td class="n">${fmt(p.price, 3)}</td>
+        <td class="n">${fmt(r.now, 3)}</td><td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted" title="Nominell exponering">${fmt(r.notional, 0)}</span>`}</td>
+        <td class="n ${r.pnl > 0 ? "pos" : r.pnl < 0 ? "neg" : ""}">${fmtS(r.pnl, 0)}</td><td class="n">${fmt(r.y, 2)}</td>
+        <td class="n">${fmt(r.z, 0)}</td><td class="n">${fmt(r.dur, 2)}</td><td class="n">${fmtS(r.dv01, 0)}</td>
+        <td>${whoHtml}<div class="i muted">${esc((p.at || "").slice(0, 10))}</div></td>
+        <td><button class="btn danger small" data-del="${esc(p.id)}" ${state.canWrite === false ? "disabled" : ""}>Ta bort</button></td></tr>`;
+    }).join("") + `</tbody></table></div>`;
+
+  el.innerHTML = dbNote + kpis + tbl + `<div class="grid2">
+    <div class="panel"><h3>Fördelning per sektor, marknadsvärde</h3>${bars(Object.entries(sect).sort((a, b) => b[1] - a[1]).map(([l, v]) => ({ l, v })), v => fmt(v / 1e6, 2) + " mn")}</div>
+    <div class="panel"><h3>DV01 per löptidshink (EUR/bp)</h3>${bars(BUCKETS.map(([c, l]) => ({ l, v: buck[c] || 0 })), v => fmtS(v, 0))}
+      <p class="note">Hinkarna följer terminerna: Schatz &lt; 3,3 års duration, Bobl 3,3–6,2, Bund 6,2–13, Buxl över 13. Hedgen görs under Terminer och hedge.</p></div>
+  </div>
+  <p class="note">Resultatet visar kursförändring sedan positionen lades till, utan upplupen ränta. Med ett enda dagsdatum är det noll tills sidan byggs om med nya kurser.</p>`;
+
+  el.querySelectorAll("[data-del]").forEach(btn => btn.onclick = async () => {
+    if (!btn.classList.contains("armed")) { btn.classList.add("armed"); btn.textContent = "Bekräfta"; setTimeout(() => { btn.classList.remove("armed"); btn.textContent = "Ta bort"; }, 4000); return; }
+    btn.disabled = true;
+    try { await db.collection("positions").doc(btn.dataset.del).delete(); toast("Positionen är borttagen"); }
+    catch (e) { btn.disabled = false; writeError(e); }
+  });
+}
+
+// ------------------------------------------------------------------ bonds tab
+const BCOLS = [["name", "Obligation"], ["sector", "Sektor"], ["cpn", "Kupong", 3], ["mat", "Förfall"], ["amt", "Emission mn", 0],
+  ["bid", "Bud", 3], ["ask", "Sälj", 3], ["ytm", "Yield %", 2], ["z", "Z-spread bp", 0], ["mdur", "Dur", 2]];
+
+function filtered() {
+  const q = state.q.trim().toLowerCase();
+  const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat];
+  let xs = BONDS.filter(b => state.sectors.has(b.sector) && (!state.bench || b.bench) && (!state.firm || b.firm)
+    && b.yrs >= mlo && b.yrs < mhi && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q)));
+  const [k, dir] = state.sort;
+  xs.sort((a, b) => { const x = a[k], y = b[k]; if (x == null) return 1; if (y == null) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
+  return xs;
+}
+
+function renderBonds() {
+  const el = document.getElementById("bonds");
+  if (!el.dataset.built) {
+    el.dataset.built = 1;
+    el.innerHTML = `<div class="filters">
+        <input type="search" id="q" placeholder="Sök emittent, namn eller ISIN" aria-label="Sök obligation">
+        <div class="seg" id="sectors" aria-label="Sektor">${Object.entries(SECT).map(([k, l]) => `<button data-s="${k}">${l}</button>`).join("")}</div>
+      </div>
+      <div class="filters">
+        <div class="seg" id="mat" aria-label="Löptid">${[["all", "Alla löptider"], ["0-3", "0–3 år"], ["3-7", "3–7 år"], ["7-15", "7–15 år"], ["15+", "15+ år"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
+        <button class="tog" id="bench" title="Emission minst 500 mn EUR, inte efterställd">Benchmark ≥ 500 mn, senior</button>
+        <button class="tog" id="firm" title="Både bud och sälj med volym">Fast tvåsidig kurs</button>
+      </div>
+      <div id="btable"></div>
+      <p class="note">Kurser är mittkurs av Börse Frankfurts senaste tvåsidiga kurs. Yield med årlig kupong (italienska statsobligationer halvårs), ACT/ACT. Z-spread är kontinuerlig spread över ECB:s AAA-kurva. Kurser med streckad markering har ingen volym på ena sidan och är indikativa.</p>`;
+    const qi = el.querySelector("#q"); qi.value = state.q;
+    qi.oninput = () => { state.q = qi.value; state.limit = 100; renderBondTable(); };
+    el.querySelector("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.sectors.has(s) ? state.sectors.delete(s) : state.sectors.add(s); store("sectors", [...state.sectors]); state.limit = 100; renderBondTable(); };
+    el.querySelector("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); state.limit = 100; renderBondTable(); };
+    el.querySelector("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); state.limit = 100; renderBondTable(); };
+    el.querySelector("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); state.limit = 100; renderBondTable(); };
+  }
+  renderBondTable();
+}
+
+function renderBondTable() {
+  const el = document.getElementById("bonds");
+  el.querySelectorAll("#sectors button").forEach(b => b.setAttribute("aria-pressed", state.sectors.has(b.dataset.s)));
+  el.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
+  el.querySelector("#bench").setAttribute("aria-pressed", state.bench);
+  el.querySelector("#firm").setAttribute("aria-pressed", state.firm);
+  const xs = filtered(), [sk, sd] = state.sort;
+  const head = BCOLS.map(([k, l, d]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}">${l} ${sk === k ? `<span class="arr">${sd > 0 ? "▲" : "▼"}</span>` : ""}</th>`).join("");
+  const body = xs.slice(0, state.limit).map(b => `<tr>
+      <td class="name"><div class="t">${esc(b.name)}</div><div class="i">${b.isin}${b.sub ? " · efterställd" : ""}</div></td>
+      <td><span class="chip">${SECT[b.sector]}</span></td><td class="n">${fmt(b.cpn, 3)}</td><td class="num">${b.mat}</td>
+      <td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
+      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="chip ind" title="Indikativ: ingen volym på ena sidan">${fmt(b.ask, 3)}</span>`}</td>
+      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td>
+      <td><button class="btn small ghost" data-buy="${b.isin}" ${state.dbState !== "ready" || state.canWrite === false ? "disabled" : ""}>Köp</button></td></tr>`).join("");
+  const tb = el.querySelector("#btable");
+  tb.innerHTML = `<div class="tablebox"><table><thead><tr>${head}<th></th></tr></thead><tbody>${body ||
+    `<tr><td colspan="11" class="empty">Inga obligationer matchar filtren. Lägg till en sektor eller ta bort benchmarkfiltret.</td></tr>`}</tbody></table></div>
+    <div class="more"><span>Visar ${fmt(Math.min(state.limit, xs.length), 0)} av ${fmt(xs.length, 0)}</span>
+    ${xs.length > state.limit ? `<button class="btn ghost small" id="moreBtn">Visa 100 till</button>` : ""}</div>`;
+  tb.querySelectorAll("th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (k === "name" || k === "mat" || k === "sector" ? 1 : -1)]; store("sort", state.sort); renderBondTable(); });
+  tb.querySelector("#moreBtn")?.addEventListener("click", () => { state.limit += 100; renderBondTable(); });
+  tb.querySelectorAll("[data-buy]").forEach(btn => btn.onclick = () => openTicket(btn.dataset.buy));
+}
+
+// ------------------------------------------------------------------ trade ticket
+function openTicket(isin) {
+  const b = BY_ISIN.get(isin), dlg = document.getElementById("ticket"), f = document.getElementById("ticketForm");
+  f.innerHTML = `<h2>${esc(b.name)}</h2>
+    <div class="muted" style="font-size:12px">${b.isin} · ${SECT[b.sector]} · förfall ${b.mat}</div>
+    <div class="seg" id="side"><button type="button" data-side="1" aria-pressed="true">Köp</button><button type="button" data-side="-1" aria-pressed="false">Sälj (blanka)</button></div>
+    <label for="nom">Nominellt belopp, EUR<input id="nom" class="numin" inputmode="numeric" value="1 000 000"></label>
+    <dl class="kv" id="tk"></dl>
+    <div class="row"><button class="btn" id="tkOk" type="button">Lägg till i portföljen</button><button class="btn ghost" type="button" id="tkCancel">Avbryt</button></div>`;
+  let side = 1;
+  const upd = () => {
+    const nom = Number(f.querySelector("#nom").value.replace(/[^\d]/g, "")) || 0;
+    const px = side > 0 ? b.ask : b.bid, dirty = px + b.acc;
+    f.querySelector("#tk").innerHTML = `<dt>Kurs (${side > 0 ? "säljkurs, du köper" : "budkurs, du säljer"})</dt><dd>${fmt(px, 3)}</dd>
+      <dt>Upplupen ränta</dt><dd>${fmt(b.acc, 4)}</dd><dt>Likvid, EUR</dt><dd>${fmt(nom * dirty / 100, 2)}</dd>
+      <dt>Yield / Z-spread (mitt)</dt><dd>${fmt(b.ytm, 2)} % / ${fmt(b.z, 0)} bp</dd><dt>DV01, EUR/bp</dt><dd>${fmtS(side * nom * dirty / 100 * b.mdur * 1e-4, 0)}</dd>`;
+    return { nom, px };
+  };
+  f.querySelector("#side").onclick = e => { const s = e.target.dataset.side; if (!s) return; side = +s; f.querySelectorAll("#side button").forEach(x => x.setAttribute("aria-pressed", x.dataset.side === s)); upd(); };
+  f.querySelector("#nom").oninput = upd;
+  f.querySelector("#tkCancel").onclick = () => dlg.close();
+  f.querySelector("#tkOk").onclick = async () => {
+    const { nom, px } = upd();
+    if (nom <= 0) { toast("Ange ett nominellt belopp större än noll"); return; }
+    const ok = await addPositions([{ kind: "bond", isin, qty: side * nom, price: px }]);
+    if (ok) { dlg.close(); toast(`${side > 0 ? "Köpt" : "Sålt"}: ${fmt(nom, 0)} EUR ${b.name}`); }
+  };
+  upd(); dlg.showModal();
+}
+
+async function addPositions(list) {
+  if (!db) { toast("Portföljen är inte tillgänglig i den här vyn"); return false; }
+  try {
+    for (const p of list) await db.collection("positions").add({ ...p, date: DATA.asof, by: state.me, at: new Date().toISOString() });
+    return true;
+  } catch (e) { writeError(e); return false; }
+}
+function writeError(e) {
+  if (e?.code === "invalid_argument") { state.canWrite = false; render(); toast("Du har inte behörighet att ändra portföljen"); }
+  else if (e?.code === "quota_exceeded") toast("Databasen är full. Ta bort gamla positioner.");
+  else toast("Det gick inte att spara. Försök igen.");
+}
+
+// ------------------------------------------------------------------ hedge tab
+function renderHedge() {
+  const el = document.getElementById("hedge");
+  const rows = state.positions.map(p => ({ p, r: risk(p) })).filter(x => !x.r.missing);
+  // kredit: företagsobligationernas CS01 (+ befintliga kreditterminer)
+  const corpCs = rows.filter(x => x.p.kind === "bond" && x.r.b.sector.startsWith("CORP")).reduce((s, x) => s + x.r.cs01, 0)
+               + rows.filter(x => x.r.f?.type === "credit").reduce((s, x) => s + (x.r.cs01 ?? 0), 0);
+  const cf = FUT.get(state.hedgeIdx), cd = indexDur(state.hedgeIdx);
+  const csPer = cf && cd ? cf.last * cf.mult * cd * 1e-4 : null;
+  const nCredit = csPer && state.hedgePct ? Math.round(-corpCs * state.hedgePct / 100 / csPer) || 0 : 0;
+  // ränta: DV01 per hink efter kredithedgen
+  const buck = Object.fromEntries(BUCKETS.map(([c]) => [c, 0]));
+  for (const x of rows) if (x.r.bucket && x.r.dv01) buck[x.r.bucket] += x.r.dv01;
+  if (nCredit && csPer) buck[bucketOf(cd)] += nCredit * csPer;
+  const rateTrades = BUCKETS.map(([c, l]) => { const f = FUT.get(c); const n = f?.dv01 ? Math.round(-buck[c] / f.dv01) || 0 : 0; return { c, l, f, dv: buck[c], n }; });
+  const trades = [...(nCredit ? [{ code: state.hedgeIdx, n: nCredit }] : []), ...rateTrades.filter(t => t.n).map(t => ({ code: t.c, n: t.n }))];
+  const after = rateTrades.reduce((s, t) => s + t.dv + t.n * (t.f?.dv01 || 0), 0);
+
+  const futRows = DATA.futures.map(f => {
+    const d = f.type === "credit" ? indexDur(f.code) : null;
+    const per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
+    const durIn = f.type === "credit" ? `<input class="numin" style="width:5em" data-dur="${f.code}" value="${fmt(d, 1)}" aria-label="Duration ${f.code}">` : "";
+    const ctd = f.ctd ? `<div>${esc(f.ctd.name)}</div><div class="i muted">CF ${fmt(f.ctd.cf, 4)} · basis ${fmt(f.ctd.basis, 3)} · ${f.ctd.isin}</div>` : `<span class="muted">${f.type === "credit" ? "kontant avräkning" : "–"}</span>`;
+    return `<tr><td class="name"><div class="t">${f.code}</div><div class="i">${esc(f.name)}</div></td><td class="num">${f.contract}</td>
+      <td class="n">${fmt(f.last, f.last > 1000 ? 1 : 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(f.lots, 0)}</td>
+      <td class="n">${fmt(f.last * f.mult, 0)} ${f.ccy}</td><td class="n">${fmt(per, 1)}</td><td>${durIn}</td><td class="name">${ctd}</td></tr>`;
+  }).join("");
+
+  el.innerHTML = `<div class="grid2">
+    <div class="panel stack">
+      <div><h2>Hedgeförslag</h2><p class="note">Först kredit, sedan ränta. Kreditterminerna är totalavkastningsindex och bär både spread- och ränterisk, så ränteterminerna räknas på det som återstår.</p></div>
+      <div class="row">
+        <label class="row" for="hIdx">Kreditindex <select id="hIdx">${DATA.futures.filter(f => f.type === "credit" && f.ccy === "EUR").map(f => `<option value="${f.code}" ${f.code === state.hedgeIdx ? "selected" : ""}>${f.code} ${esc(f.name)}</option>`).join("")}</select></label>
+        <label class="row" for="hPct">Andel av kreditrisken <input id="hPct" class="numin" style="width:5em" value="${state.hedgePct}"> %</label>
+      </div>
+      <dl class="kv"><dt>Företagens CS01</dt><dd>${fmtS(corpCs, 0)} EUR/bp</dd>
+        <dt>CS01 per ${state.hedgeIdx}-kontrakt</dt><dd>${fmt(csPer, 1)} EUR/bp</dd>
+        <dt>Kreditterminer</dt><dd>${fmtS(nCredit, 0)} ${state.hedgeIdx}</dd></dl>
+      <div class="tablebox"><table><thead><tr><th>Hink</th><th class="n">DV01 före</th><th class="n">DV01/kontrakt</th><th class="n">Kontrakt</th></tr></thead><tbody>
+        ${rateTrades.map(t => `<tr><td>${t.l} (${t.c})</td><td class="n">${fmtS(t.dv, 0)}</td><td class="n">${fmt(t.f?.dv01, 1)}</td><td class="n ${t.n < 0 ? "neg" : t.n > 0 ? "pos" : ""}">${fmtS(t.n, 0)}</td></tr>`).join("")}
+      </tbody></table></div>
+      <dl class="kv"><dt>DV01 efter hedge</dt><dd>${fmtS(after, 0)} EUR/bp</dd></dl>
+      <div class="row"><button class="btn" id="addHedge" ${!trades.length || state.dbState !== "ready" || state.canWrite === false ? "disabled" : ""}>Lägg till hedgen i portföljen</button>
+        <span class="note">${trades.length ? trades.map(t => `${t.n > 0 ? "köp" : "sälj"} ${Math.abs(t.n)} ${t.code}`).join(", ") : "Ingen hedge behövs för nuvarande portfölj."}</span></div>
+    </div>
+    <div class="panel stack"><h2>Så räknas det</h2>
+      <p class="note">DV01 är EUR-förändringen när räntan faller en baspunkt. För en obligation: marknadsvärde × modifierad duration × 0,0001. För Schatz, Bobl, Bund och Buxl: CTD-obligationens DV01 delad med omvandlingsfaktorn, per 100 000 EUR nominellt. CTD är den leveransbara Bund med lägst bruttobasis (kurs − terminskurs × omvandlingsfaktor) i dagens data. Omvandlingsfaktorn är kursen vid 6 % yield (Buxl 4 %) på leveransdagen.</p>
+      <p class="note">CS01 per kreditterminskontrakt: indexvärde × multiplikator × spreadduration × 0,0001. Indexdurationen finns inte i Eurex-filerna. Värdena i tabellen nedan är antaganden som går att ändra; kontrollera dem mot indexets faktablad.</p>
+      <p class="note">Kontraktsantalen avrundas till heltal. Ränteterminer i BTP, OAT och BONO visas men ingår inte i förslaget eftersom deras CTD inte räknas här.</p>
+    </div></div>
+    <div><h2 style="margin-bottom:8px">Eurex-terminer</h2>
+    <div class="tablebox"><table><thead><tr><th>Termin</th><th>Förfall</th><th class="n">Senast</th><th class="n">Affärer</th><th class="n">Kontrakt</th><th class="n">Kontraktsvärde</th><th class="n">DV01/CS01 per kontrakt</th><th>Duration (antagen)</th><th>CTD</th></tr></thead>
+    <tbody>${futRows}</tbody></table></div>
+    <p class="note">Senast är sista orderboksaffär ${dateSv(DATA.asof)} (Eurex MiFID II-data), inte Eurex officiella avräkningskurs.</p></div>`;
+
+  el.querySelector("#hIdx").onchange = e => { state.hedgeIdx = e.target.value; store("hedgeIdx", state.hedgeIdx); renderHedge(); };
+  el.querySelector("#hPct").onchange = e => { const v = Math.max(0, Math.min(200, Number(String(e.target.value).replace(",", ".")) || 0)); state.hedgePct = v; store("hedgePct", v); renderHedge(); };
+  el.querySelectorAll("[data-dur]").forEach(inp => inp.onchange = () => { const v = Number(inp.value.replace(",", ".")); if (v > 0) { state.dur[inp.dataset.dur] = v; store("dur", state.dur); } render(); });
+  el.querySelector("#addHedge").onclick = async () => {
+    const ok = await addPositions(trades.map(t => ({ kind: "future", code: t.code, contract: FUT.get(t.code).contract, qty: t.n, price: FUT.get(t.code).last })));
+    if (ok) toast("Hedgen är tillagd i portföljen");
+  };
+}
+
+// ------------------------------------------------------------------ render + db
+function render() {
+  if (state.tab === "pf") renderPf(); else if (state.tab === "bonds") renderBonds(); else renderHedge();
+}
+
+async function resolveProfiles() {
+  if (!user) return;
+  const ids = [...new Set(state.positions.map(p => p.by).filter(Boolean))];
+  if (!ids.length) return;
+  state.profiles = await user.profiles(ids);
+}
+
+async function init() {
+  setTab(state.tab);
+  if (!window.claude?.use) { state.dbState = "none"; render(); return; }
+  [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
+  if (user) { state.me = await user.id(); state.canWrite = await user.can("data.write"); }
+  if (!db) { state.dbState = "none"; render(); return; }
+  db.collection("positions").orderBy("at").onSnapshot(async snap => {
+    state.positions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.dbState = "ready";
+    await resolveProfiles();
+    render();
+  }, () => { state.dbState = "none"; render(); });
+}
+init();
+</script>

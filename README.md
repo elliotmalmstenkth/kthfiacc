@@ -9,6 +9,8 @@ Verktyg för gratis eurodata till en ränte-/kreditportfölj med hedgning. Kräv
 | `firds.py` | ESMA FIRDS (FULINS) | Referensdata per ISIN → SQLite (`--cat D` obligationer, `--cat F` terminer) |
 | `classify.py` | FIRDS + DFRA-pretrade | Sektorklassning (stat, säkerställd, företag finans/icke-finans …) och sammanfattning av hur många EUR-företagsobligationer som har kurser |
 | `ci.py` | allt ovan | Daglig körning i GitHub Actions: hämtar, bygger och sparar varje handelsdag som utkast-release |
+| `analytics.py` | – | Yield, duration, Z-spread mot ECB-kurvan, omvandlingsfaktor och CTD för Bund-terminerna |
+| `site/build.py` | data/<dag>/ + ECB | Bygger portföljsidan (`site/template.html` → `site/portfolio.html`) med inbäddad data |
 | `ecb_curve.py` | ECB YC (data-api.ecb.europa.eu) | Arkiverar ECB:s Svensson-parametrar (AAA + alla euroländer) sedan 2004 och räknar spot/termin/par/DF |
 
 ```bash
