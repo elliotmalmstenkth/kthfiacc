@@ -360,3 +360,73 @@ def test_build_day_and_log(tmp_path, monkeypatch):
     assert "309.0" in ci.notes(row, assets)
     monkeypatch.setattr(ci.mfs, "sync", lambda *a, **k: (0, 3))
     assert ci.build_day("2026-10-02", arch, dist, str(tmp_path / "m2.sqlite")) is None  # ofullständig -> ingen release
+
+
+# ---------------------------------------------------------------- analytics
+import analytics as an  # noqa: E402
+
+
+def test_calendar():
+    assert an.add_business_days(dt.date(2026, 10, 2), 2) == dt.date(2026, 10, 6)
+    assert an.easter(2027) == dt.date(2027, 3, 28)
+    assert not an.is_target_day(dt.date(2027, 3, 26))   # långfredag
+    assert an.add_months(dt.date(2026, 3, 31), -1) == dt.date(2026, 2, 28)
+
+
+def test_bond_math_par_and_accrued():
+    settle = dt.date(2026, 10, 6)
+    # 4 % kupong, förfall om exakt 5 år på en kupongdag -> kurs 100 ger yield 4 %
+    a = an.analyse(100.0, 4.0, dt.date(2031, 10, 6), settle)
+    assert a["accrued"] == pytest.approx(0.0) and a["ytm"] == pytest.approx(0.04, abs=1e-9)
+    assert a["mdur"] == pytest.approx(4.4518, abs=1e-3)       # Macaulay 4.6299 / 1.04
+    # halvvägs i perioden: upplupen = halva kupongen
+    b = an.analyse(100.0, 4.0, dt.date(2031, 4, 6), settle)
+    assert b["accrued"] == pytest.approx(4.0 * (settle - dt.date(2026, 4, 6)).days / 365)
+    z = an.analyse(95.0, 0.0, dt.date(2031, 10, 6), settle)  # nollkupong
+    assert z["ytm"] == pytest.approx((100 / 95) ** (1 / 5) - 1, abs=1e-9)
+    # BTP halvårskupong
+    s = an.analyse(100.0, 4.0, dt.date(2031, 10, 6), settle, freq=2)
+    assert s["ytm"] == pytest.approx(0.04, abs=1e-9)
+
+
+def test_zspread_zero_on_curve():
+    c = ecb_curve.Curve("x", "AAA", *P.values())
+    settle = dt.date(2026, 10, 6)
+    flows, acc = an.cashflows(3.0, dt.date(2033, 5, 15), settle)
+    dirty = sum(cf * c.df(t) for t, cf in flows)
+    a = an.analyse(dirty - acc, 3.0, dt.date(2033, 5, 15), settle, c)
+    assert a["zspread"] == pytest.approx(0.0, abs=1e-9)
+    b = an.analyse(dirty - acc - 2, 3.0, dt.date(2033, 5, 15), settle, c)
+    assert 0.002 < b["zspread"] < 0.005   # 2 poäng billigare ~ 30 bp på ~6 år
+
+
+def test_conversion_factor_and_ctd():
+    deliv = dt.date(2026, 12, 10)
+    # 6 % kupong och förfall på kupongdag -> CF = 1
+    assert an.conversion_factor(6.0, dt.date(2035, 12, 10), deliv) == pytest.approx(1.0, abs=1e-12)
+    assert an.conversion_factor(4.0, dt.date(2052, 12, 10), deliv, 4.0) == pytest.approx(1.0, abs=1e-12)
+    assert an.conversion_factor(2.5, dt.date(2035, 8, 15), deliv) < 0.8
+    bunds = [("A", 2.5, dt.date(2035, 8, 15), 97.0), ("B", 2.6, dt.date(2036, 2, 15), 97.5),
+             ("C", 2.2, dt.date(2030, 2, 15), 99.0)]                # C ej leveransbar i FGBL
+    cf = {i: an.conversion_factor(c, m, deliv) for i, c, m, _ in bunds}
+    f = 121.0
+    r = an.ctd("FGBL", f, deliv, bunds, dt.date(2026, 10, 6))
+    want = min(("A", "B"), key=lambda i: dict((b[0], b[3]) for b in bunds)[i] - f * cf[i])
+    assert r["isin"] == want and r["cf"] == pytest.approx(cf[want])
+    assert 50 < r["dv01_contract"] < 150     # EUR per bp och kontrakt, rimlig storleksordning
+
+
+def test_sync_prefers_daily_file_for_eurex(tmp_path, monkeypatch):
+    f = ["DEUR-posttrade-daily-2026-10-02.json.gz", "DEUR-posttrade-2026-10-02T08_00.json.gz",
+         "DEUR-posttrade-2026-10-02T08_01.json.gz"]
+    body = gzip.compress(b'{"messageId":"posttrade"}\n')
+    calls = _fake_server(monkeypatch, "DEUR-posttrade", f, {x: body for x in f})
+    arch = str(tmp_path / "a")
+    assert mfs.sync(["DEUR-posttrade"], arch, workers=1) == (1, 0)  # bara dagsfilen hämtas
+    assert os.listdir(os.path.join(arch, "DEUR-posttrade", "2026-10-02")) == [f[0]]
+    assert [c for c in calls if "/download/" in c] == [f"{mfs.BASE}/download/{f[0]}"]
+    # dagsfil saknas (404) -> minutfilerna
+    calls = _fake_server(monkeypatch, "DEUR-posttrade", f, {x: body for x in f[1:]})
+    arch2 = str(tmp_path / "b")
+    assert mfs.sync(["DEUR-posttrade"], arch2, workers=1) == (2, 0)
+    assert sorted(os.listdir(os.path.join(arch2, "DEUR-posttrade", "2026-10-02"))) == sorted(f[1:])

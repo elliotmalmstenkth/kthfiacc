@@ -47,6 +47,8 @@ from zoneinfo import ZoneInfo
 
 BASE = "https://mfs.deutsche-boerse.com/api"
 FEEDS_DEFAULT = ["DFRA-pretrade", "DFRA-posttrade", "DEUR-posttrade"]
+# flöden vars dagsfil är komplett nog att ersätta minutfilerna (1 anrop i stället för ~1 300)
+DAILY_FEEDS = {"DEUR-posttrade"}
 ARCHIVE_DEFAULT = os.environ.get("MFS_ARCHIVE", "archive")
 DB_DEFAULT = os.environ.get("MFS_MARKS_DB", "marks.sqlite")
 FNAME_RE = re.compile(r"^(?P<feed>.+)-(?P<date>\d{4}-\d{2}-\d{2})T(?P<hh>\d{2})_(?P<mm>\d{2})\.json\.gz$")
@@ -58,6 +60,7 @@ UA = {"User-Agent": "kth-fic-club/1.0 (non-commercial, academic)"}
 # ---------------------------------------------------------------- nätverk
 _gate = threading.Lock()
 _cooldown_until = 0.0  # delas av alla trådar: vid 429 pausar alla
+STATS = {"429": 0, "cooldown_s": 0.0}
 
 
 def _wait_gate():
@@ -72,7 +75,10 @@ def _wait_gate():
 def _cool_down(seconds):
     global _cooldown_until
     with _gate:
-        _cooldown_until = max(_cooldown_until, time.monotonic() + seconds)
+        STATS["429"] += 1
+        new = max(_cooldown_until, time.monotonic() + seconds)
+        STATS["cooldown_s"] += max(0.0, new - max(_cooldown_until, time.monotonic()))
+        _cooldown_until = new
 
 
 def _open(url, timeout=120, tries=8):
@@ -163,19 +169,38 @@ def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, workers=4, bonds_only=Fal
             failed += 1
             continue
         notation = 2 if (bonds_only and feed.endswith("-pretrade")) else None
-        todo, skipped = [], 0
+        todo, skipped, by_day, daily_new = [], 0, {}, 0
         for fn in files:
             p = parse_name(fn)
-            if notation is not None and p and p[2] is None:
-                continue  # dagsfil = dubblett av minutfilerna; hoppa över i filtrerat läge
             if days is not None and (not p or p[1] not in days):
                 continue
+            if notation is not None and p and p[2] is None:
+                continue  # dagsfil = dubblett av minutfilerna; hoppa över i filtrerat läge
             path = os.path.join(archive, feed, p[1] if p else "okänt-datum", fn)
-            if os.path.exists(path):
-                skipped += 1
-            else:
+            by_day.setdefault(p[1] if p else None, []).append((fn, path, p))
+        for day, items in by_day.items():
+            daily = [x for x in items if x[2] and x[2][2] is None]
+            if daily and feed in DAILY_FEEDS and notation is None:
+                fn, path, _ = daily[0]
+                if os.path.exists(path):
+                    skipped += 1
+                    continue
                 os.makedirs(os.path.dirname(path), exist_ok=True)
-                todo.append((fn, path))
+                try:
+                    download(fn, path)
+                    daily_new += 1
+                    print(f"  {feed} {day}: dagsfil hämtad ({os.path.getsize(path) / 1e6:,.0f} MB), hoppar över minutfilerna",
+                          file=sys.stderr, flush=True)
+                    continue
+                except Exception as e:
+                    print(f"  {feed} {day}: dagsfilen gick inte att hämta ({e}), tar minutfilerna", file=sys.stderr)
+                items = [x for x in items if x is not daily[0]]
+            for fn, path, _ in items:
+                if os.path.exists(path):
+                    skipped += 1
+                else:
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    todo.append((fn, path))
 
         def fetch(job):
             fn, path = job
@@ -190,9 +215,14 @@ def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, workers=4, bonds_only=Fal
                 print(f"  {fn}: {e}", file=sys.stderr)
             return "fel", 0
 
+        t0, res = time.monotonic(), []
         with ThreadPoolExecutor(max(1, workers)) as ex:
-            res = list(ex.map(fetch, todo))
-        new = sum(r == "ok" for r, _ in res)
+            for i, r in enumerate(ex.map(fetch, todo), 1):
+                res.append(r)
+                if i % 200 == 0 or i == len(todo):
+                    print(f"  {feed}: {i}/{len(todo)} filer, {time.monotonic() - t0:,.0f} s, "
+                          f"429-svar hittills {STATS['429']} (paus {STATS['cooldown_s']:,.0f} s)", file=sys.stderr, flush=True)
+        new = sum(r == "ok" for r, _ in res) + daily_new
         missing = sum(r == "404" for r, _ in res)
         failed += sum(r == "fel" for r, _ in res)
         mb = sum(b for _, b in res) / 1e6

@@ -143,7 +143,9 @@ def cmd_daily(a):
             gh("release", "create", f"data-{day}", "--draft", "--title", f"Marknadsdata {day}",
                "--notes", notes(row, assets), *assets)
             print(f"{day}: utkast-release data-{day} skapad ({len(assets)} filer)", file=sys.stderr)
-        shutil.rmtree(os.path.join(a.archive), ignore_errors=True)  # spara diskutrymme på löparen
+        if a.cleanup:  # spara diskutrymme på löparen: bara den bearbetade dagens mappar
+            for feed in FEEDS:
+                shutil.rmtree(os.path.join(a.archive, feed, day), ignore_errors=True)
         built += 1
     print(f"klart: {built} dagar", file=sys.stderr)
     return 1 if built < len(todo) else 0
@@ -181,6 +183,7 @@ if __name__ == "__main__":
     ap.add_argument("--archive", default="archive")
     ap.add_argument("--dist", default="dist")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--cleanup", action="store_true", help="radera dagens rådata efter publicering (för CI)")
     sp = ap.add_subparsers(dest="cmd", required=True)
     d = sp.add_parser("daily"); d.add_argument("--days", nargs="+")
     sp.add_parser("firds")

@@ -29,7 +29,7 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule != '23 6 * * 0') ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'daily')
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 300   # nedladdningen är långsam från GitHubs IP-adresser (~45 min per minutflöde)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,7 +42,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DAYS: ${{ inputs.days }}
-        run: python ci.py daily ${DAYS:+--days $DAYS}
+        run: python ci.py --cleanup daily ${DAYS:+--days $DAYS}
       - name: Committa data/log.csv
         if: always()
         run: |
