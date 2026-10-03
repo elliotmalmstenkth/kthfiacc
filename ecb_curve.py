@@ -197,6 +197,22 @@ class Curve:
         return f"Curve({self.curve} {self.date})"
 
 
+# ---------------------------------------------------------------- €STR
+ESTR_URL = "https://data-api.ecb.europa.eu/service/data/EST/B.EU000A2X2A25.WT"
+
+
+def estr(on_or_before=None, timeout=30):
+    """Latest €STR fixing (percent) on or before a date: (date, rate). Overnight unsecured rate, used as the
+    funding/repo reference for carry."""
+    q = "format=csvdata&lastNObservations=1" + (f"&endPeriod={on_or_before}" if on_or_before else "")
+    req = urllib.request.Request(f"{ESTR_URL}?{q}", headers={"Accept": "text/csv", "User-Agent": "kth-fic-club/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        rows = list(csv.DictReader(io.StringIO(r.read().decode("utf-8"))))
+    if not rows:
+        return None
+    return rows[-1]["TIME_PERIOD"], float(rows[-1]["OBS_VALUE"])
+
+
 # ---------------------------------------------------------------- CLI
 def cmd_show(a):
     c = Curve.load(a.date, a.curve, a.db)

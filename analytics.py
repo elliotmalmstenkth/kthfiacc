@@ -172,3 +172,58 @@ def ctd(code, fut_price, delivery, bunds, settle, curve=None):
         # futures price ~ CTD price / CF  =>  DV01(future) ~ DV01(CTD) / CF; EUR 100,000 notional per contract
         best.update(ytm=a["ytm"], mdur=a.get("mdur"), dv01_contract=a["dv01"] / best["cf"] * 1000)
     return best
+
+
+# ---------------------------------------------------------------- relative value
+def fit_spread_curve(years, z, min_n=3):
+    """Least-squares Z-spread curve z = a + b ln(T) (+ c ln(T)^2 with 6+ bonds), refitted once without outliers
+    (residual > 3 robust standard deviations, at least 5 bp). Returns the polynomial coefficients
+    (highest power first, for numpy.polyval on ln(T)) or None if there are too few bonds."""
+    import numpy as np
+    x, y = np.log(np.maximum(np.asarray(years, float), 0.25)), np.asarray(z, float)
+    keep = np.isfinite(x) & np.isfinite(y)
+    for _ in range(2):
+        if keep.sum() < min_n or np.ptp(x[keep]) < 0.1:
+            return None
+        deg = 2 if keep.sum() >= 6 else 1
+        coef = np.polyfit(x[keep], y[keep], deg)
+        res = y - np.polyval(coef, x)
+        mad = np.median(np.abs(res[keep] - np.median(res[keep]))) * 1.4826
+        out = np.abs(res) > max(3 * mad, 5.0)
+        if not (keep & out).any():
+            break
+        keep &= ~out
+    return coef
+
+
+def spread_curve_value(coef, years):
+    import numpy as np
+    return float(np.polyval(coef, np.log(max(years, 0.25))))
+
+
+def rich_cheap(groups, years, z, fit_mask=None, min_n=4):
+    """Residual Z-spread (bp) of each bond against a curve fitted to its group (issuer).
+    Groups with fewer than min_n bonds in the fit, bonds under 1 year and bonds outside the fitted maturity range
+    get None. Positive = cheap (spread above the curve).
+    Returns (residual, fitted coefficients per group)."""
+    import numpy as np
+    groups, years, z = np.asarray(groups, object), np.asarray(years, float), np.asarray(z, float)
+    fit_mask = np.ones(len(z), bool) if fit_mask is None else np.asarray(fit_mask, bool)
+    res, coefs = np.full(len(z), np.nan), {}
+    order = np.argsort(groups, kind="stable")
+    bounds = np.flatnonzero(np.r_[True, groups[order][1:] != groups[order][:-1], True])
+    for lo, hi in zip(bounds[:-1], bounds[1:]):
+        idx = order[lo:hi]
+        fit = idx[fit_mask[idx] & np.isfinite(z[idx]) & (years[idx] >= 0.5)]
+        if len(fit) < min_n:
+            continue
+        coef = fit_spread_curve(years[fit], z[fit], min_n)
+        if coef is None:
+            continue
+        coefs[groups[idx[0]]] = coef
+        # only inside the fitted maturity range (no extrapolation) and from 1 year: Z-spreads of very short
+        # bonds are dominated by the bid-offer
+        lo, hi = years[fit].min() / 1.5, years[fit].max() * 1.5
+        ok = idx[(years[idx] >= max(lo, 1.0)) & (years[idx] <= hi)]
+        res[ok] = z[ok] - np.polyval(coef, np.log(years[ok]))
+    return [None if not np.isfinite(r) else float(r) for r in res], coefs

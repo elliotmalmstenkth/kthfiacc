@@ -13,8 +13,8 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `firds.py` | ESMA FIRDS (FULINS) | Reference data per ISIN → SQLite (`--cat D` debt, `--cat F` futures) |
 | `classify.py` | FIRDS + DFRA pre-trade | Sector classification (sovereign, covered, financial/non-financial corporate …) and coverage summary |
 | `ecb_curve.py` | ECB YC (data-api.ecb.europa.eu) | Archives the ECB Svensson parameters (AAA and all euro area) since 2004; spot, forward, par and discount factors |
-| `analytics.py` | – | Accrued interest, YTM, modified duration, Z-spread vs the ECB curve, conversion factors and CTD for the Bund-family futures |
-| `site/build.py` | data + ECB curve | Builds the portfolio site (`site/template.html` → `index.html`) with the day's data embedded |
+| `analytics.py` | – | Accrued interest, YTM, modified duration, Z-spread vs the ECB curve, conversion factors and CTD for the Bund-family futures, issuer spread curves (rich/cheap) |
+| `site/build.py` | data + ECB curve + €STR | Builds the portfolio site (`site/template.html` → `index.html`) with the day's data embedded; writes `data/history/<date>.csv.gz` and the `hist/` time series |
 | `ci.py` | all of the above | Daily GitHub Actions job: fetch, build, archive each business day as a draft release, publish the site |
 
 ```bash
@@ -46,6 +46,23 @@ Anyone with the link can see the bond screener, the futures and the club portfol
 
 To trade: become a collaborator on the repo, create a classic personal access token with the `public_repo` scope,
 and sign in on the site (the token is stored only in your browser). Buys execute at the offer and sells at the bid.
+
+Relative value:
+
+- **Pairs and butterflies** (Trade → ticket → PAIR / FLY): click a leg, then a bond or a Schatz/Bobl/Bund/Buxl or
+  credit future. A pair's second leg is sized to the first leg's DV01; a fly's wings each carry half the body's DV01
+  (50/50). Bonds round to their minimum denomination, futures to whole lots. All legs are booked in one commit and
+  grouped as a strategy (Holdings → Strategies) with level, P&L, carry and net DV01/CS01. Level (bp of yield): pair
+  = long leg − short leg, fly = 2 × body − wings.
+- **Rich/cheap** (RV BP column): Z-spread minus a curve fitted to the issuer's other bonds (least squares in
+  ln(maturity), linear with 4–5 bonds, quadratic with 6+, one pass without outliers; fitted on firm quotes where
+  possible). Positive = cheap. Only from 1 year and within the fitted maturity range.
+- **Carry and roll-down**: carry = coupon accrual since the trade settled minus funding at the repo rate (ACT/360) on
+  the dirty trade value; shorts pay the coupon and earn repo less an editable specialness. The repo rate defaults to
+  €STR (ECB data API). Roll-down (3M) = yield change from ageing three months along the ECB AAA curve plus the
+  issuer spread curve.
+- **History**: each site build stores the day's mid, YTM, Z-spread and rich/cheap per bond (and futures with the CTD
+  yield) in `data/history/`, and publishes them as time series (Z-spread per bond, level per strategy).
 
 ## Automation (GitHub Actions)
 

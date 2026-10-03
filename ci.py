@@ -229,6 +229,7 @@ def cmd_site(a):
     os.makedirs(a.out, exist_ok=True)
     subprocess.run([sys.executable, os.path.join(HERE, "site", "build.py"), "--day", day, "--ecb-db", a.ecb_db,
                     "--bonds", bonds, "--quotes", quotes, "--futures", fut,
+                    "--history", os.path.join(HERE, "data", "history"),
                     "--out", os.path.join(a.out, "index.html")], check=True)
     return 0
 

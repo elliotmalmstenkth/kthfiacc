@@ -7,7 +7,7 @@ Builds the portfolio site (site/portfolio.html) from one day of data.
 Reads data/<date>/ (bonds_classified, dfra_quotes, eurex_futures_daily) and the ECB curve,
 computes analytics with analytics.py and embeds the result as JSON in site/template.html.
 """
-import argparse, datetime as dt, json, math, os, re, sys
+import argparse, csv, datetime as dt, glob, gzip, json, math, os, re, sys
 
 import pandas as pd
 
@@ -48,6 +48,30 @@ def r(x, n):
     return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), n)
 
 
+def add_relative_value(rows, cols, keys, curve):
+    """Appends rv (Z-spread residual vs the issuer's fitted spread curve, bp, + = cheap) and roll
+    (3-month roll-down in bp of yield along the ECB AAA curve plus the issuer spread curve, + = gain)."""
+    iz = cols.index("z")
+    groups = [k[0] for k in keys]
+    years = [k[1] for k in keys]
+    z = [row[iz] if row[iz] is not None else float("nan") for row in rows]
+    firm = [k[2] for k in keys]
+    rv, coefs = an.rich_cheap(groups, years, z, firm)          # fit on firm quotes
+    rv_all, coefs_all = an.rich_cheap(groups, years, z)        # issuers without enough firm quotes
+    for i, g in enumerate(groups):
+        if rv[i] is None and g not in coefs:
+            rv[i] = rv_all[i]
+    coefs = {**coefs_all, **coefs}
+    for row, g, t, v in zip(rows, groups, years, rv):
+        roll = None
+        if t >= 1:
+            roll = (curve.spot(t) - curve.spot(t - 0.25)) * 100
+            if g in coefs and v is not None:   # spread roll only where the issuer curve covers the bond
+                roll += an.spread_curve_value(coefs[g], t) - an.spread_curve_value(coefs[g], t - 0.25)
+        row += [r(v, 1), r(roll, 2)]
+    cols += ["rv", "roll"]
+
+
 def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
     ddir = os.path.join(ROOT, "data", day)
     b = pd.read_csv(bonds_csv or os.path.join(ddir, "bonds_classified.csv.gz"), index_col="isin", low_memory=False)
@@ -62,7 +86,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
     u["mat"] = pd.to_datetime(u.maturity, errors="coerce").dt.date
     u = u[u.mat.notna() & (u.mat > settle + dt.timedelta(30))]
 
-    rows = []
+    rows, keys = [], []
     for isin, x in u.iterrows():
         cpn = 0.0 if x.coupon_type == "zero" else clean_coupon(x.coupon_fixed, x.full_name)
         if cpn is None or pd.isna(cpn):
@@ -74,13 +98,17 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
             continue
         firm = bool(x.bid_qty > 0 and x.ask_qty > 0)
         bench = bool(x.benchmark_500m) and not bool(x.subordinated)
+        # minimum denomination (FIRDS nominal value per unit); Bunds have EUR 0.01, which rounds to 1
+        unit = max(1, round(x.nominal_unit)) if pd.notna(x.nominal_unit) and 0 < x.nominal_unit <= 1e6 else 1000
         rows.append([isin, str(x.issuer), str(x.full_name)[:48], x.sector, int(bool(x.subordinated)), r(cpn, 4),
                      x.mat.isoformat(), r(x.issued_amt / 1e6, 0) if pd.notna(x.issued_amt) else None,
                      r(x.bid_px, 3), r(x.ask_px, 3), int(firm), r(a["ytm"] * 100, 3),
                      r(a["zspread"] * 1e4, 1) if a.get("zspread") is not None else None,
-                     r(a["mdur"], 3), r(a["accrued"], 4), int(bench), freq])
+                     r(a["mdur"], 3), r(a["accrued"], 4), int(bench), freq, int(unit)])
+        keys.append((f"{x.issuer_lei if pd.notna(x.issuer_lei) else x.issuer}|{int(bool(x.subordinated))}", a["years"], firm))
     cols = ["isin", "issuer", "name", "sector", "sub", "cpn", "mat", "amt", "bid", "ask", "firm", "ytm", "z",
-            "mdur", "acc", "bench", "freq"]
+            "mdur", "acc", "bench", "freq", "unit"]
+    add_relative_value(rows, cols, keys, curve)
 
     # futures: front contract with on-book trades
     bunds = [(i, x.coupon_fixed, x.mat, (x.bid_px + x.ask_px) / 2) for i, x in u.iterrows()
@@ -104,9 +132,68 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
             item["dur"] = INDEX_DURATION.get(code)
         futures.append(item)
 
-    return dict(asof=day, settle=settle.isoformat(), built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
+    estr = None
+    for attempt in range(3):
+        try:
+            e = ecb_curve.estr(day)
+            estr = dict(date=e[0], rate=e[1]) if e else None
+            break
+        except Exception as ex:  # the site still builds; the repo rate falls back to a default on the page
+            print(f"€STR unavailable: {ex}", file=sys.stderr)
+
+    return dict(asof=day, settle=settle.isoformat(), estr=estr, built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
                 cols=cols, bonds=rows, futures=futures)
+
+
+# ---------------------------------------------------------------- history
+HIST_BOND_COLS = ["isin", "mid", "ytm", "z", "rv"]
+SHARDS = 256
+
+
+def shard_of(key):
+    """FNV-1a (32-bit) of the id; the page computes the same hash to find the shard."""
+    h = 2166136261
+    for c in key.encode():
+        h = ((h ^ c) * 16777619) & 0xFFFFFFFF
+    return h % SHARDS
+
+
+def write_history(data, hist_dir):
+    """One gzipped CSV per day (data/history/<day>.csv.gz): mid, YTM, Z and rich/cheap per bond, plus the
+    futures (last price and the CTD yield). Small enough to keep in git."""
+    os.makedirs(hist_dir, exist_ok=True)
+    c = {k: i for i, k in enumerate(data["cols"])}
+    path = os.path.join(hist_dir, f"{data['asof']}.csv.gz")
+    with gzip.open(path, "wt", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["id"] + HIST_BOND_COLS[1:])
+        for b in data["bonds"]:
+            w.writerow([b[c["isin"]], r((b[c["bid"]] + b[c["ask"]]) / 2, 4), b[c["ytm"]], b[c["z"]], b[c["rv"]]])
+        for fu in data["futures"]:
+            w.writerow([f"FUT:{fu['code']}", fu["last"], (fu.get("ctd") or {}).get("ytm"), None, None])
+    return path
+
+
+def build_shards(hist_dir, out_dir):
+    """Time series for the site: hist/<n>.json holds every day for the ids hashing to shard n, as
+    {"d": [dates], "s": {id: [[mid, ytm, z, rv] or null per date]}}. The page fetches one shard per instrument."""
+    days = sorted(glob.glob(os.path.join(hist_dir, "*.csv.gz")))
+    dates = [os.path.basename(p)[:10] for p in days]
+    series = {}
+    for i, p in enumerate(days):
+        with gzip.open(p, "rt", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                vals = [None if row[k] in ("", None) else float(row[k]) for k in HIST_BOND_COLS[1:]]
+                series.setdefault(row["id"], [None] * len(days))[i] = vals
+    shards = [{} for _ in range(SHARDS)]
+    for k, v in series.items():
+        shards[shard_of(k)][k] = v
+    os.makedirs(out_dir, exist_ok=True)
+    for n, sh in enumerate(shards):
+        with open(os.path.join(out_dir, f"{n}.json"), "w", encoding="utf-8") as f:
+            json.dump({"d": dates, "s": sh}, f, separators=(",", ":"))
+    return dates
 
 
 def as_document(page):
@@ -132,8 +219,13 @@ if __name__ == "__main__":
     ap.add_argument("--positions", default="portfolio/positions.json")
     ap.add_argument("--template", default=os.path.join(ROOT, "site", "template.html"))
     ap.add_argument("--out", default=os.path.join(ROOT, "site", "portfolio.html"))
+    ap.add_argument("--history", help="history folder (data/history): writes the day's file and builds hist/ shards next to --out")
     a = ap.parse_args()
     data = build(a.day, a.ecb_db, a.bonds, a.quotes, a.futures)
+    if a.history:
+        write_history(data, a.history)
+        data["hist"] = build_shards(a.history, os.path.join(os.path.dirname(os.path.abspath(a.out)), "hist"))
+        print(f"history: {len(data['hist'])} days", file=sys.stderr)
     owner, name = a.repo.split("/")
     data["repo"] = dict(owner=owner, name=name, branch=a.branch, path=a.positions)
     js = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")

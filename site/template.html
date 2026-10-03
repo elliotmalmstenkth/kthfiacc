@@ -83,7 +83,7 @@ table.t { border-collapse: collapse; width: 100%; }
 .t tbody tr.sel td.nm { color: #ffc56b; }
 .t td.amb, .t .amb { color: var(--amber); } .t td.dim { color: var(--fg-2); }
 .t td.desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
-.t.vt { table-layout: fixed; min-width: calc(120ch + 150px); }   /* screener: fixed columns */
+.t.vt { table-layout: fixed; min-width: calc(127ch + 163px); }   /* screener: fixed columns */
 .t.vt td { overflow: hidden; text-overflow: ellipsis; }
 .t.vt td.nm { max-width: none; }
 .t tr.sp td { padding: 0; border: 0; }
@@ -180,11 +180,29 @@ dialog code { color: var(--amber); }
 dialog label { display: grid; gap: 3px; color: var(--fg-2); }
 .toast { position: fixed; right: 16px; bottom: calc(30px + env(safe-area-inset-bottom, 0px)); background: var(--band); border: 1px solid #5a5a5a; color: #fff; padding: 5px 10px; max-width: calc(100vw - 32px); z-index: 10; }
 
+/* ---- strategy ticket ---- */
+.legs { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.leg { background: var(--panel); padding: 3px 6px; display: grid; grid-template-columns: 4.6em 2.6em minmax(0, 1fr) auto; gap: 2px 6px; align-items: center; cursor: pointer; }
+.leg:hover { outline: 1px solid #fff; outline-offset: -1px; }
+.leg.act { background: var(--sel); box-shadow: inset 3px 0 0 var(--blue); }
+.leg .ln { color: var(--fg-3); letter-spacing: .04em; font-size: 11px; }
+.leg .nm { color: var(--amber); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leg .s2 { grid-column: 1 / -1; color: var(--fg-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist { min-height: 72px; }
+.hist .muted b { color: var(--fg); font-weight: 400; }
+svg.spark { display: block; }
+svg.spark text { fill: var(--fg-3); font: 10px var(--mono); }
+svg.spark .ln { fill: none; stroke: #e6e6e6; stroke-width: 1.25; }
+svg.spark .pt { fill: var(--amber); }
+svg.spark .base { stroke: var(--line); stroke-width: 1; }
+.strat-tag { color: var(--blue); }
+.fund { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+
 /* ---- workspace grids ---- */
 #v-dash { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1.15fr) minmax(0, 1fr);
   grid-template-areas: "kpi kpi kpi" "hold hold mkt" "buck sect curve"; }
-#v-hold { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1.5fr) minmax(0, 1fr);
-  grid-template-areas: "kpi kpi" "blot blot" "attr sum"; }
+#v-hold { grid-template-columns: minmax(0, 1.6fr) minmax(0, .75fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1.15fr);
+  grid-template-areas: "kpi kpi kpi" "blot blot blot" "strat attr sum"; }
 #v-risk { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, .9fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas: "kpi kpi kpi" "krd hedge meth" "cs hedge meth"; }
 #v-desk { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr);
@@ -194,7 +212,7 @@ dialog label { display: grid; gap: 3px; color: var(--fg-2); }
   .views { padding-block: 8px 16px; }
   .view { height: auto; grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: none !important; }
   #v-dash { grid-template-areas: "kpi" "hold" "mkt" "buck" "sect" "curve"; }
-  #v-hold { grid-template-areas: "kpi" "blot" "attr" "sum"; }
+  #v-hold { grid-template-areas: "kpi" "blot" "strat" "attr" "sum"; }
   #v-risk { grid-template-areas: "kpi" "krd" "cs" "hedge" "meth"; }
   #v-desk { grid-template-areas: "tkt" "scr" "fut"; }
   .panel .pb { max-height: 460px; }
@@ -269,6 +287,53 @@ function spot(m) {
 }
 const fwd = (a, b) => (spot(b) * b - spot(a) * a) / (b - a);
 
+// ------------------------------------------------------------------ carry
+const DAY = 864e5;
+const dParse = (s) => new Date(s + "T12:00:00");
+const dIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function addBD(s, n) { const d = dParse(s); while (n > 0) { d.setDate(d.getDate() + 1); if (d.getDay() % 6) n--; } return dIso(d); }
+// coupon schedule rolled back from maturity (ACT/ACT ICMA), as in analytics.py
+const CPN_CACHE = new Map();
+function couponDates(b) {
+  let xs = CPN_CACHE.get(b.isin);
+  if (xs) return xs;
+  xs = [];
+  const m = dParse(b.mat), step = 12 / (b.freq || 1), day = m.getDate();
+  for (let k = 0; k < 600; k++) {
+    const d = new Date(m.getFullYear(), m.getMonth() - k * step, 1, 12);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+    xs.push(d.getTime());
+    if (d.getFullYear() < 1990) break;
+  }
+  xs.reverse(); CPN_CACHE.set(b.isin, xs);
+  return xs;
+}
+function accruedAt(b, s) {
+  if (!b.cpn) return 0;
+  const t = dParse(s).getTime(), xs = couponDates(b), i = xs.findIndex(x => x > t);
+  return i <= 0 ? 0 : b.cpn / (b.freq || 1) * (t - xs[i - 1]) / (xs[i] - xs[i - 1]);
+}
+const couponsBetween = (b, s0, s1) => { const a = dParse(s0).getTime(), z = dParse(s1).getTime(); return couponDates(b).filter(x => x > a && x <= z).length; };
+// longs are funded at the repo rate; shorts lend the sale proceeds at repo less the bond's specialness
+const repoRate = (qty) => qty >= 0 ? state.repo : state.repo - state.special / 100;
+// Carry since the trade settled: coupon accrual (and coupons paid) minus funding (ACT/360) on the dirty trade value.
+function carryOf(p, b) {
+  const s0 = p.settle || addBD(p.date || (p.at || DATA.asof).slice(0, 10), 2), s1 = DATA.settle;
+  const days = (dParse(s1) - dParse(s0)) / DAY;
+  if (!(days > 0)) return { cpn: 0, fund: 0, total: 0, days: 0 };
+  const cpn = p.qty / 100 * (accruedAt(b, s1) - accruedAt(b, s0) + couponsBetween(b, s0, s1) * b.cpn / (b.freq || 1));
+  const fund = -p.qty / 100 * (p.price + accruedAt(b, s0)) * repoRate(p.qty) / 100 * days / 360;
+  return { cpn, fund, total: cpn + fund, days };
+}
+// expected carry and roll-down over the next three months (EUR) for qty nominal; roll = yield roll-down along
+// the ECB AAA curve plus the issuer's fitted spread curve, at an unchanged curve
+function carryRoll3m(b, qty) {
+  const dirty = b.mid + b.acc;
+  const carry = qty / 100 * (b.cpn * 0.25 - dirty * repoRate(qty) / 100 * 91.25 / 360);
+  const roll = b.roll != null ? qty * dirty / 100 * b.mdur * b.roll * 1e-4 : null;
+  return { carry, roll };
+}
+
 // ------------------------------------------------------------------ risk
 // DV01/CS01: EUR P&L for a 1 bp fall in yield/spread (positive for a long bond).
 const BUCKETS = [["FGBS", "Schatz", 0, 3.3], ["FGBM", "Bobl", 3.3, 6.2], ["FGBL", "Bund", 6.2, 13], ["FGBX", "Buxl", 13, 1e9]];
@@ -280,8 +345,8 @@ function risk(p) {
     const b = BY_ISIN.get(p.isin);
     if (!b) return { missing: true };
     const dirty = b.mid + b.acc, mv = p.qty * dirty / 100;
-    const dv01 = mv * b.mdur * 1e-4;
-    return { b, mv, dv01, cs01: b.sector === "SOV" ? 0 : dv01, pnl: p.qty * (b.mid - p.price) / 100,
+    const dv01 = mv * b.mdur * 1e-4, pnl = p.qty * (b.mid - p.price) / 100, c = carryOf(p, b);
+    return { b, mv, dv01, cs01: b.sector === "SOV" ? 0 : dv01, pnl, carry: c.total, tot: pnl + c.total,
              now: b.mid, bucket: bucketOf(b.mdur), y: b.ytm, z: b.z, dur: b.mdur, notional: p.qty };
   }
   const f = FUT.get(p.code);
@@ -289,10 +354,10 @@ function risk(p) {
   const notional = p.qty * f.last * f.mult, pnl = p.qty * (f.last - p.price) * f.mult;
   if (f.type === "credit") {
     const d = indexDur(f.code), dv = d ? notional * d * 1e-4 : null;
-    return { f, mv: 0, notional, dv01: dv, cs01: dv, pnl, now: f.last, bucket: d ? bucketOf(d) : null, dur: d };
+    return { f, mv: 0, notional, dv01: dv, cs01: dv, pnl, carry: 0, tot: pnl, now: f.last, bucket: d ? bucketOf(d) : null, dur: d };
   }
-  return { f, mv: 0, notional, dv01: f.dv01 != null ? p.qty * f.dv01 : null, cs01: 0, pnl, now: f.last,
-           bucket: f.dv01 != null ? f.code : null };
+  return { f, mv: 0, notional, dv01: f.dv01 != null ? p.qty * f.dv01 : null, cs01: 0, pnl, carry: 0, tot: pnl, now: f.last,
+           bucket: f.dv01 != null ? f.code : null, y: f.ctd?.ytm };
 }
 
 // The whole book in one pass: rows, totals, bucket and sector aggregates.
@@ -302,7 +367,7 @@ function book() {
   const bonds = ok.filter(x => x.p.kind === "bond"), futs = ok.filter(x => x.p.kind !== "bond");
   const mv = bonds.reduce((s, x) => s + x.r.mv, 0);
   const gross = bonds.reduce((s, x) => s + Math.abs(x.r.mv), 0);
-  const wavg = (k) => mv > 0 ? bonds.reduce((s, x) => s + x.r.mv * (x.r[k] ?? 0), 0) / mv : null;
+  const wavg = (k) => gross > 0 ? bonds.reduce((s, x) => s + Math.abs(x.r.mv) * (x.r[k] ?? 0), 0) / gross : null;   // gross MV weights (longs and shorts)
   const sum = (xs, k) => xs.reduce((s, x) => s + (x.r[k] ?? 0), 0);
   const buck = Object.fromEntries(BUCKETS.map(([c]) => [c, { bonds: 0, futs: 0 }]));
   for (const x of ok) if (x.r.bucket && x.r.dv01) buck[x.r.bucket][x.p.kind === "bond" ? "bonds" : "futs"] += x.r.dv01;
@@ -312,8 +377,111 @@ function book() {
     s.mv += x.r.mv; s.dv01 += x.r.dv01; s.cs01 += x.r.cs01; s.y += x.r.mv * x.r.y; s.z += x.r.mv * (x.r.z ?? 0); s.n++;
   }
   return { rows, ok, bonds, futs, mv, gross, wavg, dv01: sum(ok, "dv01"), cs01: sum(ok, "cs01"), pnl: sum(ok, "pnl"),
+           carry: sum(ok, "carry"), tot: sum(ok, "tot"),
            futNotional: futs.reduce((s, x) => s + Math.abs(x.r.notional), 0), buck, sect,
            missing: rows.filter(x => x.r.missing).length };
+}
+
+// ------------------------------------------------------------------ strategies (pairs and butterflies)
+const FUT_DUR = { FGBS: 1.9, FGBM: 4.5, FGBL: 8.5, FGBX: 20 };   // for ordering fly legs only
+function legInfo(l) {
+  if (!l) return null;
+  if (l.kind === "bond") {
+    const b = BY_ISIN.get(l.id);
+    if (!b) return null;
+    return { kind: "bond", id: b.isin, name: b.name, b, dv01: (b.mid + b.acc) / 100 * b.mdur * 1e-4, unit: b.unit || 1000,
+             y: b.ytm, z: b.z, rv: b.rv, dur: b.mdur, credit: b.sector !== "SOV" };
+  }
+  const f = FUT.get(l.id);
+  if (!f) return null;
+  const d = f.type === "credit" ? indexDur(f.code) : null;
+  return { kind: "fut", id: f.code, name: `${f.code} ${mmmYY(f.contract)}`, f, unit: 1, y: f.ctd?.ytm ?? null, z: null, rv: null,
+           dv01: f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01, dur: d ?? FUT_DUR[f.code] ?? null, credit: f.type === "credit" };
+}
+// Signed leg sizes. Pair: leg 2 is sized to the DV01 of leg 1. Fly: each wing carries half the body's DV01.
+// Bonds round to their minimum denomination, futures to whole lots, so a small residual DV01 remains.
+function stratLegs() {
+  const fly = state.mode === "fly", L = Array.from({ length: fly ? 3 : 2 }, (_, i) => legInfo(state.legs[i]));
+  if (L.some(x => !x || !x.dv01)) return { L, ready: false };
+  const ai = fly ? 1 : 0, a = L[ai], base = a.kind === "bond" ? state.stratNom : state.stratLots, sA = fly ? state.flyDir : state.pairSide;
+  const legs = L.map((x, i) => {
+    let q = sA * base;
+    if (i !== ai) {
+      const t = (fly ? 0.5 : 1) * base * a.dv01 / x.dv01;
+      q = -sA * (x.kind === "bond" ? Math.max(x.unit, Math.round(t / x.unit) * x.unit) : Math.max(1, Math.round(t)));
+    }
+    return { ...x, qty: q, px: x.kind === "bond" ? (q > 0 ? x.b.ask : x.b.bid) : x.f.last };
+  });
+  const dv = legs.reduce((s, x) => s + x.qty * x.dv01, 0), cs = legs.reduce((s, x) => s + (x.credit ? x.qty * x.dv01 : 0), 0);
+  const cost = legs.reduce((s, x) => s + (x.kind === "bond" ? Math.abs(x.qty) * (x.b.ask - x.b.bid) / 2 / 100 : 0), 0);
+  const cr = legs.reduce((s, x) => { if (x.kind !== "bond") return s; const c = carryRoll3m(x.b, x.qty); s.carry += c.carry; s.roll += c.roll ?? 0; return s; }, { carry: 0, roll: 0 });
+  return { L, legs, ready: base > 0, dv, cs, cost, cr };
+}
+// Strategy level in bp from leg yields (k = "y") or Z-spreads (k = "z"), legs in slot order with signed qty:
+// pair = long leg − short leg, fly = 2 × body − wings.
+function levelOf(type, legs, k) {
+  const v = legs.map(x => x[k]);
+  if (v.length < (type === "fly" ? 3 : 2) || v.some(x => x == null)) return null;
+  const m = k === "y" ? 100 : 1;
+  if (type === "fly") return (2 * v[1] - v[0] - v[2]) * m;
+  return (legs[0].qty > 0 ? v[0] - v[1] : v[1] - v[0]) * m;
+}
+// pairs profit when the level falls; a fly with a long body profits when it falls, a short body when it rises
+const profitsIf = (type, legs) => type === "fly" && legs[1]?.qty < 0 ? "rises" : "falls";
+function strategies(bk) {
+  const m = new Map();
+  for (const x of bk.rows) { const s = x.p.strat; if (s) (m.get(s.id) || m.set(s.id, { ...s, rows: [] }).get(s.id)).rows.push(x); }
+  return [...m.values()].map(g => {
+    g.rows.sort((a, b) => (a.p.strat.leg ?? 0) - (b.p.strat.leg ?? 0));
+    const ok = g.rows.filter(x => !x.r.missing), sum = (k) => ok.reduce((s, x) => s + (x.r[k] ?? 0), 0);
+    const legs = g.rows.map(x => ({ qty: x.p.qty, y: x.r.y ?? null, z: x.p.kind === "bond" ? x.r.z ?? null : null,
+                                    hid: x.p.kind === "bond" ? x.p.isin : "FUT:" + x.p.code }));
+    return { ...g, legs, pnl: sum("pnl"), carry: sum("carry"), tot: sum("tot"), dv01: sum("dv01"), cs01: sum("cs01"),
+             y: levelOf(g.type, legs, "y"), z: levelOf(g.type, legs, "z") };
+  });
+}
+
+// ------------------------------------------------------------------ history
+// hist/<n>.json shards (site/build.py): {d: [dates], s: {id: [[mid, ytm, z, rv] or null]}}; FNV-1a picks the shard.
+const HIST = new Map();
+const fnv = (k) => { let h = 2166136261; for (let i = 0; i < k.length; i++) { h ^= k.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h % 256; };
+async function histOf(id) {
+  if (!DATA.hist) return null;
+  const n = fnv(id);
+  if (!HIST.has(n)) HIST.set(n, fetch(`hist/${n}.json`).then(r => r.ok ? r.json() : null).catch(() => null));
+  const sh = await HIST.get(n);
+  if (!sh) return null;
+  const xs = sh.s[id] || [];
+  return sh.d.map((d, i) => ({ d, v: xs[i] })).filter(x => x.v);
+}
+const HK = { mid: 0, y: 1, z: 2, rv: 3 };
+// level series of a strategy: dates where every leg has a value
+async function levelHist(type, legs, k) {
+  const hs = await Promise.all(legs.map(x => histOf(x.hid)));
+  if (hs.some(h => h == null)) return null;
+  const maps = hs.map(h => new Map(h.map(x => [x.d, x.v[HK[k]]])));
+  return hs[0].map(x => x.d).filter(d => maps.every(m => m.get(d) != null))
+    .map(d => ({ d, v: levelOf(type, legs.map((x, i) => ({ qty: x.qty, [k]: maps[i].get(d) })), k) }));
+}
+function spark(pts, { w = 300, h = 72, unit = "bp", dec = 1, label = "" } = {}) {
+  if (pts == null) return `<div class="muted">History is not published in this build.</div>`;
+  if (!pts.length) return `<div class="muted">No history for ${esc(label) || "this instrument"} yet.</div>`;
+  const last = pts[pts.length - 1];
+  if (pts.length < 2) return `<div class="muted">${esc(label)} <b>${fmt(last.v, dec)} ${unit}</b> on ${dTerm(last.d)}. The series starts here and adds one point per trading day.</div>`;
+  const vs = pts.map(p => p.v), lo0 = Math.min(...vs), hi0 = Math.max(...vs), pad = (hi0 - lo0) * 0.1 || 1, lo = lo0 - pad, hi = hi0 + pad;
+  const L = 4, R = 54, T = 6, B = 14, X = (i) => L + i / (pts.length - 1) * (w - L - R), Y = (v) => T + (hi - v) / (hi - lo) * (h - T - B);
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join("");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(label)} history">
+    <line class="base" x1="${L}" x2="${w - R}" y1="${h - B}" y2="${h - B}"/><path class="ln" d="${d}"/><circle class="pt" cx="${X(pts.length - 1)}" cy="${Y(last.v)}" r="2.5"/>
+    <text x="${w - R + 4}" y="${Y(last.v) + 3}">${fmt(last.v, dec)}</text><text x="${w - R + 4}" y="${T + 6}">${fmt(hi0, dec)}</text><text x="${w - R + 4}" y="${h - B}">${fmt(lo0, dec)}</text>
+    <text x="${L}" y="${h - 2}">${dTerm(pts[0].d)}</text><text x="${w - R}" y="${h - 2}" text-anchor="end">${dTerm(last.d)}</text></svg>`;
+}
+// fills a placeholder once the history has loaded (if the placeholder is still on screen)
+function fillHist(elId, key, make) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.dataset.key = key;
+  make(Math.max(200, el.clientWidth || 300)).then(html => { const e = document.getElementById(elId); if (e && e.dataset.key === key) e.innerHTML = html; });
 }
 
 // Hedge: credit first (credit futures carry spread and rate duration), then rates on the residual DV01 per bucket.
@@ -338,6 +506,8 @@ const state = {
   firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
+  mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
+  repo: store("repo") ?? DATA.estr?.rate ?? 2.0, special: store("special") ?? 0, stratSel: null, stratName: "",
   positions: [], dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
 };
 
@@ -391,11 +561,11 @@ function describe(p) {
   return `${p.qty >= 0 ? "buy" : "sell"} ${Math.abs(p.qty)} ${p.code} ${(p.contract || "").slice(0, 7)}`;
 }
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-async function addPositions(list) {
+async function addPositions(list, label = "") {
   if (!state.canWrite) { openLogin(); return false; }
   const rows = list.map(p => ({ id: newId(), ...p, date: DATA.asof, by: gh.login, at: new Date().toISOString() }));
   try {
-    state.positions = await gh.save(cur => [...cur, ...rows], `Portfolio: ${rows.map(describe).join(", ")} (${gh.login})`);
+    state.positions = await gh.save(cur => [...cur, ...rows], `Portfolio: ${label ? label + ": " : ""}${rows.map(describe).join(", ")} (${gh.login})`);
     render(); return true;
   } catch (e) { writeError(e); return false; }
 }
@@ -404,6 +574,14 @@ async function closePosition(id, btn) {
   try {
     state.positions = await gh.save(cur => cur.filter(x => x.id !== id), `Portfolio: close ${describe(pos)} (${gh.login})`);
     render(); toast("Position closed");
+  } catch (e) { if (btn) btn.disabled = false; writeError(e); }
+}
+async function closeStrategy(sid, btn) {
+  const legs = state.positions.filter(x => x.strat?.id === sid), name = legs[0]?.strat?.name || "strategy";
+  try {
+    state.positions = await gh.save(cur => cur.filter(x => x.strat?.id !== sid), `Portfolio: close ${name}: ${legs.map(describe).join(", ")} (${gh.login})`);
+    if (state.stratSel === sid) state.stratSel = null;
+    render(); toast(`${name} closed`);
   } catch (e) { if (btn) btn.disabled = false; writeError(e); }
 }
 function writeError(e) {
@@ -464,8 +642,15 @@ document.addEventListener("click", e => {
     if (!del.classList.contains("armed")) { del.classList.add("armed"); del.textContent = "CONFIRM"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "CLOSE"; }, 4000); return; }
     del.disabled = true; closePosition(del.dataset.del, del);
   }
+  const ds = e.target.closest("[data-delstrat]");
+  if (ds) {
+    if (!ds.classList.contains("armed")) { ds.classList.add("armed"); ds.textContent = "CONFIRM"; setTimeout(() => { ds.classList.remove("armed"); ds.textContent = "CLOSE"; }, 4000); return; }
+    ds.disabled = true; closeStrategy(ds.dataset.delstrat, ds); return;
+  }
+  const st = e.target.closest("[data-strat]");
+  if (st && !e.target.closest("button, input")) { state.stratSel = st.dataset.strat; render(); return; }
   const pick = e.target.closest("[data-pick]");
-  if (pick && !e.target.closest("button, input")) { select(pick.dataset.kind, pick.dataset.pick); if (state.view !== "desk") setView("desk"); }
+  if (pick && !e.target.closest("button, input")) { if (state.view !== "desk") setView("desk"); select(pick.dataset.kind, pick.dataset.pick); }
 });
 
 // ------------------------------------------------------------------ shared components
@@ -476,10 +661,10 @@ function kpiStrip(bk) {
   const k = (l, v, s, c = "") => `<div class="kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`;
   return `<div class="kpis" style="grid-area:kpi">` +
     k("MARKET VALUE", `${fmt(bk.mv / 1e6, 2)}M`, "EUR dirty, bonds") +
-    k("UNREALISED P&amp;L", fmtS(bk.pnl, 0), "EUR clean vs trade px", cls(bk.pnl)) +
-    k("YTM", `${fmt(bk.wavg("y"), 2)}%`, "MV-weighted") +
+    k("TOTAL P&amp;L", fmtS(bk.tot, 0), `clean ${fmtS(bk.pnl, 0)} · carry ${fmtS(bk.carry, 0)}`, cls(bk.tot)) +
+    k("YTM", `${fmt(bk.wavg("y"), 2)}%`, "gross MV-weighted") +
     k("Z-SPREAD", `${fmt(bk.wavg("z"), 0)} BP`, "vs ECB AAA") +
-    k("MOD DURATION", fmt(bk.wavg("dur"), 2), "MV-weighted") +
+    k("MOD DURATION", fmt(bk.wavg("dur"), 2), "gross MV-weighted") +
     k("DV01", fmtS(bk.dv01, 0), "EUR/bp, net of futures", cls(bk.dv01)) +
     k("CS01", fmtS(bk.cs01, 0), "EUR/bp spread", cls(bk.cs01)) +
     k("POSITIONS", `${bk.bonds.length}<span class="muted"> / ${bk.futs.length}</span>`, "bonds / futures") +
@@ -518,7 +703,7 @@ function renderDash() {
       <td>${sideTag(p.qty)}</td><td class="nm">${instr(p, r)}</td>
       <td class="n">${p.kind === "bond" ? fmt(p.qty, 0) : fmt(p.qty, 0) + " lots"}</td><td class="n">${fmt(r.now, 3)}</td>
       <td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted">${fmt(r.notional, 0)}</span>`}</td>
-      <td class="n ${cls(r.pnl)}">${fmtS(r.pnl, 0)}</td><td class="n">${fmt(r.y, 2)}</td><td class="n ${cls(r.dv01)}">${fmtS(r.dv01, 0)}</td></tr>`).join("") +
+      <td class="n ${cls(r.tot)}">${fmtS(r.tot, 0)}</td><td class="n">${fmt(r.y, 2)}</td><td class="n ${cls(r.dv01)}">${fmtS(r.dv01, 0)}</td></tr>`).join("") +
     `</tbody></table>` : emptyBook(true);
 
   const mktCodes = ["FGBS", "FGBM", "FGBL", "FGBX", "FBTP", "FOAT", "FECX", "FEHY", "FGBC"].filter(c => FUT.has(c));
@@ -571,7 +756,7 @@ function curveChart(bk, W = 600, H = 230) {
 function renderHold() {
   const bk = book();
   const tools = `<button class="btn" id="csvBook" ${bk.rows.length ? "" : "disabled"}>EXPORT CSV</button><a class="btn" href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>`;
-  const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">P&amp;L</th><th class="n">YTM</th><th class="n">Z BP</th><th class="n">MOD DUR</th><th class="n">DV01</th><th class="n">CS01</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
+  const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">TOTAL</th><th class="n">YTM</th><th class="n">Z BP</th><th class="n">MOD DUR</th><th class="n">DV01</th><th class="n">CS01</th><th>STRATEGY</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
     bk.rows.map(({ p, r }) => `<tr class="click" data-pick="${esc(p.kind === "bond" ? p.isin : p.code)}" data-kind="${p.kind === "bond" ? "bond" : "fut"}">
       <td>${sideTag(p.qty)}</td><td class="nm">${instr(p, r)}</td><td class="dim">${esc(p.kind === "bond" ? p.isin : (p.contract || ""))}</td>
       <td class="dim">${p.kind === "bond" ? esc(SECT[r.b?.sector] || "–") : (r.f?.type === "credit" ? "Credit fut." : "Govt fut.")}</td>
@@ -579,15 +764,32 @@ function renderHold() {
       <td class="n ${cls(r.now - p.price)}">${r.now != null ? fmtS(r.now - p.price, 3) : "–"}</td>
       <td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted" title="notional">${fmt(r.notional, 0)}</span>`}</td>
       <td class="n">${p.kind === "bond" && bk.gross ? fmt(r.mv / bk.gross * 100, 1) + "%" : "–"}</td>
-      <td class="n ${cls(r.pnl)}">${fmtS(r.pnl, 0)}</td><td class="n">${fmt(r.y, 2)}</td><td class="n">${fmt(r.z, 0)}</td><td class="n">${fmt(r.dur, 2)}</td>
+      <td class="n ${cls(r.pnl)}">${fmtS(r.pnl, 0)}</td><td class="n ${cls(r.carry)}">${fmtS(r.carry, 0)}</td><td class="n ${cls(r.tot)}">${fmtS(r.tot, 0)}</td>
+      <td class="n">${fmt(r.y, 2)}</td><td class="n">${fmt(r.z, 0)}</td><td class="n">${fmt(r.dur, 2)}</td>
       <td class="n ${cls(r.dv01)}">${fmtS(r.dv01, 0)}</td><td class="n ${cls(r.cs01)}">${fmtS(r.cs01, 0)}</td>
-      <td class="who">${esc(p.by || "")}</td><td class="dim">${esc((p.at || "").slice(0, 10))}</td>
-      <td>${state.canWrite ? `<button class="btn x" data-del="${esc(p.id)}">CLOSE</button>` : ""}</td></tr>`).join("") +
+      <td class="strat-tag">${esc(p.strat?.name || "")}</td><td class="who">${esc(p.by || "")}</td><td class="dim">${esc((p.at || "").slice(0, 10))}</td>
+      <td>${state.canWrite && !p.strat ? `<button class="btn x" data-del="${esc(p.id)}">CLOSE</button>` : ""}</td></tr>`).join("") +
     `</tbody><tfoot><tr><td colspan="8">TOTAL</td><td class="n">${fmt(bk.mv, 0)}</td><td class="n">100%</td><td class="n ${cls(bk.pnl)}">${fmtS(bk.pnl, 0)}</td>
+      <td class="n ${cls(bk.carry)}">${fmtS(bk.carry, 0)}</td><td class="n ${cls(bk.tot)}">${fmtS(bk.tot, 0)}</td>
       <td class="n">${fmt(bk.wavg("y"), 2)}</td><td class="n">${fmt(bk.wavg("z"), 0)}</td><td class="n">${fmt(bk.wavg("dur"), 2)}</td>
-      <td class="n ${cls(bk.dv01)}">${fmtS(bk.dv01, 0)}</td><td class="n ${cls(bk.cs01)}">${fmtS(bk.cs01, 0)}</td><td colspan="3"></td></tr></tfoot></table>` : emptyBook();
+      <td class="n ${cls(bk.dv01)}">${fmtS(bk.dv01, 0)}</td><td class="n ${cls(bk.cs01)}">${fmtS(bk.cs01, 0)}</td><td colspan="4"></td></tr></tfoot></table>` : emptyBook();
 
-  const attr = bars(bk.ok.map(x => ({ l: x.p.kind === "bond" ? x.r.b.name : `${x.p.code} ${mmmYY(x.r.f.contract)}`, v: x.r.pnl })).sort((a, b) => b.v - a.v), v => fmtS(v, 0), "pnl");
+  const strats = strategies(bk);
+  const attr = bars([...strats.map(g => ({ l: g.name, v: g.tot })),
+    ...bk.ok.filter(x => !x.p.strat).map(x => ({ l: x.p.kind === "bond" ? x.r.b.name : `${x.p.code} ${mmmYY(x.r.f.contract)}`, v: x.r.tot }))].sort((a, b) => b.v - a.v), v => fmtS(v, 0), "pnl");
+  const sg = strats.find(g => g.id === state.stratSel) || strats[0];
+  const lvl = (v) => v == null ? "–" : fmt(v, 1);
+  const stratTbl = strats.length ? `<table class="t"><thead><tr><th>STRATEGY</th><th>TYPE</th><th class="n">LEGS</th><th class="n" title="yield level at entry (mid), bp">ENTRY</th><th class="n" title="yield level now (mid), bp">LEVEL</th><th class="n">Δ BP</th><th class="n">CLEAN</th><th class="n">CARRY</th><th class="n">TOTAL</th><th class="n">NET DV01</th><th class="n">NET CS01</th><th></th></tr></thead><tbody>` +
+    strats.map(g => `<tr class="click${g === sg ? " sel" : ""}" data-strat="${esc(g.id)}"><td class="nm">${esc(g.name)}</td><td class="dim">${g.type.toUpperCase()}</td><td class="n">${g.rows.length}</td>
+      <td class="n">${lvl(g.y0)}</td><td class="n">${lvl(g.y)}</td><td class="n">${g.y0 != null && g.y != null ? fmtS(g.y - g.y0, 1) : "–"}</td>
+      <td class="n ${cls(g.pnl)}">${fmtS(g.pnl, 0)}</td><td class="n ${cls(g.carry)}">${fmtS(g.carry, 0)}</td><td class="n ${cls(g.tot)}">${fmtS(g.tot, 0)}</td>
+      <td class="n ${cls(g.dv01)}">${fmtS(g.dv01, 0)}</td><td class="n ${cls(g.cs01)}">${fmtS(g.cs01, 0)}</td>
+      <td>${state.canWrite ? `<button class="btn x" data-delstrat="${esc(g.id)}">CLOSE</button>` : ""}</td></tr>`).join("") + `</tbody></table>
+    <div class="sect"><div class="lbl">${esc(sg.name)} · YIELD LEVEL, BP · profits if it ${profitsIf(sg.type, sg.legs)}</div><div class="hist" id="stratHist"></div></div>`
+    : `<div class="empty"><p class="hd">NO STRATEGIES</p><p>Book a pair or butterfly from the ticket on the Trade screen (PAIR / FLY). Its legs are grouped here with level, P&amp;L and net risk.</p></div>`;
+  const fund = `<div class="fund"><span class="lbl">FUNDING</span><label class="lbl" for="repo">REPO %</label><input id="repo" class="num" style="width:5.5em" value="${fmt(state.repo, 3)}">
+    <label class="lbl" for="special">SHORT SPECIALNESS BP</label><input id="special" class="num" style="width:4em" value="${fmt(state.special, 0)}">
+    <span class="muted">${DATA.estr ? `€STR ${fmt(DATA.estr.rate, 3)}% (${dTerm(DATA.estr.date)})` : "€STR not available"}</span></div>`;
   const sectRows = Object.entries(bk.sect).sort((a, b) => b[1].mv - a[1].mv);
   const sum = sectRows.length ? `<table class="t"><thead><tr><th>SECTOR</th><th class="n">#</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">YTM</th><th class="n">Z BP</th><th class="n">DV01</th><th class="n">CS01</th></tr></thead><tbody>` +
     sectRows.map(([k, s]) => `<tr><td>${SECT[k]}</td><td class="n">${s.n}</td><td class="n">${fmt(s.mv, 0)}</td><td class="n">${bk.gross ? fmt(Math.abs(s.mv) / bk.gross * 100, 1) + "%" : "–"}</td>
@@ -596,12 +798,17 @@ function renderHold() {
 
   $("#v-hold").innerHTML = kpiStrip(bk) +
     panel("blot", "Position blotter", blot, { sub: `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${dTerm(DATA.asof)}`, tools }) +
-    panel("attr", "P&amp;L attribution", attr, { sub: "EUR, clean-price P&L since trade" }) +
-    panel("sum", "Summary by sector", sum + `<p class="note pad">P&amp;L is clean-price P&amp;L versus the trade price, excluding carry and accrued interest. Weights use gross bond market value.</p>`);
+    panel("strat", "Strategies", stratTbl, { sub: `${strats.length} pairs / flies · level = long − short (pair), 2 × body − wings (fly)` }) +
+    panel("attr", "P&amp;L attribution", attr, { sub: "EUR, total P&L by strategy and position" }) +
+    panel("sum", "Summary by sector", fund + sum + `<p class="note pad"><b>Total P&amp;L</b> = clean-price P&amp;L versus the trade price + carry. <b>Carry</b> = coupon accrual (including coupons paid) since the trade settled, minus funding at the repo rate (ACT/360) on the dirty trade value; shorts pay the coupon and earn repo less the specialness. Futures carry is in the price. Weights use gross bond market value.</p>`);
+  if (sg) fillHist("stratHist", sg.id, async (w) => spark(await levelHist(sg.type, sg.legs, "y"), { w, label: sg.name }));
+  const num = (v) => Number(String(v).replace(",", "."));
+  $("#repo").onchange = e => { const v = num(e.target.value); if (isFinite(v)) { state.repo = v; store("repo", v); } render(); };
+  $("#special").onchange = e => { const v = num(e.target.value); if (isFinite(v)) { state.special = v; store("special", v); } render(); };
   $("#csvBook")?.addEventListener("click", () => csv(`kthficc-book-${DATA.asof}.csv`,
-    ["side", "kind", "instrument", "isin_or_contract", "sector", "qty", "trade_px", "mark", "market_value", "pnl", "ytm", "z_bp", "mod_dur", "dv01", "cs01", "trader", "trade_time"],
+    ["side", "kind", "instrument", "isin_or_contract", "sector", "qty", "trade_px", "mark", "market_value", "clean_pnl", "carry", "total_pnl", "ytm", "z_bp", "mod_dur", "dv01", "cs01", "strategy", "trader", "trade_time"],
     bk.rows.map(({ p, r }) => [p.qty >= 0 ? "long" : "short", p.kind, p.kind === "bond" ? r.b?.name : p.code, p.kind === "bond" ? p.isin : p.contract,
-      p.kind === "bond" ? SECT[r.b?.sector] : r.f?.type, p.qty, p.price, r.now, p.kind === "bond" ? r.mv : r.notional, r.pnl, r.y, r.z, r.dur, r.dv01, r.cs01, p.by, p.at])));
+      p.kind === "bond" ? SECT[r.b?.sector] : r.f?.type, p.qty, p.price, r.now, p.kind === "bond" ? r.mv : r.notional, r.pnl, r.carry, r.tot, r.y, r.z, r.dur, r.dv01, r.cs01, p.strat?.name, p.by, p.at])));
 }
 
 function csv(name, head, rows) {
@@ -664,11 +871,11 @@ function setHedgePct(v) { state.hedgePct = Math.max(0, Math.min(200, v)); store(
 
 // ------------------------------------------------------------------ TRADE
 const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
-  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["mdur", "MOD DUR", 2]];
+  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"], ["mdur", "MOD DUR", 2]];
 let VISIBLE = [], ROW_H = 20, DRAWN = "";
 const SCR = {};
 // fixed column widths (characters) so the columns stay put while scrolling; the bond name takes the rest
-const BW = { isin: 12, sector: 14, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ytm: 7, z: 7, mdur: 9 };
+const BW = { isin: 12, sector: 14, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ytm: 7, z: 7, rv: 7, mdur: 9 };
 
 const curTab = () => TABS.find(t => t.k === state.tab);
 
@@ -724,8 +931,8 @@ function renderDesk() {
     const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawRows(); }); };
     $("#scrBody").addEventListener("scroll", redraw, { passive: true });
     window.addEventListener("resize", redraw);
-    $("#csvScr").onclick = () => csv(`kthficc-screener-${state.tab}-${DATA.asof}.csv`, BCOLS.map(c => c[0]).concat(["subordinated", "firm", "accrued"]),
-      filtered().map(b => BCOLS.map(c => c[0] === "sector" ? SECT[b.sector] : b[c[0]]).concat([b.sub, b.firm, b.acc])));
+    $("#csvScr").onclick = () => csv(`kthficc-screener-${state.tab}-${DATA.asof}.csv`, BCOLS.map(c => c[0]).concat(["subordinated", "firm", "accrued", "rolldown_3m_bp", "min_denomination"]),
+      filtered().map(b => BCOLS.map(c => c[0] === "sector" ? SECT[b.sector] : b[c[0]]).concat([b.sub, b.firm, b.acc, b.roll, b.unit])));
   }
   renderScreener(); renderFutures(); renderTicket();
 }
@@ -743,7 +950,7 @@ function renderScreener(reset = false) {
   const xs = filtered(), [sk, sd] = state.sort, box = $("#scrBody");
   const top = reset ? 0 : box.scrollTop;
   VISIBLE = xs; SCR.tab = tab; SCR.counts = counts; DRAWN = "";
-  const head = BCOLS.map(([k, l, d]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}">${l}${sk === k ? (sd > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
+  const head = BCOLS.map(([k, l, d, t]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}"${t ? ` title="${esc(t)}"` : ""}>${l}${sk === k ? (sd > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
   const cols = BCOLS.map(([k]) => BW[k] ? `<col style="width:calc(${BW[k]}ch + 13px)">` : "<col>").join("");
   box.innerHTML = `<table class="t vt"><colgroup>${cols}</colgroup><thead><tr>${head}</tr></thead><tbody id="scrRows"></tbody></table>`;
   drawRows(top);
@@ -756,7 +963,7 @@ const bondRow = (b, selIsin) => `<tr class="click${b.isin === selIsin ? " sel" :
       <td class="nm">${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
       <td class="n">${fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
       <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
-      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
+      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
 
 // Infinite scroll: the screener holds every matching bond but draws only the rows around the viewport, with
 // spacer rows for the rest, so the scrollbar spans the full list. Rows are one line at a fixed height.
@@ -771,9 +978,9 @@ function drawRows(top) {
   const selIsin = state.sel?.kind === "bond" ? state.sel.id : null, key = `${n}:${first}:${last}:${selIsin}`;
   if (key !== DRAWN) {
     DRAWN = key;
-    const pad = (h) => h > 0 ? `<tr class="sp"><td colspan="11" style="height:${h}px"></td></tr>` : "";
+    const pad = (h) => h > 0 ? `<tr class="sp"><td colspan="12" style="height:${h}px"></td></tr>` : "";
     tb.innerHTML = n ? pad(first * ROW_H) + VISIBLE.slice(first, last).map(b => bondRow(b, selIsin)).join("") + pad((n - last) * ROW_H)
-      : `<tr><td colspan="11" class="empty">${emptyMsg(SCR.tab, SCR.counts)}</td></tr>`;
+      : `<tr><td colspan="12" class="empty">${emptyMsg(SCR.tab, SCR.counts)}</td></tr>`;
     // the real row pitch, measured between rows (the first row also carries half of the top border)
     const rs = tb.querySelectorAll("tr.click");
     if (rs.length > 2) {
@@ -817,14 +1024,44 @@ function renderFutures() {
 function select(kind, id) {
   state.sel = { kind, id }; store("sel", state.sel);
   if (kind === "fut") state.lots = state.lots || 1;
+  if (state.mode !== "single") setLeg(kind, id);
   if (state.view === "desk") { DRAWN = ""; drawRows(); renderFutures(); renderTicket(); }
 }
 
+// strategy ticket: the clicked instrument fills the active leg; the next empty leg becomes active
+function setLeg(kind, id) {
+  const info = legInfo({ kind, id }), n = state.mode === "fly" ? 3 : 2;
+  if (!info?.dv01) { toast(`${kind === "fut" ? id : "This bond"} has no DV01 here; pick a bond or a Schatz/Bobl/Bund/Buxl or credit future`); return; }
+  state.legs = Array.from({ length: n }, (_, i) => state.legs[i] || null);
+  state.legs[state.slot] = { kind, id };
+  if (state.mode === "fly" && state.legs.every(Boolean)) {   // order the fly by duration: short wing, body, long wing
+    state.legs.sort((a, b) => (legInfo(a)?.dur ?? 0) - (legInfo(b)?.dur ?? 0));
+  }
+  const next = state.legs.findIndex(x => !x);
+  if (next >= 0) state.slot = next;
+  state.stratName = "";
+  store("legs", state.legs);
+}
+
+const MODES = [["single", "OUTRIGHT"], ["pair", "PAIR"], ["fly", "FLY"]];
+const modeBar = () => `<div class="sect"><div class="chips" id="tkMode" aria-label="Ticket type">${MODES.map(([k, l]) => `<button data-mode="${k}" aria-pressed="${state.mode === k}">${l}</button>`).join("")}</div></div>`;
+function bindMode() {
+  $("#tkMode").onclick = e => {
+    const m = e.target.dataset.mode;
+    if (!m || m === state.mode) return;
+    state.mode = m; store("mode", m); state.slot = 0; state.stratName = "";
+    if (m !== "single") { state.legs = []; store("legs", state.legs); }
+    renderTicket();
+  };
+}
+
 function renderTicket() {
+  if (state.mode !== "single") return renderStratTicket();
   const s = state.sel, body = $("#tktBody");
   if (!s || (s.kind === "bond" && !BY_ISIN.has(s.id)) || (s.kind === "fut" && !FUT.has(s.id))) {
     $("#tktSub").textContent = "";
-    body.innerHTML = `<div class="empty"><p class="hd">NO INSTRUMENT SELECTED</p><p>Click a bond or future, or use <span class="amb">↑ ↓</span> in the screener. <span class="amb">ENTER</span> jumps to the size field.</p><p class="muted">Buys execute at the offer, sells at the bid (futures at last).</p></div>`;
+    body.innerHTML = modeBar() + `<div class="empty"><p class="hd">NO INSTRUMENT SELECTED</p><p>Click a bond or future, or use <span class="amb">↑ ↓</span> in the screener. <span class="amb">ENTER</span> jumps to the size field.</p><p class="muted">Buys execute at the offer, sells at the bid (futures at last). PAIR and FLY build relative-value trades from two or three legs.</p></div>`;
+    bindMode();
     return;
   }
   const held = state.positions.filter(p => (s.kind === "bond" ? p.isin : p.code) === s.id).reduce((a, p) => a + p.qty, 0);
@@ -836,15 +1073,20 @@ function renderTicket() {
     head = `<div class="sect"><div class="amb" style="font-size:14px">${esc(b.name)}</div><div class="dim">${esc(b.issuer)} · ${SECT[b.sector]}${b.sub ? " · SUBORDINATED" : ""}</div>
       <dl class="kv"><dt>Coupon</dt><dd>${fmt(b.cpn, 3)}%${b.freq === 2 ? " s/a" : ""}</dd><dt>Maturity</dt><dd>${b.mat} (${fmt(b.yrs, 2)}y)</dd><dt>Issue size</dt><dd>${fmt(b.amt, 0)}M</dd>
         <dt>Bid / Offer</dt><dd class="big">${fmt(b.bid, 3)} / ${fmt(b.ask, 3)}${b.firm ? "" : ` <span class="ind" title="indicative">IND</span>`}</dd><dt>Bid-offer</dt><dd>${fmt((b.ask - b.bid) * 100, 1)} cents</dd>
-        <dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp</dd><dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
-        <dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) : "–"}</dd></dl></div>`;
+        <dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp</dd><dt title="Z-spread minus the issuer's fitted spread curve">Rich / cheap</dt><dd>${b.rv == null ? "– (no issuer curve)" : `${fmtS(b.rv, 1)} bp ${b.rv > 0 ? "cheap" : "rich"}`}</dd>
+        <dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd><dt>Roll-down 3M</dt><dd>${b.roll == null ? "–" : fmtS(b.roll, 1) + " bp"}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
+        <dt>Min denomination</dt><dd>${fmt(b.unit, 0)}</dd><dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) : "–"}</dd></dl></div>
+      <div class="sect"><div class="lbl">Z-SPREAD HISTORY, BP</div><div class="hist" id="tkHist"></div></div>`;
     sizeField = `<label class="lbl" for="tkSize">NOMINAL (EUR)</label><input id="tkSize" class="num" style="width:100%" inputmode="numeric" value="${fmt(state.nominal, 0)}">
       <div class="chips">${[250000, 500000, 1000000, 5000000].map(v => `<button data-nom="${v}" aria-pressed="${state.nominal === v}">${v >= 1e6 ? v / 1e6 + "M" : v / 1e3 + "K"}</button>`).join("")}</div>`;
     calc = () => { const px = state.side > 0 ? b.ask : b.bid, dirty = px + b.acc, n = state.nominal;
       return { px, html: `<dl class="kv"><dt>Clean price (${state.side > 0 ? "offer" : "bid"})</dt><dd class="big">${fmt(px, 3)}</dd><dt>Accrued interest</dt><dd>${fmt(n * b.acc / 100, 2)}</dd>
         <dt>Settlement amount</dt><dd class="big">EUR ${fmt(n * dirty / 100, 2)}</dd><dt>Settles</dt><dd>${dTerm(DATA.settle)}</dd>
-        <dt>DV01</dt><dd class="${cls(state.side)}">${fmtS(state.side * n * dirty / 100 * b.mdur * 1e-4, 0)} EUR/bp</dd></dl>`,
-        order: { kind: "bond", isin: b.isin, qty: state.side * n, price: px }, ok: n > 0, desc: `EUR ${fmt(n, 0)} ${b.name}` }; };
+        <dt>DV01</dt><dd class="${cls(state.side)}">${fmtS(state.side * n * dirty / 100 * b.mdur * 1e-4, 0)} EUR/bp</dd>
+        ${(() => { const c = carryRoll3m(b, state.side * n); return `<dt title="coupon accrual minus funding at ${fmt(repoRate(state.side * n), 3)}% repo">Carry 3M</dt><dd class="${cls(c.carry)}">${fmtS(c.carry, 0)} EUR</dd>
+        <dt title="price gain from rolling down the curve, unchanged curve">Roll-down 3M</dt><dd class="${cls(c.roll)}">${fmtS(c.roll, 0)} EUR</dd>`; })()}
+        ${n % b.unit ? `<dt></dt><dd class="neg">not a multiple of the ${fmt(b.unit, 0)} denomination</dd>` : ""}</dl>`,
+        order: { kind: "bond", isin: b.isin, qty: state.side * n, price: px, settle: DATA.settle }, ok: n > 0 && !(n % b.unit), desc: `EUR ${fmt(n, 0)} ${b.name}` }; };
   } else {
     const f = FUT.get(s.id), d = f.type === "credit" ? indexDur(f.code) : null;
     $("#tktSub").textContent = `${f.code} ${f.contract}`;
@@ -860,8 +1102,10 @@ function renderTicket() {
         <dt>${f.type === "credit" ? "CS01 / DV01" : "DV01"}</dt><dd class="${cls(state.side)}">${per != null ? fmtS(state.side * n * per, 0) + " EUR/bp" : "–"}</dd></dl>`,
         order: { kind: "future", code: f.code, contract: f.contract, qty: state.side * n, price: f.last }, ok: n > 0, desc: `${n} ${f.code} ${mmmYY(f.contract)}` }; };
   }
-  body.innerHTML = head + `<div class="sect">${sideBtns}${sizeField}<div id="tkCalc"></div>
+  body.innerHTML = modeBar() + head + `<div class="sect">${sideBtns}${sizeField}<div id="tkCalc"></div>
     <button class="btn solid" id="tkBook" style="padding:5px">${state.canWrite ? "BOOK TRADE" : "SIGN IN TO BOOK"}</button></div>`;
+  bindMode();
+  if (s.kind === "bond") fillHist("tkHist", s.id, async (w) => spark((await histOf(s.id))?.map(x => ({ d: x.d, v: x.v[HK.z] })).filter(x => x.v != null) ?? null, { w, label: "Z-spread" }));
   const upd = () => { const c = calc(); $("#tkCalc").innerHTML = c.html; return c; };
   upd();
   body.querySelectorAll("[data-side]").forEach(b => b.onclick = () => { state.side = +b.dataset.side; renderTicket(); });
@@ -872,11 +1116,76 @@ function renderTicket() {
   $("#tkBook").onclick = async () => {
     if (!state.canWrite) { openLogin(); return; }
     const c = upd();
-    if (!c.ok) { toast("Enter a size greater than zero"); return; }
+    if (!c.ok) { toast(s.kind === "bond" && state.nominal > 0 ? "The nominal must be a multiple of the minimum denomination" : "Enter a size greater than zero"); return; }
     const btn = $("#tkBook"); btn.disabled = true;
     const ok = await addPositions([c.order]);
     btn.disabled = false;
     if (ok) toast(`${state.side > 0 ? "BOUGHT" : "SOLD"} ${c.desc} @ ${fmt(c.px, 3)}`);
+  };
+}
+
+function renderStratTicket() {
+  const body = $("#tktBody"), type = state.mode, fly = type === "fly", names = fly ? ["WING", "BODY", "WING"] : ["LEG 1", "LEG 2"];
+  const st = stratLegs(), L = st.legs || st.L;
+  $("#tktSub").textContent = fly ? "butterfly · wings 50/50 DV01" : "pair · DV01-neutral";
+  const slots = names.map((nm, i) => {
+    const x = L[i], q = st.legs?.[i]?.qty;
+    const size = q == null ? "" : `${x.kind === "bond" ? fmt(Math.abs(q), 0) : fmt(Math.abs(q), 0) + " lots"} @ ${fmt(st.legs[i].px, 3)} · `;
+    return `<div class="leg${state.slot === i ? " act" : ""}" data-slot="${i}"><span class="ln">${nm}</span>
+      <span>${q == null ? "" : q > 0 ? `<span class="pos">BUY</span>` : `<span class="neg">SELL</span>`}</span>
+      <span class="nm">${x ? esc(x.name) : `<span class="muted">${state.slot === i ? "click a bond or future" : "empty"}</span>`}</span>
+      <span>${x ? `<button class="btn x" data-clear="${i}" title="Remove leg">×</button>` : ""}</span>
+      ${x ? `<span class="s2">${size}YTM ${fmt(x.y, 2)}${x.z != null ? ` · Z ${fmt(x.z, 0)}` : ""}${x.rv != null ? ` · RV ${fmtS(x.rv, 1)}` : ""} · DV01 ${x.dv01 ? fmt(x.dv01 * (x.kind === "bond" ? 1e6 : 1), 0) + (x.kind === "bond" ? "/M" : "/lot") : "n/a"}</span>` : ""}</div>`;
+  }).join("");
+  const dir = fly
+    ? `<div class="chips" id="tkDir">${[[1, "BUY BODY · SELL WINGS"], [-1, "SELL BODY · BUY WINGS"]].map(([v, l]) => `<button data-dir="${v}" aria-pressed="${state.flyDir === v}">${l}</button>`).join("")}</div>`
+    : `<div class="chips" id="tkDir">${[[1, "LONG 1 · SHORT 2"], [-1, "SHORT 1 · LONG 2"]].map(([v, l]) => `<button data-dir="${v}" aria-pressed="${state.pairSide === v}">${l}</button>`).join("")}</div>`;
+  const anchor = L[fly ? 1 : 0], lots = anchor?.kind === "fut";
+  const sizeLbl = `${fly ? "BODY" : "LEG 1"} ${lots ? "CONTRACTS" : "NOMINAL (EUR)"}`;
+  const sizeField = `<label class="lbl" for="tkSize">${sizeLbl}</label><input id="tkSize" class="num" style="width:100%" inputmode="numeric" value="${fmt(lots ? state.stratLots : state.stratNom, 0)}">`;
+  let calc = `<p class="note">${fly ? "Fill the two wings and the body" : "Fill both legs"}: click a leg, then a bond in the screener or a future on the board. The other legs are sized for zero net DV01${fly ? " (each wing carries half of the body's DV01)" : ""}.</p>`;
+  let ok = false;
+  if (st.ready) {
+    const ly = levelOf(type, st.legs, "y"), lz = levelOf(type, st.legs, "z");
+    const short = (x) => x.kind === "bond" ? `${x.name.split(" ")[0]} ${x.b.mat.slice(2, 4)}` : x.id;
+    const def = fly ? `FLY ${st.legs.map(short).join("/")}` : `PAIR ${st.legs.map(x => x.kind === "bond" ? x.name : x.id).join(" / ")}`;
+    state.stratName = state.stratName || def.slice(0, 60);
+    calc = `<dl class="kv"><dt>Level (yield)</dt><dd class="big">${ly == null ? "–" : fmt(ly, 1) + " bp"}</dd>${lz != null ? `<dt>Level (Z-spread)</dt><dd>${fmt(lz, 1)} bp</dd>` : ""}
+      <dt></dt><dd class="muted">${fly ? "2 × body − wings" : "long − short"}; profits if it ${profitsIf(type, st.legs)}</dd>
+      <dt>Net DV01</dt><dd class="${cls(st.dv)}">${fmtS(st.dv, 0)} EUR/bp</dd><dt>Net CS01</dt><dd class="${cls(st.cs)}">${fmtS(st.cs, 0)} EUR/bp</dd>
+      <dt>Gross DV01</dt><dd>${fmt(st.legs.reduce((a, x) => a + Math.abs(x.qty * x.dv01), 0), 0)} EUR/bp</dd>
+      <dt title="half the bid-offer on each bond leg">Cost vs mid</dt><dd class="neg">${fmt(-st.cost, 0)} EUR</dd>
+      <dt>Carry 3M</dt><dd class="${cls(st.cr.carry)}">${fmtS(st.cr.carry, 0)} EUR</dd><dt>Roll-down 3M</dt><dd class="${cls(st.cr.roll)}">${fmtS(st.cr.roll, 0)} EUR</dd></dl>
+      <label class="lbl" for="tkName">STRATEGY NAME</label><input id="tkName" style="width:100%" maxlength="60" value="${esc(state.stratName)}">`;
+    ok = true;
+  }
+  body.innerHTML = modeBar() + `<div class="sect"><div class="legs">${slots}</div>${dir}${sizeField}<div id="tkCalc">${calc}</div>
+    <button class="btn solid" id="tkBook" style="padding:5px" ${ok ? "" : "disabled"}>${state.canWrite ? `BOOK ${fly ? "BUTTERFLY" : "PAIR"}` : "SIGN IN TO BOOK"}</button></div>
+    ${ok ? `<div class="sect"><div class="lbl">LEVEL HISTORY (YIELD), BP</div><div class="hist" id="tkHist"></div></div>` : ""}`;
+  bindMode();
+  body.querySelectorAll("[data-slot]").forEach(el => el.onclick = e => { if (e.target.closest("button")) return; state.slot = +el.dataset.slot; renderStratTicket(); });
+  body.querySelectorAll("[data-clear]").forEach(el => el.onclick = () => { const i = +el.dataset.clear; state.legs[i] = null; state.slot = i; state.stratName = ""; store("legs", state.legs); renderStratTicket(); });
+  $("#tkDir").onclick = e => { const v = +e.target.dataset.dir; if (!v) return; if (fly) state.flyDir = v; else state.pairSide = v; renderStratTicket(); };
+  $("#tkSize").onchange = e => { const v = Number(e.target.value.replace(/[^\d]/g, "")) || 0; if (lots) state.stratLots = v; else state.stratNom = v; renderStratTicket(); };
+  $("#tkSize").onkeydown = e => { if (e.key === "Enter") e.target.blur(); };
+  if ($("#tkName")) $("#tkName").oninput = e => { state.stratName = e.target.value; };
+  if (ok) {
+    const legs = st.legs.map(x => ({ qty: x.qty, hid: x.kind === "bond" ? x.id : "FUT:" + x.id }));
+    fillHist("tkHist", legs.map(x => x.hid + x.qty).join("|"), async (w) => spark(await levelHist(type, legs, "y"), { w, label: "Level" }));
+  }
+  $("#tkBook").onclick = async () => {
+    if (!state.canWrite) { openLogin(); return; }
+    const cur = stratLegs();
+    if (!cur.ready) return;
+    const sid = newId(), name = (state.stratName || "").trim() || type.toUpperCase();
+    const strat = (i) => ({ id: sid, name, type, leg: i, y0: levelOf(type, cur.legs, "y"), z0: levelOf(type, cur.legs, "z") });
+    const orders = cur.legs.map((x, i) => x.kind === "bond"
+      ? { kind: "bond", isin: x.id, qty: x.qty, price: x.px, settle: DATA.settle, strat: strat(i) }
+      : { kind: "future", code: x.id, contract: x.f.contract, qty: x.qty, price: x.px, strat: strat(i) });
+    const btn = $("#tkBook"); btn.disabled = true;
+    const done = await addPositions(orders, name);
+    btn.disabled = false;
+    if (done) { toast(`${name} booked (${orders.length} legs)`); state.stratName = ""; }
   };
 }
 

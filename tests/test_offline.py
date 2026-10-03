@@ -459,3 +459,46 @@ def test_site_coupon_cleaning():
     assert build.clean_coupon(1125.0, "FINPOW 1  1/8  11/23/27 BOND") == 1.125
     assert build.clean_coupon(2.7, "BKO 0 09/13/28") == 2.7       # FIRDS wins below 20%
     assert build.clean_coupon(36.0, "No coupon in this name") is None
+
+
+def test_rich_cheap_flags_outlier_and_skips_short_and_thin_issuers():
+    import numpy as np
+    T = np.array([0.6, 1, 2, 3, 5, 7, 10, 15.0, 2, 4])
+    z = 50 + 20 * np.log(np.maximum(T, 0.25))
+    z[4] += 15                                   # the 5y bond trades 15 bp cheap
+    groups = ["A"] * 8 + ["B"] * 2               # issuer B has too few bonds for a curve
+    rv, coefs = an.rich_cheap(groups, T, z)
+    assert rv[4] == pytest.approx(15, abs=0.5)
+    assert all(abs(rv[i]) < 0.5 for i in (1, 2, 3, 5, 6, 7))
+    assert rv[0] is None                          # under 1 year
+    assert rv[8] is None and rv[9] is None and "B" not in coefs
+
+
+def test_history_files_and_shards(tmp_path):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    cols = ["isin", "bid", "ask", "ytm", "z", "rv"]
+    for day, px in (("2026-10-01", 99.0), ("2026-10-02", 99.5)):
+        data = dict(asof=day, cols=cols, bonds=[["DE0001102580", px - 0.1, px + 0.1, 2.5, -12.0, 1.5]],
+                    futures=[dict(code="FGBL", last=121.0, ctd=dict(ytm=2.6))])
+        build.write_history(data, str(tmp_path / "h"))
+    data = dict(asof="2026-10-03", cols=cols, bonds=[["XS0000000001", 100.0, 100.2, 3.0, 80.0, None]], futures=[])
+    build.write_history(data, str(tmp_path / "h"))
+    dates = build.build_shards(str(tmp_path / "h"), str(tmp_path / "hist"))
+    assert dates == ["2026-10-01", "2026-10-02", "2026-10-03"]
+    sh = json.load(open(tmp_path / "hist" / f"{build.shard_of('DE0001102580')}.json"))
+    assert sh["d"] == dates and sh["s"]["DE0001102580"] == [[99.0, 2.5, -12.0, 1.5], [99.5, 2.5, -12.0, 1.5], None]
+    fut = json.load(open(tmp_path / "hist" / f"{build.shard_of('FUT:FGBL')}.json"))["s"]["FUT:FGBL"]
+    assert fut[0] == [121.0, 2.6, None, None]
+    assert json.load(open(tmp_path / "hist" / f"{build.shard_of('XS0000000001')}.json"))["s"]["XS0000000001"][2][3] is None
+
+
+def test_estr_parse(monkeypatch):
+    body = (b"KEY,FREQ,TIME_PERIOD,OBS_VALUE\n"
+            b"EST.B.EU000A2X2A25.WT,B,2026-10-01,2.442\n")
+
+    class R(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(ecb_curve.urllib.request, "urlopen", lambda req, timeout=0: R(body))
+    assert ecb_curve.estr("2026-10-02") == ("2026-10-01", 2.442)
