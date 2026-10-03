@@ -5,7 +5,7 @@ from collections import namedtuple
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import classify, ecb_curve, firds, mfs  # noqa: E402
+import classify, ecb_curve, eurex, firds, mfs  # noqa: E402
 
 # ECB AAA-liknande parametrar (ungefärliga, rimlig kurvform)
 P = dict(b0=0.9, b1=1.1, b2=6.0, b3=-4.5, t1=3.5, t2=6.0)
@@ -296,3 +296,30 @@ def test_open_backs_off_on_429(monkeypatch):
     monkeypatch.setattr(mfs.time, "sleep", sleeps.append)
     assert mfs._open("https://x/y").read() == b"ok"
     assert len(calls) == 3 and sleeps == []  # 429 -> Retry-After (0 s), ingen extra backoff
+
+
+# ---------------------------------------------------------------- eurex
+def _pt(isin, t, px, qty, mode="2", tx=None, mod="-", contract="2026-12-08", **kw):
+    return dict(messageId="posttrade", instrumentIdentificationCode=isin, contractDate=contract, price=px, quantity=qty,
+                mmtTradingMode=mode, mmtModificationInd=mod, tradingDateAndTime=f"2026-10-02T{t}.000000000Z",
+                transactionIdentificationCode=tx or f"{isin}{t}{px}", **kw)
+
+
+def test_eurex_daily(tmp_path):
+    arch, db = str(tmp_path / "a"), str(tmp_path / "m.sqlite")
+    bund, fehy = eurex.PRODUCTS["FGBL"][0], eurex.PRODUCTS["FEHY"][0]
+    msgs = [_pt(bund, "07:00:00", 121.0, 10, mode="O"), _pt(bund, "08:00:00", 121.5, 30),
+            _pt(bund, "09:00:00", 120.5, 500, mode="5"),                   # block: inte i OHLC
+            _pt(bund, "10:00:00", 99.0, 1, tx="FEL"), _pt(bund, "10:00:01", 99.0, 1, tx="FEL", mod="C"),  # makulerad
+            _pt(bund, "11:00:00", 121.2, 10, optionCategory="C"),          # option, ignoreras
+            _pt(fehy, "12:00:00", 309.0, 5, contract="2026-12-18"),
+            _pt("DE0000000000", "12:00:00", 1, 1)]                         # okänd produkt
+    folder = os.path.join(arch, "DEUR-posttrade", "2026-10-02")
+    os.makedirs(folder)
+    _write_gz(os.path.join(folder, "DEUR-posttrade-daily-2026-10-02.json.gz"), msgs)
+    rows = {r[1]: r for r in eurex.build_daily("2026-10-02", arch, db)}
+    b = rows["FGBL"]
+    assert (b[4], b[5], b[6]) == (3, 40, 500)                     # affärer, orderbokslots, blocklots
+    assert b[7:11] == (121.0, 121.5, 121.0, 121.5)                # open, high, low, last
+    assert b[12] == pytest.approx((121.0 * 10 + 121.5 * 30) / 40)
+    assert rows["FEHY"][2] == "2026-12-18" and rows["FEHY"][10] == 309.0
