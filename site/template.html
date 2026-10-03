@@ -36,10 +36,8 @@ a { color: var(--blue); }
 /* function bar: grey band with a red rule; the active function is the red Bloomberg menu-bar block */
 .fkeys { display: flex; gap: 1px; background: var(--band-2); border-bottom: 2px solid var(--red-bar); overflow-x: auto; }
 .fkeys button { background: var(--band-2); border: 0; color: var(--fg-2); padding: 4px 14px; cursor: pointer; white-space: nowrap; letter-spacing: .04em; }
-.fkeys button kbd { font: inherit; margin-right: 6px; color: var(--fg); }
 .fkeys button:hover { background: #333; color: #fff; }
 .fkeys button[aria-selected="true"] { background: var(--red-bar); color: #fff; }
-.fkeys button[aria-selected="true"] kbd { color: #fff; }
 .views { min-height: 0; padding-block: 8px; }
 .view { display: grid; gap: 8px; height: 100%; min-height: 0; }
 .status { display: flex; flex-wrap: wrap; gap: 2px 18px; align-items: center; border-top: 1px solid var(--line); padding-block: 4px; color: var(--fg-3); min-width: 0; }
@@ -202,10 +200,10 @@ dialog label { display: grid; gap: 3px; color: var(--fg-2); }
     <div class="acct" id="acct"></div>
   </header>
   <nav class="fkeys" role="tablist" aria-label="Workspaces">
-    <button role="tab" data-view="dash" aria-selected="true"><kbd>1</kbd>DASHBOARD</button>
-    <button role="tab" data-view="hold" aria-selected="false"><kbd>2</kbd>HOLDINGS &amp; P&amp;L</button>
-    <button role="tab" data-view="risk" aria-selected="false"><kbd>3</kbd>RISK ANALYTICS</button>
-    <button role="tab" data-view="desk" aria-selected="false"><kbd>4</kbd>MARKET DESK</button>
+    <button role="tab" data-view="dash" aria-selected="true" title="Key 1">DASHBOARD</button>
+    <button role="tab" data-view="hold" aria-selected="false" title="Key 2">HOLDINGS &amp; P&amp;L</button>
+    <button role="tab" data-view="risk" aria-selected="false" title="Key 3">RISK ANALYTICS</button>
+    <button role="tab" data-view="desk" aria-selected="false" title="Key 4">MARKET DESK</button>
   </nav>
   <main class="views">
     <section class="view" id="v-dash"></section>
