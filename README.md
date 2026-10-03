@@ -15,6 +15,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `ecb_curve.py` | ECB YC (data-api.ecb.europa.eu) | Archives the ECB Svensson parameters (AAA and all euro area) since 2004; spot, forward, par and discount factors |
 | `analytics.py` | – | Accrued interest, YTM, modified duration, Z-spread vs the ECB curve, conversion factors and CTD for the Bund-family futures, issuer spread curves (rich/cheap) |
 | `site/build.py` | data + ECB curve + €STR | Builds the portfolio site (`site/template.html` → `index.html`) with the day's data embedded; writes `data/history/<date>.csv.gz` and the `hist/` time series |
+| `market.py` | ECB (curves, €STR, EUR/USD), NY Fed (SOFR), FRED (ICE BofA OAS, VIX) | End-of-day market monitor and the risk-factor history for VaR |
 | `ci.py` | all of the above | Daily GitHub Actions job: fetch, build, archive each business day as a draft release, publish the site |
 
 ```bash
@@ -61,6 +62,13 @@ Relative value:
   the dirty trade value; shorts pay the coupon and earn repo less an editable specialness. The repo rate defaults to
   €STR (ECB data API). Roll-down (3M) = yield change from ageing three months along the ECB AAA curve plus the
   issuer spread curve.
+- **VaR / CVaR** (Risk): historical simulation over the last 500 trading days. Rates: −DV01 per futures bucket ×
+  the change in the ECB AAA spot yield (2/5/10/30Y). Credit: spreads move in proportion to their level (DTS)
+  against the ICE BofA Euro HY OAS; non-AAA sovereigns against the all-govt − AAA 10Y spread. 95/97.5/99% VaR and
+  expected shortfall, 10-day by √10. Linear (no convexity), no idiosyncratic spread risk.
+- **Markets** (key 5): government yields (ECB AAA and all-govt curves, Bund benchmarks), credit (Euro HY / US IG /
+  US HY OAS as proxies for iTraxx Crossover / CDX, Eurex credit index futures), €STR and SOFR, Eurex rates futures,
+  VIX and EUR/USD, with 1D/1W/1M changes. End of day: tick data, iTraxx/CDX, swap rates and Euribor are licensed.
 - **History**: each site build stores the day's mid, YTM, Z-spread and rich/cheap per bond (and futures with the CTD
   yield) in `data/history/`, and publishes them as time series (Z-spread per bond, level per strategy).
 

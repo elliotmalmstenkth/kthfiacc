@@ -502,3 +502,24 @@ def test_estr_parse(monkeypatch):
         def __exit__(self, *a): return False
     monkeypatch.setattr(ecb_curve.urllib.request, "urlopen", lambda req, timeout=0: R(body))
     assert ecb_curve.estr("2026-10-02") == ("2026-10-01", 2.442)
+
+
+def test_market_sources_parse_and_fail_soft(monkeypatch, tmp_path):
+    import market
+    pages = {
+        "fred": "observation_date,VIXCLS\n2026-09-30,16.34\n2026-10-01,.\n2026-10-02,16.39\n2026-10-05,17.0\n",
+        "ecb": "KEY,TIME_PERIOD,OBS_VALUE\nX,2026-10-01,1.12\nX,2026-10-02,1.1225\n",
+        "sofr": '{"refRates":[{"effectiveDate":"2026-10-01","percentRate":3.87},{"effectiveDate":"2026-09-30","percentRate":3.9}]}',
+    }
+
+    def fake(url, timeout=0):
+        if "fred" in url: return pages["fred"]
+        if "newyorkfed" in url: return pages["sofr"]
+        if "EXR" in url: return pages["ecb"]
+        raise RuntimeError("offline")
+    monkeypatch.setattr(market, "_get", fake)
+    assert market.fred("VIXCLS", "2026-10-02") == (["2026-09-30", "2026-10-02"], [16.34, 16.39])   # no data after the day
+    assert market.sofr() == (["2026-09-30", "2026-10-01"], [3.9, 3.87])
+    S = market.build("2026-10-02", str(tmp_path / "none.sqlite"))   # no curve DB and €STR offline: left out
+    assert S["EURUSD"]["v"] == [1.12, 1.1225] and S["VIXCLS"]["src"] == "FRED"
+    assert "ESTR" not in S and "AAA10" not in S

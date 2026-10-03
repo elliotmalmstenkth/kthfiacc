@@ -13,7 +13,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import analytics as an, ecb_curve, eurex  # noqa: E402
+import analytics as an, ecb_curve, eurex, market  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
@@ -141,7 +141,9 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
         except Exception as ex:  # the site still builds; the repo rate falls back to a default on the page
             print(f"€STR unavailable: {ex}", file=sys.stderr)
 
-    return dict(asof=day, settle=settle.isoformat(), estr=estr, built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
+    mkt = market.build(day, ecb_db)
+
+    return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
                 cols=cols, bonds=rows, futures=futures)
 
