@@ -21,8 +21,13 @@ Arkivstruktur:  archive/<flöde>/<handelsdag>/<filnamn>.json.gz
 
 Pre-trade-meddelandena är DELTOR: ett meddelande med bara bestAsk betyder att
 säljkursen ändrats, inte att budet försvunnit. 'marks' slår därför ihop sidorna
-per ISIN (varje sida behåller sitt senaste värde och sin tidsstämpel) och sparar
-läget vid varje --snap (Frankfurttid, HH:MM) och vid dagens slut ('close'):
+per ISIN (varje sida behåller sitt senaste värde och sin tidsstämpel).
+  pris 0 (och qty 0)  = sidan borttagen; vid handelsslut 17:30 får alla obligationer
+                        bid = ask = 0 med tradingSystemPhase 202
+  pris > 0, qty 0     = indikativ kurs utan volym (vanligt på säljsidan på FRAA)
+Ögonblicksbilder:
+  --snap HH:MM (Frankfurttid)  aktuella sidor vid tidpunkten (ensidiga tas med)
+  close                        senaste tvåsidiga läget under dagen (dagens slutkurs)
 
   quotes(date, snap, isin, venue, ccy, bid, bid_qty, bid_time, ask, ask_qty, ask_time)
   days(date, feed, n_files, first_file, last_file, max_gap_min, built_at)
@@ -251,11 +256,13 @@ def build_marks(date, archive=ARCHIVE_DEFAULT, db=DB_DEFAULT, feed="DFRA-pretrad
         raise SystemExit(f"inga {feed}-filer för {date} i {archive}/")
     pending = sorted((_snap_utc(date, s), s) for s in snaps)
     state, out = {}, []
+    SIDES = ("bid", "bid_qty", "bid_time", "ask", "ask_qty", "ask_time")
 
-    def take(label):
+    def take(label, key="live"):
         for isin, q in state.items():
-            out.append((date, label, isin, q["venue"], q["ccy"], q["bid"], q["bid_qty"], q["bid_time"],
-                        q["ask"], q["ask_qty"], q["ask_time"]))
+            v = q[key]
+            if v is not None:
+                out.append((date, label, isin, q["venue"], q["ccy"], *v))
 
     for _, path in files:
         for m in iter_messages(path):
@@ -269,14 +276,23 @@ def build_marks(date, archive=ARCHIVE_DEFAULT, db=DB_DEFAULT, feed="DFRA-pretrad
                 take(pending.pop(0)[1])
             q = state.get(isin)
             if q is None:
-                q = state[isin] = dict(bid=None, bid_qty=None, bid_time=None, ask=None, ask_qty=None, ask_time=None)
+                q = state[isin] = dict(live=None, last2=None, side={k: None for k in SIDES})
             q["venue"], q["ccy"] = m.get("venueOfExecution"), m.get("priceCurrency")
+            sd = q["side"]
             for side, key in (("bid", "bestBid"), ("ask", "bestAsk")):
                 if key in m:
-                    q[side], q[side + "_qty"], q[side + "_time"] = _num(m[key]), _num(m.get(key + "Qty")), ts[:23]
+                    px = _num(m[key])
+                    if px:  # pris 0 = sidan borttagen (t.ex. vid handelsslut, fas 202)
+                        sd[side], sd[side + "_qty"], sd[side + "_time"] = px, _num(m.get(key + "Qty")), ts[:23]
+                    else:
+                        sd[side] = sd[side + "_qty"] = sd[side + "_time"] = None
+            vals = tuple(sd[k] for k in SIDES)
+            q["live"] = vals if (sd["bid"] is not None or sd["ask"] is not None) else None
+            if sd["bid"] is not None and sd["ask"] is not None:
+                q["last2"] = vals
     for _, label in pending:  # ögonblicksbilder efter sista meddelandet
         take(label)
-    take("close")
+    take("close", "last2")
 
     gaps = [(b[0] - a[0]).total_seconds() / 60 for a, b in zip(files, files[1:])]
     con = connect(db)

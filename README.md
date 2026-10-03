@@ -53,6 +53,9 @@ Datafiler (`archive/`, `*.sqlite`, `raw/`, `firds_raw/`) är undantagna från gi
   (`priceNotation` 2). Det blir ~2 GB/dag rått; `sync --bonds-only` sparar bara obligationsraderna.
 - **Pre-trade-meddelanden är deltor**: varje meddelande innehåller bara de sidor som ändrats (`bestBid`/`bestBidQty`
   och/eller `bestAsk`/`bestAskQty`) plus `updateDateAndTime`. `mfs.py marks` slår ihop sidorna.
+- Pris 0 = sidan borttagen. Vid handelsslut (17:30 Frankfurt, `tradingSystemPhase` 202) får alla obligationer
+  bid = ask = 0. Pris > 0 med volym 0 = indikativ kurs. `marks` sparar därför `close` som dagens **senaste tvåsidiga**
+  läge, och `classify` skiljer på tvåsidig (priser) och fast tvåsidig (även volym).
 - Eurex (DEUR-posttrade): ~825 000 affärer/dag; identifieras med produkt-ISIN + `contractDate`. `mmtTradingMode` 2 =
   orderbok, 5 = off-book/block, O/K = auktioner; `mmtModificationInd` C = makulering.
 - Obligationer på Börse Frankfurt handlas på venue `FRAB` (de flesta) och `FRAA`.

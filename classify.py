@@ -153,7 +153,7 @@ def sector_of(row, overrides):
 
 
 def load_quotes(paths):
-    """Per ISIN: sett bud, sett sälj, priskurrency och venue över alla meddelanden."""
+    """Per ISIN: sett bud/sälj (pris > 0), fast bud/sälj (även volym > 0), priskurrency och venue."""
     q = {}
     bond = re.compile(r'"priceNotation"\s*:\s*2\s*[,}]')  # snabbfilter före json.loads
     for p in paths:
@@ -165,10 +165,12 @@ def load_quotes(paths):
                 if r.get("priceNotation") != 2:
                     continue
                 i = r["instrumentIdentificationCode"]
-                d = q.setdefault(i, {"bid": False, "ask": False, "both_in_one_msg": False, "msgs": 0,
+                d = q.setdefault(i, {"bid": False, "ask": False, "firm_bid": False, "firm_ask": False, "msgs": 0,
                                      "price_ccy": r.get("priceCurrency"), "venue": r.get("venueOfExecution")})
-                b, a = "bestBid" in r, "bestAsk" in r
-                d["bid"] |= b; d["ask"] |= a; d["both_in_one_msg"] |= (b and a); d["msgs"] += 1
+                # pris 0 = ingen kurs (t.ex. handelsslut); qty 0 med pris > 0 = indikativ kurs
+                b, a = bool(r.get("bestBid")), bool(r.get("bestAsk"))
+                d["bid"] |= b; d["ask"] |= a; d["msgs"] += 1
+                d["firm_bid"] |= b and bool(r.get("bestBidQty")); d["firm_ask"] |= a and bool(r.get("bestAskQty"))
     return q
 
 
@@ -205,6 +207,7 @@ def main():
     df["coupon_type"] = df.cfi.str[2].map({"F": "fixed", "Z": "zero", "V": "floating", "C": "cash", "K": "payment-in-kind"}).fillna("other")
     df["benchmark_500m"] = df.issued_amt >= 5e8
     df["two_sided"] = df.bid & df.ask
+    df["two_sided_firm"] = df.firm_bid & df.firm_ask
     df.index.name = "isin"
     df.to_csv(a.out)
     # emittentlista för manuell granskning -> kopiera rader till overrides.csv vid fel
@@ -217,12 +220,14 @@ def main():
     # --- sammanfattning ------------------------------------------------------
     e = df[df.ccy == "EUR"]
     print(f"Obligations-ISIN i filerna: {len(df):,}   varav i FIRDS: {(df.cfi != '').sum():,}   EUR-denominerade: {len(e):,}\n")
-    t = pd.crosstab(e.sector, e.two_sided, margins=True).rename(columns={True: "tvåsidig", False: "ensidig", "All": "totalt"})
-    print("EUR-denominerade per sektor (tvåsidig = både bud och sälj sett i filerna):")
+    t = pd.DataFrame({"antal": e.groupby("sector").size(), "tvåsidig": e.groupby("sector").two_sided.sum(),
+                      "tvås. fast": e.groupby("sector").two_sided_firm.sum()})
+    t.loc["totalt"] = t.sum()
+    print("EUR-denominerade per sektor (tvåsidig = bud och sälj > 0 sedda; fast = även med volym):")
     print(t.to_string(), "\n")
     corp = e[e.sector.isin(["CORP_FIN", "CORP_NONFIN"])]
-    def row(lbl, x): print(f"  {lbl:<55}{len(x):>6,}{x.two_sided.sum():>8,}")
-    print(f"  {'EUR-företagsobligationer (exkl. säkerställda/ABS/strukt.)':<55}{'antal':>6}{'tvås.':>8}")
+    def row(lbl, x): print(f"  {lbl:<55}{len(x):>6,}{x.two_sided.sum():>8,}{x.two_sided_firm.sum():>8,}")
+    print(f"  {'EUR-företagsobligationer (exkl. säkerställda/ABS/strukt.)':<55}{'antal':>6}{'tvås.':>8}{'fast':>8}")
     row("alla", corp)
     row("  icke-finansiella", corp[corp.sector == "CORP_NONFIN"])
     row("  finansiella", corp[corp.sector == "CORP_FIN"])

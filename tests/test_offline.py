@@ -157,13 +157,17 @@ def test_load_quotes(tmp_path):
     _write_gz(p, [
         {"instrumentIdentificationCode": "A", "priceNotation": 2, "bestBid": 99.1, "priceCurrency": "EUR"},
         {"instrumentIdentificationCode": "A", "priceNotation": 2, "bestAsk": 99.5, "priceCurrency": "EUR"},
-        {"instrumentIdentificationCode": "B", "priceNotation": 2, "bestBid": 98, "bestAsk": 99, "priceCurrency": "EUR"},
+        {"instrumentIdentificationCode": "B", "priceNotation": 2, "bestBid": 98, "bestAsk": 99, "priceCurrency": "EUR",
+         "bestBidQty": 1e5, "bestAskQty": 0.0},                                    # indikativ säljkurs
+        {"instrumentIdentificationCode": "Z", "priceNotation": 2, "bestBid": 0.0, "bestAsk": 0.0,
+         "bestBidQty": 0.0, "bestAskQty": 0.0},                                    # handelsslut
         {"instrumentIdentificationCode": "S", "priceNotation": 1, "bestBid": 10, "bestAsk": 11},
     ])
     q = classify.load_quotes([str(p)])
-    assert set(q) == {"A", "B"}
-    assert q["A"]["bid"] and q["A"]["ask"] and not q["A"]["both_in_one_msg"] and q["A"]["msgs"] == 2
-    assert q["B"]["both_in_one_msg"]
+    assert set(q) == {"A", "B", "Z"}
+    assert q["A"]["bid"] and q["A"]["ask"] and q["A"]["msgs"] == 2
+    assert q["B"]["bid"] and q["B"]["ask"] and q["B"]["firm_bid"] and not q["B"]["firm_ask"]
+    assert not (q["Z"]["bid"] or q["Z"]["ask"])
 
 
 # ---------------------------------------------------------------- mfs
@@ -204,7 +208,8 @@ def test_build_marks_merges_deltas_and_snapshots(tmp_path):
     W("06:01", [q("A", "06:01:05", ask=99.5)])        # bara säljsidan ändras
     W("15:29", [q("A", "15:29:59", bid=99.2), q("B", "15:30:00", bid=50.5)])  # 17:30 CEST = 15:30 UTC
     W("15:45", [q("A", "15:45:00", 98.0, 98.6), q("C", "15:45:10", ask=102)])
-    con = mfs.build_marks(day, arch, db, snaps=["17:30"])
+    W("15:50", [q("A", "15:50:00", 0.0, 0.0), q("B", "15:50:00", 0.0, 0.0)])  # handelsslut: pris 0 = ingen kurs
+    con = mfs.build_marks(day, arch, db, snaps=["17:30", "17:55"])
     rows = {(s, i): tuple(r) for s, i, *r in con.execute(
         "SELECT snap, isin, bid, ask, bid_time, ask_time, bid_qty, venue FROM quotes")}
     a = rows[("17:30", "A")]
@@ -214,12 +219,14 @@ def test_build_marks_merges_deltas_and_snapshots(tmp_path):
     assert ("17:30", "C") not in rows
     assert rows[("close", "A")][:2] == (98.0, 98.6)
     assert rows[("close", "B")][:2] == (50.5, 51)
-    assert rows[("close", "C")][:2] == (None, 102)
+    assert ("close", "C") not in rows                    # aldrig tvåsidig -> ingen slutkurs
+    assert rows[("17:55", "C")][:2] == (None, 102)       # men syns ensidigt i ögonblicksbild
+    assert ("17:55", "A") not in rows                    # borttagen efter handelsslut
     assert ("close", "STOCK") not in rows
     n, gap = con.execute("SELECT n_files, max_gap_min FROM days").fetchone()
-    assert (n, gap) == (4, 568)
+    assert (n, gap) == (5, 568)
     mfs.build_marks(day, arch, db)  # ombyggnad ersätter dagen
-    assert con.execute("SELECT count(*) FROM quotes").fetchone()[0] == 3
+    assert con.execute("SELECT count(*) FROM quotes").fetchone()[0] == 2
 
 
 class Resp(io.BytesIO):
