@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-FIRDS referensdata -> SQLite.
+FIRDS reference data -> SQLite.
 
-Hämtar senaste fullständiga FIRDS-filerna (FULINS) för en CFI-kategori från ESMA
-och bygger en deduplicerad tabell med en rad per ISIN.
+Downloads the latest full FIRDS files (FULINS) for one CFI category from ESMA and builds a
+de-duplicated table with one row per ISIN.
 
-  python firds.py --cat D            # skuldinstrument (obligationer m.m.)
-  python firds.py --cat F            # terminer (för att identifiera Eurex-hedgar)
+  python firds.py --cat D            # debt instruments (bonds etc.)
+  python firds.py --cat F            # futures (to identify Eurex hedges)
   python firds.py --cat D --date 2026-10-03 --db firds.sqlite
 
-ESMA publicerar FULINS en gång i veckan (lördag) och dagliga deltor (DLTINS).
-För klubbens behov räcker veckovis fullfil. Kräver nätverksåtkomst till
-registers.esma.europa.eu och firds.esma.europa.eu.
+ESMA publishes FULINS once a week (Saturday) plus daily deltas (DLTINS). The weekly full file
+is enough for the club. Needs network access to registers.esma.europa.eu and
+firds.esma.europa.eu.
 """
 import argparse, datetime as dt, io, json, os, sqlite3, subprocess, sys, urllib.request, zipfile
 from lxml import etree
@@ -21,7 +21,7 @@ NS = "{urn:iso:std:iso:20022:tech:xsd:auth.017.001.02}"
 
 
 def list_fulins(cat, date=None, lookback_days=10):
-    """Returnerar (publiceringsdatum, [download_links]) för senaste FULINS-uppsättningen."""
+    """Returns (publication date, [download_links]) for the latest FULINS set."""
     end = dt.date.fromisoformat(date) if date else dt.date.today()
     start = end - dt.timedelta(days=lookback_days)
     q = (f"?q=*&fq=file_type:FULINS&fq=publication_date:%5B{start}T00:00:00Z+TO+{end}T23:59:59Z%5D"
@@ -38,7 +38,7 @@ def download(url, folder):
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, url.rsplit("/", 1)[1])
     if not os.path.exists(path):
-        print("hämtar", url, file=sys.stderr)
+        print("downloading", url, file=sys.stderr)
         tmp = path + ".part"
         with urllib.request.urlopen(url, timeout=600) as r, open(tmp, "wb") as f:
             while chunk := r.read(1 << 20):
@@ -57,7 +57,7 @@ def _p(path):
 
 
 def parse_records(zip_path):
-    """Strömmar <RefData>-poster ur en FULINS-zip utan att läsa in hela XML:en."""
+    """Streams <RefData> records from a FULINS zip without loading the whole XML."""
     with zipfile.ZipFile(zip_path) as z:
         name = z.namelist()[0]
         with z.open(name) as fh:
@@ -139,14 +139,14 @@ def build(cat, date, db, folder):
     rows = [vals + [",".join(sorted(v for v in ven if v)), len(ven), pub] for vals, ven in seen.values()]
     con.executemany(f"INSERT INTO {table} VALUES ({','.join('?' * (len(cols) + 3))})", rows)
     con.commit()
-    print(f"{table}: {len(rows):,} ISIN från FIRDS {pub} -> {db}", file=sys.stderr)
+    print(f"{table}: {len(rows):,} ISINs from FIRDS {pub} -> {db}", file=sys.stderr)
     return con
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cat", default="D", help="CFI-kategori: D=skuld, F=terminer, O=optioner ...")
-    ap.add_argument("--date", help="senaste publiceringsdatum att söka bakåt från (YYYY-MM-DD)")
+    ap.add_argument("--cat", default="D", help="CFI category: D=debt, F=futures, O=options ...")
+    ap.add_argument("--date", help="latest publication date to search back from (YYYY-MM-DD)")
     ap.add_argument("--db", default="firds.sqlite")
     ap.add_argument("--folder", default="firds_raw")
     a = ap.parse_args()

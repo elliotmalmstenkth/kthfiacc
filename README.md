@@ -53,7 +53,7 @@ and sign in on the site (the token is stored only in your browser). Buys execute
 Tue–Sat and a FIRDS snapshot on Sundays. Each business day becomes a **draft release** `data-<date>` (visible only
 to collaborators): marks at 12:00/17:25/close, bond classification, Eurex futures, and raw data (bond rows from
 DFRA-pretrade ~340 MB, post-trade ~75 MB). The site is then rebuilt and deployed to GitHub Pages, and
-`data/log.csv` gets one row per day. Manual run: Actions → Marknadsdata → Run workflow (`daily`, `site` or `firds`).
+`data/log.csv` gets one row per day. Manual run: Actions → Market data → Run workflow (`daily`, `site` or `firds`).
 
 Download a day: `gh release download data-2026-10-02 -D dl/` (requires write access, as releases are drafts).
 

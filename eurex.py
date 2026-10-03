@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 """
-Eurex-terminer för hedgning: daglig prissammanställning ur DEUR-posttrade (mfs.py-arkivet).
+Eurex futures for hedging: daily price summary from DEUR-posttrade (the mfs.py archive).
 
-  python eurex.py daily 2026-10-02                 # -> futures_daily i marks.sqlite
+  python eurex.py daily 2026-10-02                 # -> futures_daily in marks.sqlite
   python eurex.py daily 2026-10-02 --show
-  python eurex.py products                         # visa produkttabellen
+  python eurex.py products                         # print the product table
 
-Eurex rapporterar affärer med PRODUKTENS ISIN (t.ex. DE0009652644 = Euro-Bund) plus
-contractDate (förfallodag), inte med kontraktets ISIN i FIRDS (DE000F...). Produkt-ISIN
-nedan är hämtade från produktsidorna på eurex.com (okt 2026).
+Eurex reports trades with the PRODUCT ISIN (e.g. DE0009652644 = Euro-Bund) plus contractDate
+(expiry), not with the contract ISIN in FIRDS (DE000F...). The product ISINs below are taken
+from the product pages on eurex.com (Oct 2026).
 
-Flaggor i posttrade:
-  mmtTradingMode     2 = kontinuerlig handel (orderbok), 5 = off-book (block/TES),
-                     O = öppningsauktion, K = stängningsauktion
-  mmtModificationInd C = makulering (affären med samma transactionIdentificationCode räknas bort)
-'last' är senaste orderboksaffär (2/O/K) – en approximation av Eurex dagliga avräkningskurs,
-som inte finns i MiFID-filerna.
+Post-trade flags:
+  mmtTradingMode     2 = continuous trading (on-book), 5 = off-book (block/TES),
+                     O = opening auction, K = closing auction
+  mmtModificationInd C = cancellation (the trade with the same transactionIdentificationCode is removed)
+'last' is the final on-book trade (2/O/K), a proxy for the Eurex daily settlement price,
+which is not in the MiFID files.
 """
 import argparse, gzip, json, os, sqlite3, sys
 from collections import defaultdict
 
 import mfs
 
-# kod: (produkt-ISIN, namn, typ, valuta, värde per indexpunkt/procentenhet)
+# code: (product ISIN, name, type, currency, value per index point / price point)
 PRODUCTS = {
-    # statsobligationsterminer: nominellt 100 000, kurs i procent -> 1 000 per punkt
+    # government bond futures: EUR 100,000 notional, quoted in % of par -> 1,000 per point
     "FGBS": ("DE0009652669", "Euro-Schatz (DE 1.75–2.25y)", "govt", "EUR", 1000),
     "FGBM": ("DE0009652651", "Euro-Bobl (DE 4.5–5.5y)", "govt", "EUR", 1000),
     "FGBL": ("DE0009652644", "Euro-Bund (DE 8.5–10.5y)", "govt", "EUR", 1000),
@@ -37,7 +37,7 @@ PRODUCTS = {
     "FBON": ("DE000A163W29", "Euro-BONO", "govt", "EUR", 1000),
     "FBEU": ("DE000A3ETB78", "Euro-EU Bond", "govt", "EUR", 1000),
     "CONF": ("CH0002741988", "CONF (Swiss Confederation)", "govt", "CHF", 1000),
-    # kreditindexterminer: kontant avräkning, multiplikator från FIRDS
+    # credit index futures: cash-settled, multiplier from FIRDS
     "FECX": ("DE000A2QQU00", "Bloomberg MSCI Euro Corporate Screened", "credit", "EUR", 1000),
     "FEHY": ("DE000A3DLQ96", "Bloomberg Liquidity Screened Euro High Yield", "credit", "EUR", 200),
     "FGBC": ("DE000A3EXVZ9", "Bloomberg Sterling Liquid Corporate", "credit", "GBP", 200),
@@ -59,18 +59,18 @@ def connect(db=mfs.DB_DEFAULT):
 
 
 def day_trades(date, archive=mfs.ARCHIVE_DEFAULT, feed="DEUR-posttrade"):
-    """Affärer för produkterna i PRODUCTS. Använder dagsfilen om den finns, annars minutfilerna."""
+    """Trades for the products in PRODUCTS. Uses the daily file if present, otherwise the minute files."""
     folder = os.path.join(archive, feed, date)
     daily = os.path.join(folder, f"{feed}-daily-{date}.json.gz")
     paths = [daily] if os.path.exists(daily) else [p for _, p in mfs.day_files(archive, feed, date)]
     if not paths:
-        raise SystemExit(f"inga {feed}-filer för {date} i {archive}/")
+        raise SystemExit(f"no {feed} files for {date} in {archive}/")
     trades, cancelled = [], set()
     for p in paths:
         for m in mfs.iter_messages(p):
             if m.get("messageId") != "posttrade" or m.get("instrumentIdentificationCode") not in BY_ISIN:
                 continue
-            if m.get("optionCategory"):  # optioner på samma produkt-ISIN
+            if m.get("optionCategory"):  # options on the same product ISIN
                 continue
             if m.get("mmtModificationInd") == "C":
                 cancelled.add(m.get("transactionIdentificationCode"))
@@ -98,13 +98,13 @@ def build_daily(date, archive=mfs.ARCHIVE_DEFAULT, db=mfs.DB_DEFAULT):
     con.execute("DELETE FROM futures_daily WHERE date=?", (date,))
     con.executemany("INSERT INTO futures_daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.commit()
-    print(f"{date}: {len(rows)} kontrakt i {len({r[1] for r in rows})} produkter -> {db}", file=sys.stderr)
+    print(f"{date}: {len(rows)} contracts in {len({r[1] for r in rows})} products -> {db}", file=sys.stderr)
     return rows
 
 
 def show(rows):
-    print(f"{'kod':<5} {'förfall':<10} {'affärer':>8} {'lots':>10} {'block':>8} {'låg':>9} {'hög':>9} {'senast':>9} "
-          f"{'senast UTC':>20} {'kontraktsvärde':>16}")
+    print(f"{'code':<5} {'expiry':<10} {'trades':>8} {'lots':>10} {'block':>8} {'low':>9} {'high':>9} {'last':>9} "
+          f"{'last UTC':>20} {'contract value':>16}")
     for r in rows:
         if r[10] is None and not r[6]:
             continue

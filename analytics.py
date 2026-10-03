@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-Obligationsmatematik för fast- och nollkupongare: upplupen ränta, yield, duration,
-Z-spread mot ECB-kurvan samt omvandlingsfaktor och CTD för Eurex statsobligationsterminer.
+Bond maths for fixed and zero-coupon bonds: accrued interest, yield, duration, Z-spread vs
+the ECB curve, plus conversion factors and CTD for the Eurex government bond futures.
 
-Konventioner (rimliga för EUR-marknaden, se README för undantag):
-  - likviddag T+2 TARGET-bankdagar, ACT/ACT ICMA, kupong 1 gång/år (BTP: 2 gånger/år)
-  - yield med årlig (BTP: halvårs-) sammansatt ränta
-  - Z-spread: kontinuerlig spread över ECB:s Svensson-spotkurva (ecb_curve.Curve)
-  - omvandlingsfaktor (Eurex): ren kurs / 100 vid nominell kupong som yield (6 %, Buxl 4 %) på leveransdagen
+Conventions (reasonable for the EUR market, see README for exceptions):
+  - T+2 TARGET settlement, ACT/ACT ICMA, annual coupons (BTPs: semi-annual)
+  - yield with annual (BTPs: semi-annual) compounding
+  - Z-spread: continuously compounded spread over the ECB Svensson spot curve (ecb_curve.Curve)
+  - conversion factor (Eurex): clean price / 100 at a yield equal to the notional coupon
+    (6%, Buxl 4%) on the delivery date
 """
 import datetime as dt
 import math
 
-# Eurex: leveransbart löptidsintervall (år från leveransdagen) och nominell kupong (%)
+# Eurex: deliverable maturity range (years from delivery) and notional coupon (%)
 FUTURES_BASKET = {"FGBS": (1.75, 2.25), "FGBM": (4.5, 5.5), "FGBL": (8.5, 10.5), "FGBX": (24.0, 35.0)}
 NOTIONAL_COUPON = {"FGBS": 6.0, "FGBM": 6.0, "FGBL": 6.0, "FGBX": 4.0}
 
 
-# ---------------------------------------------------------------- kalender
+# ---------------------------------------------------------------- calendar
 def easter(y):
     a, b, c = y % 19, y // 100, y % 100
     d, e = b // 4, b % 4
@@ -57,9 +58,9 @@ def add_months(d, n):
             continue
 
 
-# ---------------------------------------------------------------- kassaflöden
+# ---------------------------------------------------------------- cash flows
 def schedule(maturity, settle, freq=1):
-    """(föregående kupongdag, [kommande kupongdagar]) – baklänges från förfall."""
+    """(previous coupon date, [future coupon dates]), rolled back from maturity."""
     dates, k = [], 0
     while True:
         d = add_months(maturity, -12 * k // freq)
@@ -70,10 +71,10 @@ def schedule(maturity, settle, freq=1):
 
 
 def cashflows(coupon, maturity, settle, freq=1):
-    """[(tid i år, belopp per 100)] och upplupen ränta per 100. ACT/ACT ICMA."""
+    """[(time in years, amount per 100)] and accrued interest per 100. ACT/ACT ICMA."""
     prev, nxt = schedule(maturity, settle, freq)
     period = (nxt[0] - prev).days
-    w = (nxt[0] - settle).days / period  # andel av första perioden som återstår
+    w = (nxt[0] - settle).days / period  # fraction of the first period remaining
     c = coupon / freq
     flows = [((w + k) / freq, c + (100.0 if k == len(nxt) - 1 else 0.0)) for k in range(len(nxt))]
     accrued = c * (1 - w)
@@ -81,7 +82,7 @@ def cashflows(coupon, maturity, settle, freq=1):
 
 
 def price(y, flows, freq=1):
-    """Smutsig kurs per 100 givet yield y (decimal)."""
+    """Dirty price per 100 for yield y (decimal)."""
     return sum(cf / (1 + y / freq) ** (freq * t) for t, cf in flows)
 
 
@@ -107,7 +108,7 @@ def mod_duration(y, flows, freq=1):
 
 
 def zspread(dirty, flows, curve):
-    """Kontinuerlig spread (decimal) över curve.spot (procent, kontinuerlig)."""
+    """Continuously compounded spread (decimal) over curve.spot (percent, continuous)."""
     f = lambda s: sum(cf * math.exp(-(curve.spot(t) / 100 + s) * t) for t, cf in flows) - dirty
     lo, hi = -0.2, 1.0
     if f(lo) < 0 or f(hi) > 0:
@@ -124,7 +125,7 @@ def zspread(dirty, flows, curve):
 
 
 def analyse(clean, coupon, maturity, settle, curve=None, freq=1):
-    """Nyckeltal för en fast-/nollkupongare. clean = ren kurs per 100. Förfall > 100 år (eviga) -> None."""
+    """Analytics for a fixed/zero-coupon bond. clean = clean price per 100. Maturity > 100y (perpetuals) -> None."""
     if (maturity - settle).days > 100 * 365:
         return None
     flows, acc = cashflows(coupon, maturity, settle, freq)
@@ -133,15 +134,15 @@ def analyse(clean, coupon, maturity, settle, curve=None, freq=1):
     out = dict(accrued=acc, dirty=dirty, ytm=y, years=flows[-1][0])
     if y is not None:
         md = mod_duration(y, flows, freq)
-        out.update(mdur=md, dv01=md * dirty / 1e4)  # per 100 nominellt och baspunkt
+        out.update(mdur=md, dv01=md * dirty / 1e4)  # per 100 nominal per basis point
     if curve is not None:
         out["zspread"] = zspread(dirty, flows, curve)
     return out
 
 
-# ---------------------------------------------------------------- terminer
+# ---------------------------------------------------------------- futures
 def delivery_date(contract_month_date):
-    """Eurex: leverans den 10:e i kontraktsmånaden (eller nästa bankdag)."""
+    """Eurex: delivery on the 10th of the contract month (or the next business day)."""
     d = dt.date(contract_month_date.year, contract_month_date.month, 10)
     while not is_target_day(d):
         d += dt.timedelta(1)
@@ -154,8 +155,8 @@ def conversion_factor(coupon, maturity, delivery, notional=6.0):
 
 
 def ctd(code, fut_price, delivery, bunds, settle, curve=None):
-    """Billigaste leveransbara obligation bland bunds [(isin, coupon, maturity, clean)].
-    Returnerar dict med CTD, omvandlingsfaktor, bruttobasis och terminens DV01 per kontrakt (EUR)."""
+    """Cheapest-to-deliver among bunds [(isin, coupon, maturity, clean)].
+    Returns a dict with the CTD, conversion factor, gross basis and the futures DV01 per contract (EUR)."""
     lo, hi = FUTURES_BASKET[code]
     best = None
     for isin, cpn, mat, clean in bunds:
@@ -168,6 +169,6 @@ def ctd(code, fut_price, delivery, bunds, settle, curve=None):
             best = dict(isin=isin, coupon=cpn, maturity=mat.isoformat(), clean=clean, cf=cf, basis=basis)
     if best:
         a = analyse(best["clean"], best["coupon"], dt.date.fromisoformat(best["maturity"]), settle, curve)
-        # terminskurs ~ CTD-kurs / CF  =>  DV01(termin) ~ DV01(CTD) / CF; 100 000 nominellt per kontrakt
+        # futures price ~ CTD price / CF  =>  DV01(future) ~ DV01(CTD) / CF; EUR 100,000 notional per contract
         best.update(ytm=a["ytm"], mdur=a.get("mdur"), dv01_contract=a["dv01"] / best["cf"] * 1000)
     return best

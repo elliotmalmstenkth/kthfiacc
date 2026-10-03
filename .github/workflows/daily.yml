@@ -1,23 +1,23 @@
-# Arkiverar Deutsche Börse-filerna (försvinner vid midnatt nästa bankdag) som utkast-releaser
-# och bygger portföljsidan på GitHub Pages. Se ci.py för innehåll.
-name: Marknadsdata
+# Archives the Deutsche Börse files (they expire at midnight of the next business day) as draft
+# releases and builds the portfolio site on GitHub Pages. See ci.py for the contents.
+name: Market data
 
 on:
   schedule:
-    - cron: "37 22 * * 1-5"   # efter handelsdagens sista fil (23:00 Frankfurt)
-    - cron: "17 5 * * 1-6"    # reserv: hämtar gårdagen om kvällskörningen missades
-    - cron: "23 6 * * 0"      # söndag: FIRDS-ögonblicksbild (ESMA publicerar på lördagar)
+    - cron: "37 22 * * 1-5"   # after the trading day's last file (23:00 Frankfurt)
+    - cron: "17 5 * * 1-6"    # fallback: fetches yesterday if the evening run was missed
+    - cron: "23 6 * * 0"      # Sunday: FIRDS snapshot (ESMA publishes on Saturdays)
   workflow_dispatch:
     inputs:
       job:
-        description: "daily, site eller firds"
+        description: "daily, site or firds"
         default: daily
       days:
-        description: "handelsdagar att bygga, t.ex. 2026-10-02 (tomt = alla färdiga som saknas)"
+        description: "trading days to build, e.g. 2026-10-02 (empty = all completed days without a release)"
         default: ""
 
 permissions:
-  contents: write   # releaser + data/log.csv
+  contents: write   # releases + data/log.csv
 
 jobs:
   daily:
@@ -25,8 +25,8 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule != '23 6 * * 0') ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'daily')
     runs-on: ubuntu-latest
-    concurrency: { group: marknadsdata-daily, cancel-in-progress: false }   # en insamling i taget
-    timeout-minutes: 300   # nedladdningen är långsam från GitHubs IP-adresser (~45 min per minutflöde)
+    concurrency: { group: marketdata-daily, cancel-in-progress: false }   # one collection run at a time
+    timeout-minutes: 300   # downloads are slow from GitHub's IP ranges (~45 min per minute feed)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,24 +35,24 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m pytest -q tests
-      - name: FIRDS-version
+      - name: FIRDS version
         id: firds
         run: echo "pub=$(python -c 'import firds; print(firds.list_fulins("D")[0])')" >> "$GITHUB_OUTPUT"
-      - name: FIRDS-cache
+      - name: FIRDS cache
         id: firds-cache
         uses: actions/cache@v4
         with:
           path: firds.sqlite
           key: firds-D-${{ steps.firds.outputs.pub }}
-      - name: Bygg FIRDS (en gång per vecka)
+      - name: Build FIRDS (once a week)
         if: steps.firds-cache.outputs.cache-hit != 'true'
         run: python firds.py --cat D --db firds.sqlite --folder firds_raw && rm -rf firds_raw
-      - name: Hämta, bygg och publicera
+      - name: Fetch, build and publish
         env:
           GH_TOKEN: ${{ github.token }}
           DAYS: ${{ inputs.days }}
         run: python ci.py --cleanup --firds-db firds.sqlite daily ${DAYS:+--days $DAYS}
-      - name: Committa data/log.csv
+      - name: Commit data/log.csv
         if: always()
         run: |
           git config user.name "github-actions[bot]"
@@ -69,10 +69,10 @@ jobs:
         (github.event_name == 'schedule' && github.event.schedule != '23 6 * * 0' && needs.daily.result == 'success') ||
         (github.event_name == 'workflow_dispatch' && (inputs.job == 'site' || (inputs.job == 'daily' && needs.daily.result == 'success'))))
     runs-on: ubuntu-latest
-    concurrency: { group: marknadsdata-site, cancel-in-progress: true }
+    concurrency: { group: marketdata-site, cancel-in-progress: true }
     timeout-minutes: 30
     permissions:
-      contents: write   # utkast-releaser kräver skrivrätt att läsa
+      contents: write   # reading draft releases requires write access
       pages: write
       id-token: write
     environment:
@@ -85,7 +85,7 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Bygg portföljsidan
+      - name: Build portfolio site
         env:
           GH_TOKEN: ${{ github.token }}
         run: python ci.py site --out _site
@@ -111,7 +111,7 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: FIRDS-ögonblicksbild
+      - name: FIRDS snapshot
         env:
           GH_TOKEN: ${{ github.token }}
         run: python ci.py firds

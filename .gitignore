@@ -1,4 +1,4 @@
-# data hålls utanför git (stort och/eller licensbundet)
+# data stays out of git (large and/or licence-restricted)
 archive/
 raw/
 firds_raw/

@@ -1,4 +1,4 @@
-"""Offline-tester (ingen nätverksåtkomst): syntetiska data i stället för ECB/ESMA/Deutsche Börse."""
+"""Offline tests (no network access): synthetic data in place of ECB/ESMA/Deutsche Börse."""
 import datetime as dt, gzip, io, json, os, sys, types, zipfile
 from collections import namedtuple
 
@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import ci, classify, ecb_curve, eurex, firds, mfs  # noqa: E402
 
-# ECB AAA-liknande parametrar (ungefärliga, rimlig kurvform)
+# ECB AAA-like parameters (approximate, plausible curve shape)
 P = dict(b0=0.9, b1=1.1, b2=6.0, b3=-4.5, t1=3.5, t2=6.0)
 
 
@@ -31,7 +31,7 @@ def test_par_rate_prices_bond_at_par():
         accr = [times[0]] + [1] * (len(times) - 1)
         price = sum(cpn * a * c.df(t) for t, a in zip(times, accr)) + c.df(m)
         assert price == pytest.approx(1.0, abs=1e-12)
-    # kontinuerlig kupong ligger nära årlig för en jämn kurva
+    # continuous coupon is close to annual for a smooth curve
     assert abs(c.par(10) - c.par(10, 1)) < 0.05
 
 
@@ -64,11 +64,11 @@ def test_update_and_load(tmp_path, monkeypatch):
     monkeypatch.setattr(ecb_curve, "_get", fake_get)
     db = str(tmp_path / "c.sqlite")
     ecb_curve.update(db, raw_dir=str(tmp_path / "raw"))
-    c = ecb_curve.Curve.load("2026-10-02", "AAA", db)  # helg/ingen kurva -> senaste före
+    c = ecb_curve.Curve.load("2026-10-02", "AAA", db)  # weekend/no curve -> latest before
     assert c.date == "2026-10-01" and c.b2 == P["b2"]
     with pytest.raises(LookupError):
         ecb_curve.Curve.load("2026-01-01", "AAA", db)
-    ecb_curve.cmd_check(types.SimpleNamespace(db=db))  # ska inte krascha
+    ecb_curve.cmd_check(types.SimpleNamespace(db=db))  # must not crash
     n = ecb_curve.connect(db).execute("SELECT count(*) FROM grid").fetchone()[0]
     assert n == 2 * len(days) * len(ecb_curve.GRID_TYPES) * len(ecb_curve.GRID_TENORS)
 
@@ -143,7 +143,7 @@ def test_sector_rules(cfi, fisn, lei, want):
 
 
 def test_sector_override_wins():
-    assert classify.sector_of(R("DBFTFB", "KFW/2.0 MTN", "LEI1"), {"LEI1": "CORP_FIN"}) == ("CORP_FIN", "manuell överstyrning")
+    assert classify.sector_of(R("DBFTFB", "KFW/2.0 MTN", "LEI1"), {"LEI1": "CORP_FIN"}) == ("CORP_FIN", "manual override")
 
 
 def _write_gz(path, msgs):
@@ -158,7 +158,7 @@ def test_load_quotes(tmp_path):
         {"instrumentIdentificationCode": "A", "priceNotation": 2, "bestBid": 99.1, "priceCurrency": "EUR"},
         {"instrumentIdentificationCode": "A", "priceNotation": 2, "bestAsk": 99.5, "priceCurrency": "EUR"},
         {"instrumentIdentificationCode": "B", "priceNotation": 2, "bestBid": 98, "bestAsk": 99, "priceCurrency": "EUR",
-         "bestBidQty": 1e5, "bestAskQty": 0.0},                                    # indikativ säljkurs
+         "bestBidQty": 1e5, "bestAskQty": 0.0},                                    # indicative offer
         {"instrumentIdentificationCode": "Z", "priceNotation": 2, "bestBid": 0.0, "bestAsk": 0.0,
          "bestBidQty": 0.0, "bestAskQty": 0.0},                                    # handelsslut
         {"instrumentIdentificationCode": "S", "priceNotation": 1, "bestBid": 10, "bestAsk": 11},
@@ -177,9 +177,9 @@ UTC = dt.timezone.utc
 def test_parse_name_uses_frankfurt_trading_day():
     assert mfs.parse_name("DFRA-pretrade-2026-10-02T08_15.json.gz") == (
         "DFRA-pretrade", "2026-10-02", dt.datetime(2026, 10, 2, 8, 15, tzinfo=UTC))
-    # 23:00 UTC = 01:00 CEST nästa dag
+    # 23:00 UTC = 01:00 CEST the next day
     assert mfs.parse_name("DFRA-pretrade-2026-10-01T23_00.json.gz")[1] == "2026-10-02"
-    # vintertid: 23:00 UTC = 00:00 CET nästa dag
+    # winter time: 23:00 UTC = 00:00 CET the next day
     assert mfs.parse_name("DFRA-pretrade-2026-12-01T23_00.json.gz")[1] == "2026-12-02"
     assert mfs.parse_name("DEUR-posttrade-daily-2026-10-02.json.gz") == ("DEUR-posttrade", "2026-10-02", None)
     assert mfs.parse_name("README.txt") is None
@@ -193,7 +193,7 @@ def _write_minute(archive, feed, utc_hhmm, msgs, day="2026-10-02"):
 
 
 def q(isin, t, bid=None, ask=None, notation=2):
-    """Pre-trade-delta; t = UTC HH:MM:SS 2026-10-02."""
+    """Pre-trade delta; t = UTC HH:MM:SS on 2026-10-02."""
     m = {"messageId": "pretrade", "instrumentIdentificationCode": isin, "priceNotation": notation,
          "priceCurrency": "EUR", "venueOfExecution": "FRAB", "updateDateAndTime": f"2026-10-02T{t}.123456789Z"}
     if bid is not None: m.update(bestBid=bid, bestBidQty=100000.0)
@@ -205,27 +205,27 @@ def test_build_marks_merges_deltas_and_snapshots(tmp_path):
     arch, db, day = str(tmp_path / "a"), str(tmp_path / "m.sqlite"), "2026-10-02"
     W = lambda hhmm, msgs: _write_minute(arch, "DFRA-pretrade", hhmm, msgs)
     W("06:00", [q("A", "06:00:01", 99.0, 99.4), q("B", "06:00:02", 50, 51), q("STOCK", "06:00:03", 10, 11, notation=1)])
-    W("06:01", [q("A", "06:01:05", ask=99.5)])        # bara säljsidan ändras
+    W("06:01", [q("A", "06:01:05", ask=99.5)])        # only the offer changes
     W("15:29", [q("A", "15:29:59", bid=99.2), q("B", "15:30:00", bid=50.5)])  # 17:30 CEST = 15:30 UTC
     W("15:45", [q("A", "15:45:00", 98.0, 98.6), q("C", "15:45:10", ask=102)])
-    W("15:50", [q("A", "15:50:00", 0.0, 0.0), q("B", "15:50:00", 0.0, 0.0)])  # handelsslut: pris 0 = ingen kurs
+    W("15:50", [q("A", "15:50:00", 0.0, 0.0), q("B", "15:50:00", 0.0, 0.0)])  # close: price 0 = no quote
     con = mfs.build_marks(day, arch, db, snaps=["17:30", "17:55"])
     rows = {(s, i): tuple(r) for s, i, *r in con.execute(
         "SELECT snap, isin, bid, ask, bid_time, ask_time, bid_qty, venue FROM quotes")}
     a = rows[("17:30", "A")]
-    assert a[:4] == (99.2, 99.5, "2026-10-02T15:29:59.123", "2026-10-02T06:01:05.123")  # tvåsidig trots deltor
+    assert a[:4] == (99.2, 99.5, "2026-10-02T15:29:59.123", "2026-10-02T06:01:05.123")  # two-way despite deltas
     assert a[4:] == (100000.0, "FRAB")
-    assert rows[("17:30", "B")][:2] == (50, 51)  # B:s ändring 15:30:00 kommer efter ögonblicksbilden
+    assert rows[("17:30", "B")][:2] == (50, 51)  # B's 15:30:00 change comes after the snapshot
     assert ("17:30", "C") not in rows
     assert rows[("close", "A")][:2] == (98.0, 98.6)
     assert rows[("close", "B")][:2] == (50.5, 51)
-    assert ("close", "C") not in rows                    # aldrig tvåsidig -> ingen slutkurs
-    assert rows[("17:55", "C")][:2] == (None, 102)       # men syns ensidigt i ögonblicksbild
-    assert ("17:55", "A") not in rows                    # borttagen efter handelsslut
+    assert ("close", "C") not in rows                    # never two-way -> no closing mark
+    assert rows[("17:55", "C")][:2] == (None, 102)       # but shows one-sided in a snapshot
+    assert ("17:55", "A") not in rows                    # withdrawn after the close
     assert ("close", "STOCK") not in rows
     n, gap = con.execute("SELECT n_files, max_gap_min FROM days").fetchone()
     assert (n, gap) == (5, 568)
-    mfs.build_marks(day, arch, db)  # ombyggnad ersätter dagen
+    mfs.build_marks(day, arch, db)  # a rebuild replaces the day
     assert con.execute("SELECT count(*) FROM quotes").fetchone()[0] == 2
 
 
@@ -257,13 +257,13 @@ def test_sync_downloads_only_new(tmp_path, monkeypatch):
               f[2]: b"not gzip"}  # f[3] -> 404
     calls = _fake_server(monkeypatch, "DFRA-pretrade", f, bodies)
     arch = str(tmp_path / "a")
-    assert mfs.sync(["DFRA-pretrade"], arch, workers=1) == (2, 1)  # trasig fil sparas inte, 404 är inget fel
+    assert mfs.sync(["DFRA-pretrade"], arch, workers=1) == (2, 1)  # corrupt file is not saved, a 404 is not a failure
     folder = os.path.join(arch, "DFRA-pretrade", "2026-10-02")
-    assert sorted(os.listdir(folder)) == f[:2]  # 23:00 UTC 1 okt hamnar på handelsdag 2 okt
+    assert sorted(os.listdir(folder)) == f[:2]  # 23:00 UTC on 1 Oct belongs to trading day 2 Oct
     calls.clear()
     del f[2]
     assert mfs.sync(["DFRA-pretrade"], arch, workers=1) == (0, 0)
-    assert len(calls) == 2  # listning + ny 404-kontroll av dagsfilen
+    assert len(calls) == 2  # listing + a new 404 check of the daily file
 
 
 def test_sync_bonds_only_filters_pretrade(tmp_path, monkeypatch):
@@ -273,7 +273,7 @@ def test_sync_bonds_only_filters_pretrade(tmp_path, monkeypatch):
     _fake_server(monkeypatch, "DFRA-pretrade", [fn, "DFRA-pretrade-daily-2026-10-02.json.gz"],
                  {fn: gzip.compress("\n".join(lines).encode() + b"\n")})
     arch = str(tmp_path / "a")
-    assert mfs.sync(["DFRA-pretrade"], arch, workers=1, bonds_only=True) == (1, 0)  # dagsfilen hoppas över
+    assert mfs.sync(["DFRA-pretrade"], arch, workers=1, bonds_only=True) == (1, 0)  # the daily file is skipped
     kept = [json.loads(x)["instrumentIdentificationCode"]
             for x in gzip.open(os.path.join(arch, "DFRA-pretrade", "2026-10-02", fn), "rt")]
     assert kept == ["A", "Z"]
@@ -286,7 +286,7 @@ def test_prune_only_built_days(tmp_path):
     mfs.build_marks("2026-09-01", arch, db)
     mfs.build_marks("2026-10-01", arch, db)
     removed = mfs.prune("DFRA-pretrade", arch, db, keep_days=14, today=dt.date(2026, 10, 3))
-    assert removed == ["2026-09-01"]  # 09-02 saknar marks, 10-01 för ny
+    assert removed == ["2026-09-01"]  # 09-02 has no marks, 10-01 is too recent
     assert sorted(os.listdir(os.path.join(arch, "DFRA-pretrade"))) == ["2026-09-02", "2026-10-01"]
 
 
@@ -302,7 +302,7 @@ def test_open_backs_off_on_429(monkeypatch):
     monkeypatch.setattr(mfs.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(mfs.time, "sleep", sleeps.append)
     assert mfs._open("https://x/y").read() == b"ok"
-    assert len(calls) == 3 and sleeps == []  # 429 -> Retry-After (0 s), ingen extra backoff
+    assert len(calls) == 3 and sleeps == []  # 429 -> Retry-After (0 s), no extra backoff
 
 
 # ---------------------------------------------------------------- eurex
@@ -316,17 +316,17 @@ def test_eurex_daily(tmp_path):
     arch, db = str(tmp_path / "a"), str(tmp_path / "m.sqlite")
     bund, fehy = eurex.PRODUCTS["FGBL"][0], eurex.PRODUCTS["FEHY"][0]
     msgs = [_pt(bund, "07:00:00", 121.0, 10, mode="O"), _pt(bund, "08:00:00", 121.5, 30),
-            _pt(bund, "09:00:00", 120.5, 500, mode="5"),                   # block: inte i OHLC
-            _pt(bund, "10:00:00", 99.0, 1, tx="FEL"), _pt(bund, "10:00:01", 99.0, 1, tx="FEL", mod="C"),  # makulerad
-            _pt(bund, "11:00:00", 121.2, 10, optionCategory="C"),          # option, ignoreras
+            _pt(bund, "09:00:00", 120.5, 500, mode="5"),                   # block: not in OHLC
+            _pt(bund, "10:00:00", 99.0, 1, tx="FEL"), _pt(bund, "10:00:01", 99.0, 1, tx="FEL", mod="C"),  # cancelled
+            _pt(bund, "11:00:00", 121.2, 10, optionCategory="C"),          # option, ignored
             _pt(fehy, "12:00:00", 309.0, 5, contract="2026-12-18"),
-            _pt("DE0000000000", "12:00:00", 1, 1)]                         # okänd produkt
+            _pt("DE0000000000", "12:00:00", 1, 1)]                         # unknown product
     folder = os.path.join(arch, "DEUR-posttrade", "2026-10-02")
     os.makedirs(folder)
     _write_gz(os.path.join(folder, "DEUR-posttrade-daily-2026-10-02.json.gz"), msgs)
     rows = {r[1]: r for r in eurex.build_daily("2026-10-02", arch, db)}
     b = rows["FGBL"]
-    assert (b[4], b[5], b[6]) == (3, 40, 500)                     # affärer, orderbokslots, blocklots
+    assert (b[4], b[5], b[6]) == (3, 40, 500)                     # trades, on-book lots, block lots
     assert b[7:11] == (121.0, 121.5, 121.0, 121.5)                # open, high, low, last
     assert b[12] == pytest.approx((121.0 * 10 + 121.5 * 30) / 40)
     assert rows["FEHY"][2] == "2026-12-18" and rows["FEHY"][10] == 309.0
@@ -336,7 +336,7 @@ def test_eurex_daily(tmp_path):
 def test_complete_days_frankfurt_time():
     days = {"2026-10-01", "2026-10-02"}
     at = lambda s: dt.datetime.fromisoformat(s).replace(tzinfo=UTC)
-    assert ci.complete_days(days, at("2026-10-02T21:00")) == ["2026-10-01"]           # 23:00 CEST: inte klar
+    assert ci.complete_days(days, at("2026-10-02T21:00")) == ["2026-10-01"]           # 23:00 CEST: not complete
     assert ci.complete_days(days, at("2026-10-02T21:20")) == ["2026-10-01", "2026-10-02"]
     assert ci.complete_days({"2026-12-01"}, at("2026-12-01T22:10")) == []              # 23:10 CET
     assert ci.complete_days({"2026-12-01"}, at("2026-12-01T22:20")) == ["2026-12-01"]
@@ -355,11 +355,11 @@ def test_build_day_and_log(tmp_path, monkeypatch):
                      "dfra_quotes-2026-10-02.csv.gz", "eurex_futures_daily-2026-10-02.csv"]
     assert (row["isin_close"], row["two_sided_firm_close"], row["FEHY"], row["FGBL"]) == (2, 2, 309.0, None)
     log = str(tmp_path / "log.csv")
-    ci.append_log(row, log); ci.append_log(row, log)  # samma dag skrivs över
+    ci.append_log(row, log); ci.append_log(row, log)  # the same day is overwritten
     assert len(open(log).read().strip().splitlines()) == 2
     assert "309.0" in ci.notes(row, assets)
     monkeypatch.setattr(ci.mfs, "sync", lambda *a, **k: (0, 3))
-    assert ci.build_day("2026-10-02", arch, dist, str(tmp_path / "m2.sqlite")) is None  # ofullständig -> ingen release
+    assert ci.build_day("2026-10-02", arch, dist, str(tmp_path / "m2.sqlite")) is None  # incomplete -> no release
 
 
 # ---------------------------------------------------------------- analytics
@@ -369,22 +369,22 @@ import analytics as an  # noqa: E402
 def test_calendar():
     assert an.add_business_days(dt.date(2026, 10, 2), 2) == dt.date(2026, 10, 6)
     assert an.easter(2027) == dt.date(2027, 3, 28)
-    assert not an.is_target_day(dt.date(2027, 3, 26))   # långfredag
+    assert not an.is_target_day(dt.date(2027, 3, 26))   # Good Friday
     assert an.add_months(dt.date(2026, 3, 31), -1) == dt.date(2026, 2, 28)
 
 
 def test_bond_math_par_and_accrued():
     settle = dt.date(2026, 10, 6)
-    # 4 % kupong, förfall om exakt 5 år på en kupongdag -> kurs 100 ger yield 4 %
+    # 4% coupon, maturing exactly 5 years out on a coupon date -> price 100 gives a 4% yield
     a = an.analyse(100.0, 4.0, dt.date(2031, 10, 6), settle)
     assert a["accrued"] == pytest.approx(0.0) and a["ytm"] == pytest.approx(0.04, abs=1e-9)
     assert a["mdur"] == pytest.approx(4.4518, abs=1e-3)       # Macaulay 4.6299 / 1.04
-    # halvvägs i perioden: upplupen = halva kupongen
+    # halfway through the period: accrued = half the coupon
     b = an.analyse(100.0, 4.0, dt.date(2031, 4, 6), settle)
     assert b["accrued"] == pytest.approx(4.0 * (settle - dt.date(2026, 4, 6)).days / 365)
-    z = an.analyse(95.0, 0.0, dt.date(2031, 10, 6), settle)  # nollkupong
+    z = an.analyse(95.0, 0.0, dt.date(2031, 10, 6), settle)  # zero coupon
     assert z["ytm"] == pytest.approx((100 / 95) ** (1 / 5) - 1, abs=1e-9)
-    # BTP halvårskupong
+    # BTP semi-annual coupon
     s = an.analyse(100.0, 4.0, dt.date(2031, 10, 6), settle, freq=2)
     assert s["ytm"] == pytest.approx(0.04, abs=1e-9)
 
@@ -397,23 +397,23 @@ def test_zspread_zero_on_curve():
     a = an.analyse(dirty - acc, 3.0, dt.date(2033, 5, 15), settle, c)
     assert a["zspread"] == pytest.approx(0.0, abs=1e-9)
     b = an.analyse(dirty - acc - 2, 3.0, dt.date(2033, 5, 15), settle, c)
-    assert 0.002 < b["zspread"] < 0.005   # 2 poäng billigare ~ 30 bp på ~6 år
+    assert 0.002 < b["zspread"] < 0.005   # 2 points cheaper ~ 30 bp over ~6 years
 
 
 def test_conversion_factor_and_ctd():
     deliv = dt.date(2026, 12, 10)
-    # 6 % kupong och förfall på kupongdag -> CF = 1
+    # 6% coupon maturing on a coupon date -> CF = 1
     assert an.conversion_factor(6.0, dt.date(2035, 12, 10), deliv) == pytest.approx(1.0, abs=1e-12)
     assert an.conversion_factor(4.0, dt.date(2052, 12, 10), deliv, 4.0) == pytest.approx(1.0, abs=1e-12)
     assert an.conversion_factor(2.5, dt.date(2035, 8, 15), deliv) < 0.8
     bunds = [("A", 2.5, dt.date(2035, 8, 15), 97.0), ("B", 2.6, dt.date(2036, 2, 15), 97.5),
-             ("C", 2.2, dt.date(2030, 2, 15), 99.0)]                # C ej leveransbar i FGBL
+             ("C", 2.2, dt.date(2030, 2, 15), 99.0)]                # C not deliverable into FGBL
     cf = {i: an.conversion_factor(c, m, deliv) for i, c, m, _ in bunds}
     f = 121.0
     r = an.ctd("FGBL", f, deliv, bunds, dt.date(2026, 10, 6))
     want = min(("A", "B"), key=lambda i: dict((b[0], b[3]) for b in bunds)[i] - f * cf[i])
     assert r["isin"] == want and r["cf"] == pytest.approx(cf[want])
-    assert 50 < r["dv01_contract"] < 150     # EUR per bp och kontrakt, rimlig storleksordning
+    assert 50 < r["dv01_contract"] < 150     # EUR per bp per contract, plausible magnitude
 
 
 def test_sync_prefers_daily_file_for_eurex(tmp_path, monkeypatch):
@@ -422,10 +422,10 @@ def test_sync_prefers_daily_file_for_eurex(tmp_path, monkeypatch):
     body = gzip.compress(b'{"messageId":"posttrade"}\n')
     calls = _fake_server(monkeypatch, "DEUR-posttrade", f, {x: body for x in f})
     arch = str(tmp_path / "a")
-    assert mfs.sync(["DEUR-posttrade"], arch, workers=1) == (1, 0)  # bara dagsfilen hämtas
+    assert mfs.sync(["DEUR-posttrade"], arch, workers=1) == (1, 0)  # only the daily file is downloaded
     assert os.listdir(os.path.join(arch, "DEUR-posttrade", "2026-10-02")) == [f[0]]
     assert [c for c in calls if "/download/" in c] == [f"{mfs.BASE}/download/{f[0]}"]
-    # dagsfil saknas (404) -> minutfilerna
+    # daily file missing (404) -> minute files
     calls = _fake_server(monkeypatch, "DEUR-posttrade", f, {x: body for x in f[1:]})
     arch2 = str(tmp_path / "b")
     assert mfs.sync(["DEUR-posttrade"], arch2, workers=1) == (2, 0)
@@ -441,5 +441,5 @@ def test_site_coupon_cleaning():
     assert build.name_coupon("Landesbank Saar Inh.-Schv. Serie 0GA v.20(35)") is None
     assert build.clean_coupon(45.0, "DANBNK 4 1/2 11/09/28") == 4.5
     assert build.clean_coupon(1125.0, "FINPOW 1  1/8  11/23/27 BOND") == 1.125
-    assert build.clean_coupon(2.7, "BKO 0 09/13/28") == 2.7       # FIRDS vinner under 20 %
-    assert build.clean_coupon(36.0, "Utan kupong i namnet") is None
+    assert build.clean_coupon(2.7, "BKO 0 09/13/28") == 2.7       # FIRDS wins below 20%
+    assert build.clean_coupon(36.0, "No coupon in this name") is None

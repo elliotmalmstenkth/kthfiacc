@@ -1,35 +1,35 @@
 #!/usr/bin/env python3
 """
-Klassificera obligationer i Börse Frankfurts pre-trade-filer med FIRDS.
+Classify the bonds in Börse Frankfurt's pre-trade files using FIRDS.
 
   python classify.py --db firds.sqlite DFRA-pretrade-*.json.gz --out bonds.csv
 
-Steg:
- 1. Samla ISIN med priceNotation 2 (procent av nominellt = obligationer) och
-    deras kurssidor (bud/sälj) ur en eller flera DFRA-pretrade-filer.
- 2. Slå upp FIRDS (tabellen firds_d från firds.py).
- 3. Tilldela en sektor per ISIN med regler i ordning:
-      instrumenttyp (CFI + FISN) -> manuella LEI-överstyrningar -> kända
-      emittenter (stat/delstat/supra/agency) -> säkerställda -> finans/icke-finans.
-    Reglerna är heuristiska. Överstyr med overrides.csv (lei,sector,kommentar).
+Steps:
+ 1. Collect ISINs with priceNotation 2 (percent of par = bonds) and their quote sides
+    (bid/offer) from one or more DFRA-pretrade files.
+ 2. Look them up in FIRDS (table firds_d from firds.py).
+ 3. Assign one sector per ISIN with rules in order:
+      instrument type (CFI + FISN) -> manual LEI overrides -> known issuers
+      (sovereign/sub-sovereign/supra/agency) -> covered -> financial/non-financial.
+    The rules are heuristic. Override with overrides.csv (lei,sector,comment).
 
-Sektorer:
-  SOV            centralstat
-  SUBSOV         delstat/region/kommun
-  SUPRA          supranationell
-  AGENCY         statlig/offentlig utvecklings- eller finansieringsbank
-  COVERED        säkerställd obligation (Pfandbrief, SFH, OBG, cédulas ...)
-  CORP_FIN       företag, finansiell sektor (bank, försäkring, finansbolag)
-  CORP_NONFIN    företag, icke-finansiell
-  CONVERTIBLE    konvertibel
+Sectors:
+  SOV            central government
+  SUBSOV         state/region/municipality
+  SUPRA          supranational
+  AGENCY         government-related development or funding bank
+  COVERED        covered bond (Pfandbrief, SFH, OBG, cédulas ...)
+  CORP_FIN       corporate, financial sector (banks, insurers, finance companies)
+  CORP_NONFIN    corporate, non-financial
+  CONVERTIBLE    convertible
   SECURITISED    ABS/MBS
-  STRUCTURED     strukturerad/kreditlänkad (CLN) eller övrigt
-  UNKNOWN        saknas i FIRDS
+  STRUCTURED     structured/credit-linked (CLN) or other
+  UNKNOWN        not in FIRDS
 """
 import argparse, collections, csv, gzip, json, os, re, sqlite3, sys
 import pandas as pd
 
-# --- emittentlistor (matchas mot FISN-emittentdelen, versaler, före "/") ----
+# --- issuer lists (matched against the FISN issuer part, upper case, before "/") ----
 SOV = [r"^BUND DEUTSCHLAN", r"^BUNDESREP", r"^ITALIA\b", r"^ESTADO\b", r"^ESPANA", r"^REP OEST",
        r"^OESTERREICH", r"^BELGIQUE", r"^BELGIUM", r"^FINLAND\b", r"^REP PORTUGUESA", r"^GR GOVT",
        r"^HELLENIC REP", r"^ROMANIA\b", r"^MINFINSLOREP", r"^DIRECTION GENER", r"^FRANCE\b",
@@ -69,16 +69,16 @@ AGENCY = [r"^KFW", r"^KREDITANST", r"^LANDWIRT", r"^RENTENBANK", r"^NRW\.?BANK",
           r"^OEKB", r"^EXPORT DEV", r"^SVENSK EXPORT", r"^KOMMUNALKREDIT AUSTRIA", r"^EXPORTFINANS",
           r"^JAPAN BANK FOR", r"^JAPAN FIN", r"^KOREA DEV", r"^EXPORT-IMPORT", r"^ERSTE ABWICKL",
           r"^FMS WERTMANAG", r"^CDP\b", r"^KOREA HOUSING", r"^EXPORT DEVELOPM", r"^BAY\.? ?LDESBODEN", r"^LKB BW", r"^OEST\.?KONTROLL", r"^AB SVENSK EXP", r"^FINNVERA", r"^CDC\b", r"^SOCIETE DU GRAN", r"^ACTION LOGEMENT", r"^AFD\b", r"^ASFINAG", r"^OEBB", r"^RATP\b", r"^REGIE AUTONOME", r"^UNION NATIONALE", r"^SAGESS", r"^KOMMUNALKR", r"^EFA\b", r"^SOCIETE NATIONA", r"^SNCF", r"^ADIF", r"^FADE\b", r"^HEIMSTADEN BOSTAD NEVER"]
-# LEI-baserade fall där FISN-namnet är tvetydigt
+# LEI-based cases where the FISN name is ambiguous
 LEI_SECTOR = {
-    "ZTMSNXROF84AHWJNKQ93": "SUPRA",   # IBRD (Världsbanken)
+    "ZTMSNXROF84AHWJNKQ93": "SUPRA",   # IBRD (World Bank)
     "P41R60HC414IWQA1XW02": "SUPRA",   # IDA
     "QKL54NQY28TCDAI75F60": "SUPRA",   # IFC
     "VGRQXHF3J8VDLUA7XE92": "CORP_NONFIN",  # IBM ("INTERNATIONAL B")
     "969500KCGF3SUYJHPV70": "SOV",     # Republique Francaise (AFT)
     "5493007SJLLCTM6J6M37": "CORP_FIN",  # Unicaja Banco ("UNI")
     "A6NZLYKYN1UV7VVGFX65": "CORP_FIN",  # Argenta Spaarbank ("ASPA")
-    "96950015LNMQ336X4W81": "AGENCY",    # SAGESS (fransk statlig lagringsfond)
+    "96950015LNMQ336X4W81": "AGENCY",    # SAGESS (French state strategic stockpile agency)
 }
 COVERED_DESC = r"\b(HPF|OPF|PF|PFE|PFB|HYPF|HYP\.?PF|OEPF|COV|COVERED|CB|OBG|CEDHIP|CED|OHF|SCF|SFH|OMH|PANDBR|OBLIGATIONS FONC)\b"
 COVERED_ISS = r"(\bSFH\b|\bSCF\b|HOME LOA|BOLIGKREDIT|^CFF\b|CAISSE DE REFIN|JELZALOG|CAISSE FRANCAIS|COVERED|HYPOTEKSBANK|PANDBRIEF|CEDULAS|\bHL SFH)"
@@ -114,48 +114,48 @@ def sector_of(row, overrides):
     desc = (row.fisn or "").split("/", 1)[1].upper() if "/" in (row.fisn or "") else ""
     lei = row.issuer_lei or ""
     if not cfi:
-        return "UNKNOWN", "saknas i FIRDS"
+        return "UNKNOWN", "not in FIRDS"
     if lei in overrides:
-        return overrides[lei], "manuell överstyrning"
+        return overrides[lei], "manual override"
     if cfi[:2] == "DC":
         return "CONVERTIBLE", "CFI DC"
     if re.search(STRUCT_DESC, desc):
-        return "STRUCTURED", "FISN: kreditlänkad/strukturerad"
+        return "STRUCTURED", "FISN: credit-linked/structured"
     if cfi[:2] in ("DS", "DE", "DW", "DD", "DM"):
         return "STRUCTURED", f"CFI {cfi[:2]}"
     if lei in LEI_SECTOR:
         return LEI_SECTOR[lei], "LEI-lista"
     if first_match(SUPRA, iss):
-        return "SUPRA", "emittentnamn"
+        return "SUPRA", "issuer name"
     if first_match(SOV, iss):
-        return "SOV", "emittentnamn"
+        return "SOV", "issuer name"
     if first_match(AGENCY, iss):
-        return "AGENCY", "emittentnamn"
+        return "AGENCY", "issuer name"
     if re.search(r"\b(GOVT|BTP|OAT|BONOS)\b", desc) and cfi[3:4] == "T" and not re.search(FIN, iss):
         return "SOV", "FISN-beskrivning + CFI statsgaranti"
     if first_match(SUBSOV, iss) or cfi[:2] == "DN":
-        return "SUBSOV", "emittentnamn" if cfi[:2] != "DN" else "CFI DN (kommunal)"
+        return "SUBSOV", "issuer name" if cfi[:2] != "DN" else "CFI DN (municipal)"
     if cfi[:2] in ("DA", "DG"):
-        # Bankers säkerställda obligationer rapporteras ofta som DG/DA i FIRDS
+        # banks' covered bonds are often reported as DG/DA in FIRDS
         if re.search(r"GLOBAL F|FUNDING|LIFE G", iss):
-            return "CORP_FIN", f"CFI {cfi[:2]} men försäkrings-FABN"
+            return "CORP_FIN", f"CFI {cfi[:2]} but insurance FABN"
         if re.search(COVERED_DESC, desc) or re.search(COVERED_ISS, iss) or re.search(
                 r"BANK|BK\b|BOLIGKRED|BUIL|HYP|KIINNITY|MORTGAGE BA|SPAREBANK|RAIFFEISEN|CREDIT|BANQUE|"
                 r"COOPERATIEVE|ERSTE|WESTPAC|COMMNW|NATL\.AU|NORDEA|\bING\b|ABN AMRO|DEKA|LANDESBANK|"
                 r"FEDERATION DES|AB SVERIGES SAK|STADSHYPOTEK|SWEDBANK", iss):
-            return "COVERED", f"CFI {cfi[:2]} + bankemittent"
+            return "COVERED", f"CFI {cfi[:2]} + bank issuer"
         return "SECURITISED", f"CFI {cfi[:2]}"
     if re.search(COVERED_DESC, desc) or re.search(COVERED_ISS, iss):
-        return "COVERED", "FISN: säkerställd"
+        return "COVERED", "FISN: covered"
     if re.search(FIN, iss):
-        return "CORP_FIN", "emittentnamn (finans)"
-    return "CORP_NONFIN", "övrigt (ej finans/offentlig)"
+        return "CORP_FIN", "issuer name (financial)"
+    return "CORP_NONFIN", "other (not financial/public)"
 
 
 def load_quotes(paths):
-    """Per ISIN: sett bud/sälj (pris > 0), fast bud/sälj (även volym > 0), priskurrency och venue."""
+    """Per ISIN: bid/offer seen (price > 0), firm bid/offer (also size > 0), price currency and venue."""
     q = {}
-    bond = re.compile(r'"priceNotation"\s*:\s*2\s*[,}]')  # snabbfilter före json.loads
+    bond = re.compile(r'"priceNotation"\s*:\s*2\s*[,}]')  # fast pre-filter before json.loads
     for p in paths:
         with gzip.open(p, "rt") as fh:
             for line in fh:
@@ -167,7 +167,7 @@ def load_quotes(paths):
                 i = r["instrumentIdentificationCode"]
                 d = q.setdefault(i, {"bid": False, "ask": False, "firm_bid": False, "firm_ask": False, "msgs": 0,
                                      "price_ccy": r.get("priceCurrency"), "venue": r.get("venueOfExecution")})
-                # pris 0 = ingen kurs (t.ex. handelsslut); qty 0 med pris > 0 = indikativ kurs
+                # price 0 = no quote (e.g. at the close); qty 0 with price > 0 = indicative quote
                 b, a = bool(r.get("bestBid")), bool(r.get("bestAsk"))
                 d["bid"] |= b; d["ask"] |= a; d["msgs"] += 1
                 d["firm_bid"] |= b and bool(r.get("bestBidQty")); d["firm_ask"] |= a and bool(r.get("bestAskQty"))
@@ -204,8 +204,8 @@ def main():
     df["issuer"] = df.fisn.str.split("/").str[0].str.strip()
     sub = (df.seniority.isin(["SBOD", "JUND", "MZZD"])
            | df.fisn.str.contains(r"\b(?:SUB|JR|PERP|T2|AT1)\b", na=False)
-           | df.full_name.fillna("").str.contains(r"\bPERP\b|Und\.\)|Hybrid", case=False)  # hybrider rapporteras ofta som senior
-           | (df.cfi.str[:1] == "D") & df.maturity.isna())                                # evig = efterställd i praktiken
+           | df.full_name.fillna("").str.contains(r"\bPERP\b|Und\.\)|Hybrid", case=False)  # hybrids are often reported as senior
+           | (df.cfi.str[:1] == "D") & df.maturity.isna())                                # perpetual = subordinated in practice
     df["subordinated"] = sub
     df["coupon_type"] = df.cfi.str[2].map({"F": "fixed", "Z": "zero", "V": "floating", "C": "cash", "K": "payment-in-kind"}).fillna("other")
     df["benchmark_500m"] = df.issued_amt >= 5e8
@@ -213,30 +213,30 @@ def main():
     df["two_sided_firm"] = df.firm_bid & df.firm_ask
     df.index.name = "isin"
     df.to_csv(a.out)
-    # emittentlista för manuell granskning -> kopiera rader till overrides.csv vid fel
+    # issuer list for manual review -> copy rows to overrides.csv to fix errors
     iss = (df[df.cfi != ""].groupby(["issuer_lei", "sector"])
            .agg(issuer=("issuer", "first"), example=("full_name", "first"), n_bonds=("ccy", "size"),
                 n_eur=("ccy", lambda c: (c == "EUR").sum()), rule=("rule", "first"))
            .reset_index().sort_values("n_eur", ascending=False))
     iss.to_csv(os.path.splitext(a.out)[0] + "_issuers.csv", index=False)
 
-    # --- sammanfattning ------------------------------------------------------
+    # --- summary ----------------------------------------------------------------
     e = df[df.ccy == "EUR"]
-    print(f"Obligations-ISIN i filerna: {len(df):,}   varav i FIRDS: {(df.cfi != '').sum():,}   EUR-denominerade: {len(e):,}\n")
-    t = pd.DataFrame({"antal": e.groupby("sector").size(), "tvåsidig": e.groupby("sector").two_sided.sum(),
-                      "tvås. fast": e.groupby("sector").two_sided_firm.sum()})
-    t.loc["totalt"] = t.sum()
-    print("EUR-denominerade per sektor (tvåsidig = bud och sälj > 0 sedda; fast = även med volym):")
+    print(f"Bond ISINs in the files: {len(df):,}   found in FIRDS: {(df.cfi != '').sum():,}   EUR-denominated: {len(e):,}\n")
+    t = pd.DataFrame({"count": e.groupby("sector").size(), "two-way": e.groupby("sector").two_sided.sum(),
+                      "firm two-way": e.groupby("sector").two_sided_firm.sum()})
+    t.loc["total"] = t.sum()
+    print("EUR-denominated by sector (two-way = bid and offer > 0 seen; firm = also with size):")
     print(t.to_string(), "\n")
     corp = e[e.sector.isin(["CORP_FIN", "CORP_NONFIN"])]
     def row(lbl, x): print(f"  {lbl:<55}{len(x):>6,}{x.two_sided.sum():>8,}{x.two_sided_firm.sum():>8,}")
-    print(f"  {'EUR-företagsobligationer (exkl. säkerställda/ABS/strukt.)':<55}{'antal':>6}{'tvås.':>8}{'fast':>8}")
-    row("alla", corp)
-    row("  icke-finansiella", corp[corp.sector == "CORP_NONFIN"])
-    row("  finansiella", corp[corp.sector == "CORP_FIN"])
-    row("  emission >= 500 mn EUR", corp[corp.benchmark_500m])
-    row("  >= 500 mn, fast/nollkupong, senior", corp[corp.benchmark_500m & corp.coupon_type.isin(["fixed", "zero"]) & ~corp.subordinated])
-    row("  >= 500 mn, fast/nollkupong, senior, icke-finans", corp[corp.benchmark_500m & corp.coupon_type.isin(["fixed", "zero"]) & ~corp.subordinated & (corp.sector == "CORP_NONFIN")])
+    print(f"  {'EUR corporates (excl. covered/ABS/structured)':<55}{'count':>6}{'2-way':>8}{'firm':>8}")
+    row("all", corp)
+    row("  non-financial", corp[corp.sector == "CORP_NONFIN"])
+    row("  financial", corp[corp.sector == "CORP_FIN"])
+    row("  issue size >= EUR 500m", corp[corp.benchmark_500m])
+    row("  >= 500m, fixed/zero coupon, senior", corp[corp.benchmark_500m & corp.coupon_type.isin(["fixed", "zero"]) & ~corp.subordinated])
+    row("  >= 500m, fixed/zero coupon, senior, non-financial", corp[corp.benchmark_500m & corp.coupon_type.isin(["fixed", "zero"]) & ~corp.subordinated & (corp.sector == "CORP_NONFIN")])
     print(f"\n-> {a.out}")
 
 

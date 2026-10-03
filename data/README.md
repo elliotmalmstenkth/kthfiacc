@@ -1,16 +1,16 @@
-# Sparade resultat
+# Saved results
 
-Små, komprimerade utdrag som går att använda utan att köra om hela pipelinen.
-Rådata (Deutsche Börse-arkivet, FIRDS, ECB) ligger utanför git – se huvud-README.
+Small compressed extracts you can use without re-running the pipeline.
+Raw data (the Deutsche Börse archive, FIRDS, ECB) is kept out of git; see the main README.
 
-## 2026-10-02 (fredag; FIRDS 2026-10-03)
+## 2026-10-02 (Friday; FIRDS 2026-10-03)
 
-| Fil | Innehåll |
+| File | Contents |
 |---|---|
-| `bonds_classified.csv.gz` | 35 790 obligationer från DFRA-pretrade med FIRDS-data, sektor, regel, efterställd, kupongtyp, ≥ 500 mn, tvåsidig/fast tvåsidig (`classify.py`) |
-| `bonds_classified_issuers.csv.gz` | Emittentlista per LEI och sektor – granska och rätta via `overrides.csv` |
-| `dfra_quotes.csv.gz` | Bud/sälj per ISIN: `12:00`, `17:25` (Frankfurttid) och `close` = dagens senaste tvåsidiga kurs (`mfs.py marks`). Volym 0 = indikativ kurs |
-| `eurex_futures_daily.csv` | Stats- och kreditindexterminer: affärer, volym, block, OHLC, VWAP (`eurex.py daily`) |
+| `bonds_classified.csv.gz` | 35,790 bonds from DFRA-pretrade with FIRDS data, sector, rule, subordinated flag, coupon type, ≥ EUR 500m, two-way/firm two-way (`classify.py`) |
+| `bonds_classified_issuers.csv.gz` | Issuer list by LEI and sector; review and correct via `overrides.csv` |
+| `dfra_quotes.csv.gz` | Bid/offer per ISIN at `12:00`, `17:25` (Frankfurt time) and `close` = last two-way quote of the day (`mfs.py marks`). Size 0 = indicative quote |
+| `eurex_futures_daily.csv` | Government bond and credit index futures: trades, volume, block volume, OHLC, VWAP (`eurex.py daily`) |
 
 ```python
 import pandas as pd
@@ -20,4 +20,4 @@ universe = b[(b.ccy == "EUR") & b.sector.isin(["CORP_FIN", "CORP_NONFIN"]) & b.b
              & b.coupon_type.isin(["fixed", "zero"]) & ~b.subordinated].join(q[["bid", "ask"]], rsuffix="_px")
 ```
 
-Deutsche Börse-data: gratis för icke-kommersiell användning.
+Deutsche Börse data: free for non-commercial use.

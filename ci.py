@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-Körs av GitHub Actions (.github/workflows/daily.yml). Kan även köras lokalt med gh inloggat.
+Run by GitHub Actions (.github/workflows/daily.yml). Also runs locally with gh signed in.
 
-  python ci.py daily            # alla färdiga handelsdagar på servern som saknar release
-  python ci.py daily --dry-run  # bygg filerna i dist/ men skapa ingen release
-  python ci.py firds            # veckovis FIRDS-ögonblicksbild (skuld + terminer)
-  python ci.py site             # bygg portföljsidan från senaste data-release -> _site/index.html
+  python ci.py daily            # every completed trading day on the server without a release
+  python ci.py daily --dry-run  # build the files in dist/ but create no release
+  python ci.py firds            # weekly FIRDS snapshot (debt + futures)
+  python ci.py site             # build the portfolio site from the latest data release -> _site/index.html
 
-Varje handelsdag sparas som en UTKAST-release (draft) med taggen data-<dag>. Utkast syns
-bara för dem med skrivrätt till repot – Deutsche Börse-datan är gratis för icke-kommersiell
-användning och sprids därför inte publikt. Tillgångar per dag:
+Each trading day is stored as a DRAFT release tagged data-<date>. Drafts are visible only to
+users with write access to the repo; the Deutsche Börse data is free for non-commercial use and
+is therefore not redistributed publicly. Assets per day:
 
-  dfra_quotes-<dag>.csv.gz          bud/sälj per obligation 12:00, 17:25 och close (mfs.py marks)
-  bonds_classified-<dag>.csv.gz     klassning mot FIRDS (classify.py), plus emittentlista
-  eurex_futures_daily-<dag>.csv     stats- och kreditindexterminer (eurex.py daily)
-  DFRA-pretrade-bonds-<dag>.tar     rå minutfiler, bara obligationsrader (priceNotation 2)
-  DFRA-posttrade-<dag>.tar          rå minutfiler
-  DEUR-posttrade-<dag>.tar          rå minut- och dagsfiler
+  dfra_quotes-<date>.csv.gz          bid/offer per bond at 12:00, 17:25 and close (mfs.py marks)
+  bonds_classified-<date>.csv.gz     classification against FIRDS (classify.py), plus issuer list
+  eurex_futures_daily-<date>.csv     government bond and credit index futures (eurex.py daily)
+  DFRA-pretrade-bonds-<date>.tar     raw minute files, bond rows only (priceNotation 2)
+  DFRA-posttrade-<date>.tar          raw minute files
+  DEUR-posttrade-<date>.tar          raw minute and daily files
 
-En rad per dag läggs i data/log.csv (committas av arbetsflödet, vilket också håller
-schemat aktivt – GitHub stänger av scheman i publika repon efter 60 dagar utan aktivitet).
+One row per day is appended to data/log.csv (committed by the workflow, which also keeps the
+schedule alive: GitHub disables schedules in public repos after 60 days without activity).
 """
 import argparse, csv, datetime as dt, gzip, json, os, shutil, sqlite3, subprocess, sys, tarfile
 
@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 FEEDS = ["DFRA-pretrade", "DFRA-posttrade", "DEUR-posttrade"]
 SNAPS = ["12:00", "17:25"]
-DAY_END = dt.time(23, 15)  # handelsdagen (Frankfurttid) är slut efter sista filen 23:00
+DAY_END = dt.time(23, 15)  # the trading day (Frankfurt time) ends after the last file at 23:00
 LOG = "data/log.csv"
 LOG_COLS = ["date", "pretrade_files", "posttrade_files", "eurex_files", "isin_close", "two_sided_firm_close",
             "eur_quotes_close", "FGBL", "FECX", "FEHY", "FGBC", "built_at"]
@@ -48,7 +48,7 @@ def existing_tags():
 
 
 def complete_days(server_days, now=None):
-    """Handelsdagar som är slut (efter 23:15 Frankfurttid samma dag)."""
+    """Trading days that are complete (after 23:15 Frankfurt time on the same day)."""
     now = (now or dt.datetime.now(dt.timezone.utc)).astimezone(mfs.TZ)
     return [d for d in sorted(server_days)
             if now >= dt.datetime.combine(dt.date.fromisoformat(d), DAY_END, tzinfo=mfs.TZ)]
@@ -59,7 +59,7 @@ def server_days(feed="DFRA-pretrade"):
 
 
 def _tar(folder, out):
-    with tarfile.open(out, "w") as t:  # filerna är redan gzip
+    with tarfile.open(out, "w") as t:  # the files are already gzipped
         for f in sorted(os.listdir(folder)):
             if not f.endswith(".part"):
                 t.add(os.path.join(folder, f), arcname=f)
@@ -67,10 +67,10 @@ def _tar(folder, out):
 
 
 def build_day(day, archive, dist, db, firds_db=None):
-    """Hämtar och bygger en dag. Returnerar (tillgångar, loggrad) eller None om nedladdningen var ofullständig."""
+    """Downloads and builds one day. Returns (assets, log row), or None if the download was incomplete."""
     _, failed = mfs.sync(FEEDS, archive, workers=4, bonds_only=True, days={day})
     if failed:
-        print(f"{day}: {failed} filer misslyckades – publicerar inte, nästa körning försöker igen", file=sys.stderr)
+        print(f"{day}: {failed} files failed; not publishing, the next run will retry", file=sys.stderr)
         return None
     os.makedirs(dist, exist_ok=True)
     if os.path.exists(db):
@@ -88,7 +88,7 @@ def build_day(day, archive, dist, db, firds_db=None):
         w = csv.writer(f); w.writerow([c[0] for c in cur.description]); w.writerows(cur)
 
     assets = [quotes, fut]
-    if firds_db and os.path.exists(firds_db):  # klassning mot FIRDS (sektor, kupong, förfall ...)
+    if firds_db and os.path.exists(firds_db):  # classification against FIRDS (sector, coupon, maturity ...)
         pre = [p for _, p in mfs.day_files(archive, "DFRA-pretrade", day)]
         out = os.path.join(dist, "bonds_classified.csv")
         subprocess.run([sys.executable, os.path.join(HERE, "classify.py"), "--db", firds_db, "--out", out, *pre], check=True)
@@ -98,7 +98,7 @@ def build_day(day, archive, dist, db, firds_db=None):
             os.remove(f)
         assets += [os.path.join(dist, f"bonds_classified-{day}.csv.gz"), os.path.join(dist, f"bonds_classified_issuers-{day}.csv.gz")]
     else:
-        print(f"{day}: ingen FIRDS-databas ({firds_db}) – hoppar över klassningen", file=sys.stderr)
+        print(f"{day}: no FIRDS database ({firds_db}); skipping classification", file=sys.stderr)
     n = {}
     for feed in FEEDS:
         folder = os.path.join(archive, feed, day)
@@ -133,20 +133,20 @@ def append_log(row, path=LOG):
 
 def notes(row, assets):
     sizes = "\n".join(f"- `{os.path.basename(a)}` ({os.path.getsize(a) / 1e6:,.1f} MB)" for a in assets)
-    return (f"Börse Frankfurt + Eurex, handelsdag {row['date']} (Frankfurttid).\n\n"
-            f"- Obligationer med slutkurs: {row['isin_close']:,} (fasta tvåsidiga: {row['two_sided_firm_close']:,}, "
+    return (f"Börse Frankfurt + Eurex, trading day {row['date']} (Frankfurt time).\n\n"
+            f"- Bonds with a closing mark: {row['isin_close']:,} (firm two-way: {row['two_sided_firm_close']:,}, "
             f"EUR: {row['eur_quotes_close']:,})\n"
-            f"- Filer: DFRA-pretrade {row['pretrade_files']}, DFRA-posttrade {row['posttrade_files']}, "
+            f"- Files: DFRA-pretrade {row['pretrade_files']}, DFRA-posttrade {row['posttrade_files']}, "
             f"DEUR-posttrade {row['eurex_files']}\n"
-            f"- Senast (närmaste förfall): FGBL {row['FGBL']}, FECX {row['FECX']}, FEHY {row['FEHY']}, FGBC {row['FGBC']}\n\n"
-            f"{sizes}\n\nDeutsche Börse-data: endast icke-kommersiell användning. Sprid inte vidare.")
+            f"- Last (front contract): FGBL {row['FGBL']}, FECX {row['FECX']}, FEHY {row['FEHY']}, FGBC {row['FGBC']}\n\n"
+            f"{sizes}\n\nDeutsche Börse data: non-commercial use only. Do not redistribute.")
 
 
 def cmd_daily(a):
     tags = set() if a.dry_run else existing_tags()
     days = a.days or complete_days(server_days())
     todo = [d for d in days if f"data-{d}" not in tags]
-    print(f"färdiga dagar på servern: {days}; att bygga: {todo}", file=sys.stderr)
+    print(f"completed days on the server: {days}; to build: {todo}", file=sys.stderr)
     built = 0
     for day in todo:
         res = build_day(day, a.archive, os.path.join(a.dist, day), os.path.join(a.dist, f"marks-{day}.sqlite"), a.firds_db)
@@ -155,14 +155,14 @@ def cmd_daily(a):
         assets, row = res
         append_log(row)
         if not a.dry_run:
-            gh("release", "create", f"data-{day}", "--draft", "--title", f"Marknadsdata {day}",
+            gh("release", "create", f"data-{day}", "--draft", "--title", f"Market data {day}",
                "--notes", notes(row, assets), *assets)
-            print(f"{day}: utkast-release data-{day} skapad ({len(assets)} filer)", file=sys.stderr)
-        if a.cleanup:  # spara diskutrymme på löparen: bara den bearbetade dagens mappar
+            print(f"{day}: draft release data-{day} created ({len(assets)} files)", file=sys.stderr)
+        if a.cleanup:  # save disk space on the runner: only the processed day's folders
             for feed in FEEDS:
                 shutil.rmtree(os.path.join(a.archive, feed, day), ignore_errors=True)
         built += 1
-    print(f"klart: {built} dagar", file=sys.stderr)
+    print(f"done: {built} days", file=sys.stderr)
     return 1 if built < len(todo) else 0
 
 
@@ -174,7 +174,7 @@ def cmd_firds(a):
     pub, _ = firds.list_fulins("D", today)
     tag = f"firds-{pub}"
     if not a.dry_run and tag in existing_tags():
-        print(f"{tag} finns redan", file=sys.stderr)
+        print(f"{tag} already exists", file=sys.stderr)
         return 0
     assets = []
     for cat in ("D", "F"):
@@ -188,7 +188,7 @@ def cmd_firds(a):
         assets.append(out)
     if not a.dry_run:
         gh("release", "create", tag, "--draft", "--title", f"FIRDS {pub}",
-           "--notes", "ESMA FIRDS FULINS (skuldinstrument D, terminer F), en rad per ISIN (firds.py).", *assets)
+           "--notes", "ESMA FIRDS FULINS (debt D, futures F), one row per ISIN (firds.py).", *assets)
     print(f"{tag}: {[os.path.basename(x) for x in assets]}", file=sys.stderr)
     return 0
 
@@ -200,17 +200,17 @@ def latest_data_day():
 
 
 def cmd_site(a):
-    """Bygger portföljsidan från senaste data-release (eller --day) till <out>/index.html."""
+    """Builds the portfolio site from the latest data release (or --day) into <out>/index.html."""
     try:
         day = a.day or latest_data_day()
     except RuntimeError as e:
-        print(f"kunde inte lista releaser: {e}", file=sys.stderr)
+        print(f"could not list releases: {e}", file=sys.stderr)
         day = None
-    if not day:  # ingen release än: senaste dagen som finns sparad i repot
+    if not day:  # no release yet: the latest day stored in the repo
         local = sorted(d for d in os.listdir(os.path.join(HERE, "data")) if d[:2] == "20")
         day = local[-1] if local else None
     if not day:
-        print("ingen data att bygga sidan från", file=sys.stderr)
+        print("no data to build the site from", file=sys.stderr)
         return 1
     dl = os.path.join(a.dist, "site-input", day)
     os.makedirs(dl, exist_ok=True)
@@ -222,7 +222,7 @@ def cmd_site(a):
     fut = files.get("eurex_futures_daily") or os.path.join(HERE, "data", day, "eurex_futures_daily.csv")
     missing = [p for p in (bonds, quotes, fut) if not os.path.exists(p)]
     if missing:
-        print(f"{day}: saknar {missing}", file=sys.stderr)
+        print(f"{day}: missing {missing}", file=sys.stderr)
         return 1
     import ecb_curve
     ecb_curve.update(a.ecb_db, full=not os.path.exists(a.ecb_db), raw_dir=os.path.join(a.dist, "ecb_raw"))
@@ -238,8 +238,8 @@ if __name__ == "__main__":
     ap.add_argument("--archive", default="archive")
     ap.add_argument("--dist", default="dist")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--cleanup", action="store_true", help="radera dagens rådata efter publicering (för CI)")
-    ap.add_argument("--firds-db", default="firds.sqlite", help="FIRDS-databas för klassningen (firds.py --cat D)")
+    ap.add_argument("--cleanup", action="store_true", help="delete the day's raw data after publishing (for CI)")
+    ap.add_argument("--firds-db", default="firds.sqlite", help="FIRDS database for the classification (firds.py --cat D)")
     sp = ap.add_subparsers(dest="cmd", required=True)
     d = sp.add_parser("daily"); d.add_argument("--days", nargs="+")
     sp.add_parser("firds")

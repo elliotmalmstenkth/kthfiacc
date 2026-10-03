@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 """
-ECB:s euroområdeskurvor (dataset YC) – arkivering och hämtning.
+ECB euro area yield curves (dataset YC): archiving and retrieval.
 
-Kurvor:
-  AAA = G_N_A  statsobligationer från AAA-länder (riskfri referens)
-  ALL = G_N_C  alla euroländers statsobligationer (för landspreadar)
+Curves:
+  AAA = G_N_A  government bonds of AAA-rated euro area countries (risk-free reference)
+  ALL = G_N_C  all euro area government bonds (for country spreads)
 
-ECB skattar en Svensson-modell varje TARGET-dag och publicerar dagen efter
-(ca 12:00 CET). Räntor är i procent, kontinuerlig räntesats.
+The ECB estimates a Svensson model every TARGET day and publishes it the next day
+(around 12:00 CET). Rates are in percent, continuously compounded.
 
-Arkivet (SQLite) innehåller:
-  params  – BETA0..BETA3, TAU1, TAU2 per dag och kurva (full historik sedan 2004-09-06)
-  grid    – ECB:s publicerade spot-, termins- och parräntor för standardlöptider
-            (används för att kontrollera rekonstruktionen och som facit)
-  fetches – logg över varje hämtning
-Råsvaren sparas gzippade i raw/ för spårbarhet (ECB kan revidera).
+The archive (SQLite) holds:
+  params  - BETA0..BETA3, TAU1, TAU2 per day and curve (full history since 2004-09-06)
+  grid    - the ECB's published spot, instantaneous forward and par yields at standard tenors
+            (used to check the reconstruction)
+  fetches - a log of every download
+Raw responses are kept gzipped in raw/ for audit (the ECB may revise).
 
-  python ecb_curve.py update                 # inkrementell uppdatering (kör dagligen)
-  python ecb_curve.py update --full          # hela historiken
-  python ecb_curve.py show 2026-10-01        # spot/termin/par för standardlöptider
+  python ecb_curve.py update                 # incremental update (run daily)
+  python ecb_curve.py update --full          # full history
+  python ecb_curve.py show 2026-10-01        # spot/forward/par at standard tenors
   python ecb_curve.py show 2026-10-01 --curve ALL --tenors 0.5 2 5 10 30
-  python ecb_curve.py check                  # rekonstruktion mot ECB:s egna värden
+  python ecb_curve.py check                  # reconstruction vs the ECB's own values
 
-Som modul:
+As a module:
   from ecb_curve import Curve
-  c = Curve.load("2026-10-01")               # senaste kurva <= datum
+  c = Curve.load("2026-10-01")               # latest curve on or before the date
   c.spot(7.5), c.forward(10), c.par(5), c.df(3.25)
 """
 import argparse, csv, datetime as dt, gzip, io, math, os, sqlite3, sys, urllib.request
@@ -37,7 +37,7 @@ GRID_TYPES = ["SR", "IF", "PY"]  # spot, instantaneous forward, par
 DB_DEFAULT = os.environ.get("ECB_CURVE_DB", "ecb_curve.sqlite")
 
 
-# ---------------------------------------------------------------- hämtning
+# ---------------------------------------------------------------- download
 def _get(series_keys, curve_code, start=None, end=None):
     key = "B.U2.EUR.4F.{}.SV_C_YM.{}".format(curve_code, "%2B".join(series_keys))
     q = ["format=csvdata"]
@@ -50,13 +50,13 @@ def _get(series_keys, curve_code, start=None, end=None):
             with urllib.request.urlopen(req, timeout=120) as r:
                 return url, r.read()
         except urllib.error.HTTPError as e:
-            if e.code == 404:  # inga nya observationer
+            if e.code == 404:  # no new observations
                 return url, b""
             err = e
-        except Exception as e:  # nätverksfel: försök igen
+        except Exception as e:  # network error: retry
             err = e
         import time; time.sleep(2 ** attempt)
-    raise RuntimeError(f"ECB-hämtning misslyckades: {url}: {err}")
+    raise RuntimeError(f"ECB download failed: {url}: {err}")
 
 
 def _parse(raw):
@@ -98,14 +98,14 @@ def connect(db=DB_DEFAULT):
 
 
 def update(db=DB_DEFAULT, full=False, overlap_days=10, raw_dir="raw"):
-    """Hämtar nya dagar (+ några dagars överlapp så att ECB-revisioner fångas)."""
+    """Fetches new days (plus a few days of overlap so ECB revisions are picked up)."""
     con = connect(db)
     os.makedirs(raw_dir, exist_ok=True)
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for name, code in CURVES.items():
         last = con.execute("SELECT max(date) FROM params WHERE curve=?", (name,)).fetchone()[0]
         start = None if (full or not last) else (dt.date.fromisoformat(last) - dt.timedelta(days=overlap_days)).isoformat()
-        # parametrar
+        # parameters
         url, raw = _get(PARAMS, code, start)
         fn = os.path.join(raw_dir, f"YC_{name}_params_{now[:10]}_{start or 'full'}.csv.gz")
         with gzip.open(fn, "wb") as f:
@@ -115,7 +115,7 @@ def update(db=DB_DEFAULT, full=False, overlap_days=10, raw_dir="raw"):
             by_day.setdefault(d, {})[k] = v
         rows = [(d, name, *[p[k] for k in PARAMS], now) for d, p in sorted(by_day.items()) if all(k in p for k in PARAMS)]
         con.executemany("INSERT OR REPLACE INTO params VALUES (?,?,?,?,?,?,?,?,?)", rows)
-        # standardgrid
+        # standard tenor grid
         keys = [f"{t}_{x}" for t in GRID_TYPES for x in GRID_TENORS]
         url2, raw2 = _get(keys, code, start)
         with gzip.open(fn.replace("_params_", "_grid_"), "wb") as f:
@@ -124,14 +124,14 @@ def update(db=DB_DEFAULT, full=False, overlap_days=10, raw_dir="raw"):
         con.executemany("INSERT OR REPLACE INTO grid VALUES (?,?,?,?,?,?)", g)
         con.execute("INSERT INTO fetches VALUES (?,?,?,?,?,?)", (now, name, start, len(rows), url, fn))
         con.commit()
-        rng = f"{rows[0][0]}..{rows[-1][0]}" if rows else "inga nya"
-        print(f"{name}: {len(rows)} dagar ({rng}), {len(g)} gridpunkter", file=sys.stderr)
+        rng = f"{rows[0][0]}..{rows[-1][0]}" if rows else "none new"
+        print(f"{name}: {len(rows)} days ({rng}), {len(g)} grid points", file=sys.stderr)
     return con
 
 
 # ---------------------------------------------------------------- Svensson
 class Curve:
-    """Svensson-kurva. Löptid i år, räntor i procent (kontinuerlig räntesats)."""
+    """Svensson curve. Maturity in years, rates in percent (continuously compounded)."""
 
     def __init__(self, date, curve, b0, b1, b2, b3, t1, t2):
         self.date, self.curve = date, curve
@@ -146,7 +146,7 @@ class Curve:
             q += " AND date<=?"; args.append(str(date))
         r = con.execute(q + " ORDER BY date DESC LIMIT 1", args).fetchone()
         if not r:
-            raise LookupError(f"Ingen {curve}-kurva på eller före {date}. Kör 'update' först.")
+            raise LookupError(f"No {curve} curve on or before {date}. Run 'update' first.")
         return cls(*r)
 
     @staticmethod
@@ -155,28 +155,28 @@ class Curve:
         return 1.0 if x < 1e-10 else (1 - math.exp(-x)) / x
 
     def spot(self, m):
-        """Nollkupongränta (%, kontinuerlig) för löptid m år."""
+        """Zero-coupon rate (%, continuous) for maturity m years."""
         m = max(m, 1e-6)
         l1, l2 = self._l(m, self.t1), self._l(m, self.t2)
         return (self.b0 + self.b1 * l1 + self.b2 * (l1 - math.exp(-m / self.t1))
                 + self.b3 * (l2 - math.exp(-m / self.t2)))
 
     def forward(self, m):
-        """Momentan terminsränta (%) vid m år."""
+        """Instantaneous forward rate (%) at m years."""
         e1, e2 = math.exp(-m / self.t1), math.exp(-m / self.t2)
         return self.b0 + self.b1 * e1 + self.b2 * (m / self.t1) * e1 + self.b3 * (m / self.t2) * e2
 
     def df(self, m):
-        """Diskonteringsfaktor."""
+        """Discount factor."""
         return math.exp(-self.spot(m) / 100 * m)
 
     def par(self, m, freq=None, steps=400):
-        """Parränta (%).
-        freq=None: ECB:s definition (kontinuerligt betald kupong): (1-DF(m)) / integral_0^m DF(s) ds.
-                   Matchar ECB:s publicerade PY-serier exakt.
-        freq=1/2/4: kupong freq ggr per år med kupongdatum räknade bakåt från förfall
-                   (första perioden får kortare längd); kupongen anges per år.
-                   Använd freq=1 för vanliga EUR-obligationer."""
+        """Par yield (%).
+        freq=None: the ECB definition (continuously paid coupon): (1-DF(m)) / integral_0^m DF(s) ds.
+                   Matches the ECB's published PY series exactly.
+        freq=1/2/4: coupon paid freq times a year, dates rolled back from maturity
+                   (short first period); the coupon is quoted per annum.
+                   Use freq=1 for standard EUR bonds."""
         if freq is None:
             h = m / steps  # Simpson
             s = self.df(1e-9) + self.df(m) + sum((4 if i % 2 else 2) * self.df(i * h) for i in range(1, steps))
@@ -190,7 +190,7 @@ class Curve:
         return (1 - self.df(m)) / annuity * 100
 
     def forward_rate(self, t1, t2):
-        """Terminsränta (%, kontinuerlig) mellan t1 och t2 år, t.ex. 5y5y = forward_rate(5, 10)."""
+        """Forward rate (%, continuous) between t1 and t2 years, e.g. 5y5y = forward_rate(5, 10)."""
         return (self.spot(t2) * t2 - self.spot(t1) * t1) / (t2 - t1)
 
     def __repr__(self):
@@ -201,12 +201,12 @@ class Curve:
 def cmd_show(a):
     c = Curve.load(a.date, a.curve, a.db)
     tenors = a.tenors or [0.25, 0.5, 1, 2, 3, 5, 7, 10, 15, 20, 30]
-    print(f"{c.curve}-kurvan {c.date}  (Svensson: b0={c.b0:.4f} b1={c.b1:.4f} b2={c.b2:.4f} b3={c.b3:.4f} "
+    print(f"{c.curve} curve {c.date}  (Svensson: b0={c.b0:.4f} b1={c.b1:.4f} b2={c.b2:.4f} b3={c.b3:.4f} "
           f"t1={c.t1:.4f} t2={c.t2:.4f})")
-    print(f"{'år':>6} {'spot %':>9} {'termin %':>9} {'par %':>9} {'par årl %':>10} {'DF':>9}")
+    print(f"{'years':>6} {'spot %':>9} {'fwd %':>9} {'par %':>9} {'par ann %':>10} {'DF':>9}")
     for m in tenors:
         print(f"{m:>6g} {c.spot(m):>9.4f} {c.forward(m):>9.4f} {c.par(m):>9.4f} {c.par(m, 1):>10.4f} {c.df(m):>9.6f}")
-    print(f"5y5y termin: {c.forward_rate(5, 10):.4f} %   2s10s: {(c.spot(10) - c.spot(2)) * 100:.1f} bp")
+    print(f"5y5y forward: {c.forward_rate(5, 10):.4f} %   2s10s: {(c.spot(10) - c.spot(2)) * 100:.1f} bp")
 
 
 def cmd_check(a):
@@ -224,7 +224,7 @@ def cmd_check(a):
         k = (cv, t)
         worst[k] = max(worst.get(k, 0), err)
     for (cv, t), e in sorted(worst.items()):
-        print(f"{cv} {t}: största avvikelse mot ECB senaste 30 dagar = {e:.4f} bp")
+        print(f"{cv} {t}: max deviation from ECB, last 30 days = {e:.4f} bp")
 
 
 if __name__ == "__main__":

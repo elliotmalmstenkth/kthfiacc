@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Bygger portföljsidan (site/portfolio.html) från en dags data.
+Builds the portfolio site (site/portfolio.html) from one day of data.
 
   python site/build.py --day 2026-10-02 --ecb-db ecb_curve.sqlite
 
-Läser data/<dag>/ (bonds_classified, dfra_quotes, eurex_futures_daily) och ECB-kurvan,
-räknar nyckeltal med analytics.py och bäddar in resultatet som JSON i site/template.html.
+Reads data/<date>/ (bonds_classified, dfra_quotes, eurex_futures_daily) and the ECB curve,
+computes analytics with analytics.py and embeds the result as JSON in site/template.html.
 """
 import argparse, datetime as dt, json, math, os, re, sys
 
@@ -17,7 +17,7 @@ import analytics as an, ecb_curve, eurex  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
-# antagen spreadduration för kreditindexterminerna (ändras i sidan)
+# assumed spread duration of the credit index futures (editable on the site)
 INDEX_DURATION = {"FECX": 4.5, "FEHY": 3.0, "FGBC": 6.0, "FUIG": 6.5, "FUHY": 3.2, "FUEM": 6.5, "FGGI": 6.5}
 
 
@@ -26,7 +26,7 @@ NAME_CPN = re.compile(r"^\S+\s+(\d+(?:\.\d+)?)(?:\s+(\d)/(\d+))?\s+(?:PERP|\d{1,
 
 
 def name_coupon(name):
-    """Kupong ur Bloomberg-liknande namn, t.ex. 'DANBNK 4 1/2 11/09/28' -> 4.5."""
+    """Coupon from a Bloomberg-style name, e.g. 'DANBNK 4 1/2 11/09/28' -> 4.5."""
     n = str(name)
     for k, v in FRACTIONS.items():
         n = n.replace(k, v)
@@ -37,8 +37,8 @@ def name_coupon(name):
 
 
 def clean_coupon(firds_cpn, name):
-    """FIRDS har enstaka kuponger i fel skala (45 i st.f. 4,5; 1125 i st.f. 1,125).
-    Över 20 % ersätts med kupongen i namnet; saknas den blir kupongen okänd."""
+    """FIRDS has a few coupons in the wrong scale (45 instead of 4.5; 1125 instead of 1.125).
+    Coupons above 20% are replaced with the coupon in the name; if there is none, the coupon is unknown."""
     if firds_cpn is None or math.isnan(firds_cpn) or firds_cpn <= 20:
         return firds_cpn
     return name_coupon(name)
@@ -82,7 +82,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
     cols = ["isin", "issuer", "name", "sector", "sub", "cpn", "mat", "amt", "bid", "ask", "firm", "ytm", "z",
             "mdur", "acc", "bench", "freq"]
 
-    # terminer: närmaste kontrakt med orderboksaffärer
+    # futures: front contract with on-book trades
     bunds = [(i, x.coupon_fixed, x.mat, (x.bid_px + x.ask_px) / 2) for i, x in u.iterrows()
              if x.sector == "SOV" and i.startswith("DE000") and x.coupon_type == "fixed"]
     futures = []
@@ -110,7 +110,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
 
 
 def as_document(page):
-    """Mallen är skriven som sidinnehåll (title, style, markup); gör ett fristående dokument för GitHub Pages."""
+    """The template is written as page content (title, style, markup); wrap it in a standalone document for GitHub Pages."""
     m = re.match(r"\s*(<title>.*?</title>)", page, re.S)
     title, body = (m.group(1), page[m.end():]) if m else ("", page)
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -124,9 +124,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--day", required=True)
     ap.add_argument("--ecb-db", default="ecb_curve.sqlite")
-    ap.add_argument("--bonds", help="bonds_classified.csv(.gz); standard data/<dag>/")
-    ap.add_argument("--quotes", help="dfra_quotes csv; standard data/<dag>/")
-    ap.add_argument("--futures", help="eurex_futures_daily csv; standard data/<dag>/")
+    ap.add_argument("--bonds", help="bonds_classified.csv(.gz); default data/<date>/")
+    ap.add_argument("--quotes", help="dfra_quotes csv; default data/<date>/")
+    ap.add_argument("--futures", help="eurex_futures_daily csv; default data/<date>/")
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "elliotmalmstenkth/kthfiacc"))
     ap.add_argument("--branch", default=os.environ.get("PORTFOLIO_BRANCH", "claude/compassionate-edison-wxgg9h"))
     ap.add_argument("--positions", default="portfolio/positions.json")
@@ -142,5 +142,5 @@ if __name__ == "__main__":
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"{a.out}: {len(data['bonds']):,} obligationer, {len(data['futures'])} terminer, {len(html) / 1e6:.1f} MB",
+    print(f"{a.out}: {len(data['bonds']):,} bonds, {len(data['futures'])} futures, {len(html) / 1e6:.1f} MB",
           file=sys.stderr)
