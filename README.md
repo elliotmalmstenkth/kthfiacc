@@ -93,22 +93,22 @@ corrects misclassified issuers.
 
 | EUR, sector | count | two-way | firm two-way |
 |---|---:|---:|---:|
-| Financials (CORP_FIN) | 8,623 | 8,622 | 3,311 |
-| Non-financial corporates (CORP_NONFIN) | 4,961 | 4,957 | 4,662 |
-| Sovereigns (SOV) | 1,196 | 1,196 | 1,013 |
+| Financials (CORP_FIN) | 8,367 | 8,366 | 3,171 |
+| Non-financial corporates (CORP_NONFIN) | 4,958 | 4,954 | 4,659 |
+| Sovereigns (SOV) | 1,198 | 1,198 | 1,015 |
+| Covered (COVERED) | 1,141 | 1,141 | 822 |
 | Structured / CLN | 1,007 | 1,007 | 208 |
-| Covered (COVERED) | 886 | 886 | 683 |
-| Agencies | 860 | 860 | 459 |
+| Agencies | 862 | 862 | 461 |
 | Sub-sovereigns | 763 | 763 | 350 |
 | Supranationals | 330 | 330 | 263 |
 | ABS/MBS, convertibles | 232 | 229 | 189 |
 
-**EUR corporates: 13,584**, but ~6,000 of the financials are German Landesbank/DZ retail notes (Helaba 2,322,
+**EUR corporates: 13,325**, but ~6,000 of the financials are German Landesbank/DZ retail notes (Helaba 2,322,
 DZ Bank 1,759, NordLB 608, LBBW 564, Deka 390). The investable universe:
 
-- issue size ≥ EUR 500m, fixed/zero coupon, senior (hybrids and perpetuals excluded): **5,058**, of which 4,911 with
+- issue size ≥ EUR 500m, fixed/zero coupon, senior (hybrids and perpetuals excluded): **4,862**, of which 4,781 with
   firm two-way quotes
-- non-financials: **3,520** (3,483 firm)
+- non-financials: **3,517** (3,480 firm)
 - closing quotes: median bid-offer 0.50 points (10th–90th percentile 0.20–1.01); 90% updated in the last hour
   before 17:30
 
