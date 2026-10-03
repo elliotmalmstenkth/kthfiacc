@@ -142,6 +142,21 @@ def test_sector_rules(cfi, fisn, lei, want):
     assert classify.sector_of(R(cfi, fisn, lei), {})[0] == want
 
 
+R2 = namedtuple("R2", "cfi fisn issuer_lei full_name")
+
+
+@pytest.mark.parametrize("cfi,fisn,name,want", [
+    ("DBFTXN", "AGENTSCHAP MINI/3.75 BD 20420115", "NETHER 3 3/4 01/15/42", "SOV"),             # Dutch State Treasury Agency
+    ("DBFTFB", "CAISSE AMORT DE/0.1 BD 20310915", "CADES 0 1/8 09/15/31", "AGENCY"),
+    ("DBZUFB", "NEDERLANDSE WAT/0 MTN 20370216", "NEDWBK 0 02/16/37", "AGENCY"),
+    ("DTFUFB", "ABN AMRO BANK N/0.01 MTN 20350228", "ABN AMRO Bank N.V. EO-Med.-T.Cov.Bds 2026(35)", "COVERED"),
+    ("DBFTFB", "DZ HYP AG/0.875 MTH 20300118 R. 358", "DZ HYP 0.875 01/18/30", "COVERED"),  # MTH = mortgage Pfandbrief
+    ("DTFUFB", "ABN AMRO BANK N/2.830 MTN 20300228", "ABNANV 2.83 02/28/30 BOND", "CORP_FIN"),
+])
+def test_sector_rules_full_name(cfi, fisn, name, want):
+    assert classify.sector_of(R2(cfi, fisn, "", name), {})[0] == want
+
+
 def test_sector_override_wins():
     assert classify.sector_of(R("DBFTFB", "KFW/2.0 MTN", "LEI1"), {"LEI1": "CORP_FIN"}) == ("CORP_FIN", "manual override")
 

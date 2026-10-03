@@ -1,135 +1,191 @@
 <title>KTH FICC Portfolio</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: a trading-desk sheet. Top bar with the data stamp, three tabs, dense tables with mono figures. */
+/* Terminal layout: fixed app shell (header, function-key bar, workspace, status line). Each workspace is an
+   asymmetric CSS grid of bordered panels that scroll internally, so the book's key numbers stay above the fold. */
 :root {
-  --bg: #eef2f0; --panel: #ffffff; --ink: #14201c; --ink-2: #44514c; --ink-3: #6c7873;
-  --line: #d3dcd8; --line-2: #e4eae7; --accent: #0b6b56; --accent-ink: #ffffff; --accent-soft: #dcefe8;
-  --pos: #1d7a3e; --neg: #b3361f; --warn: #8a5a00; --warn-soft: #fbf0d9; --bar: #0b6b56; --bar-neg: #b3361f;
-  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
-  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --r: 6px;
+  --bg: #000000; --panel: #070707; --panel-2: #0e0e0e; --line: #2b2b2b; --line-2: #181818;
+  --amber: #ffb000; --amber-2: #b37b00; --fg: #e8e8e8; --fg-2: #a3a3a3; --fg-3: #6e6e6e;
+  --cyan: #2ec4ff; --pos: #18e36c; --neg: #ff3434; --sel: #2a1d00; --hover: #151515;
+  --mono: "SF Mono", SFMono-Regular, ui-monospace, Consolas, "Liberation Mono", Menlo, "Courier New", monospace;
+  color-scheme: dark;
 }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #0f1513; --panel: #161e1b; --ink: #e3ebe7; --ink-2: #b2bfb9; --ink-3: #85938d;
-  --line: #2a3632; --line-2: #212b28; --accent: #4cc3a1; --accent-ink: #062019; --accent-soft: #173a30;
-  --pos: #5ccf86; --neg: #f08068; --warn: #e7b357; --warn-soft: #3a2e14; --bar: #4cc3a1; --bar-neg: #f08068;
-  color-scheme: dark } }
-:root[data-theme="dark"] {
-  --bg: #0f1513; --panel: #161e1b; --ink: #e3ebe7; --ink-2: #b2bfb9; --ink-3: #85938d;
-  --line: #2a3632; --line-2: #212b28; --accent: #4cc3a1; --accent-ink: #062019; --accent-soft: #173a30;
-  --pos: #5ccf86; --neg: #f08068; --warn: #e7b357; --warn-soft: #3a2e14; --bar: #4cc3a1; --bar-neg: #f08068;
-  color-scheme: dark }
+*, *::before, *::after { box-sizing: border-box; border-radius: 0 !important; box-shadow: none !important; transition: none !important; animation: none !important; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 12px/1.25 var(--mono); font-variant-numeric: tabular-nums; }
+button, input, select { font: inherit; font-variant-numeric: tabular-nums; color: inherit; }
+a { color: var(--cyan); }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
 
-* { box-sizing: border-box }
-[hidden] { display: none !important }
-body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f-body); }
-.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
-header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px; padding-block: 18px 12px; border-bottom: 1px solid var(--line); }
-header.top h1 { font: 600 22px/1.1 var(--f-display); letter-spacing: .01em; margin: 0; }
-header.top h1 span { color: var(--accent); }
-.stamp { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-3); min-width: 0; }
-.stamp b { color: var(--ink-2); font-weight: 500; }
-.acct { margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-2); }
-.acct img { width: 20px; height: 20px; border-radius: 50%; }
-.steps { margin: 0; padding-left: 20px; font-size: 13px; color: var(--ink-2); display: grid; gap: 4px; }
-code { font-family: var(--f-mono); font-size: 12px; background: var(--accent-soft); padding: 0 4px; border-radius: 3px; }
-a { color: var(--accent); }
-nav.tabs { display: flex; gap: 2px; margin-block: 14px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
-nav.tabs button { font: 500 14px var(--f-body); color: var(--ink-2); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; white-space: nowrap; }
-nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
-nav.tabs button:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-h2 { font: 600 16px/1.2 var(--f-display); letter-spacing: .02em; margin: 0; text-wrap: balance; }
-h3 { font: 600 13px/1.2 var(--f-body); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin: 0 0 8px; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; min-width: 0; }
-.stack { display: grid; gap: 16px; align-content: start; }
-.stack > * { min-width: 0; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
-.grid2 > * { min-width: 0; }
-select { max-width: 100%; }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
-.kpi { background: var(--panel); padding: 12px 14px; min-width: 0; }
-.kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
-.kpi .v { font: 500 20px/1.3 var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.kpi .s { font-size: 12px; color: var(--ink-3); }
-.num, td.n, th.n { font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-.muted { color: var(--ink-3); } .pos { color: var(--pos); } .neg { color: var(--neg); }
-.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th { font: 500 11px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; white-space: nowrap; }
-th.sort { cursor: pointer; user-select: none; } th.sort:hover { color: var(--ink); }
-th .arr { color: var(--accent); }
-td { padding: 6px 10px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
-tr:last-child td { border-bottom: 0; }
-tbody tr:hover td { background: var(--accent-soft); }
-td.name { min-width: 220px; } td.name .t { font-weight: 500; } td.name .i { font: 11px var(--f-mono); color: var(--ink-3); }
-.chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
-.chip.ind { border-style: dashed; color: var(--warn); border-color: var(--warn); }
-.filters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 10px; }
-.filters > * { min-width: 0; max-width: 100%; }
-.filters input[type="search"] { flex: 1 1 240px; min-width: 0; }
-input, select { font: 14px var(--f-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; }
-input.numin { font-family: var(--f-mono); text-align: right; width: 9em; }
-.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; }
-.seg button, .tog { font: 12px var(--f-body); border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); border-radius: 99px; padding: 4px 10px; cursor: pointer; }
-.seg button[aria-pressed="true"], .tog[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-button.btn { font: 500 13px var(--f-body); border-radius: 5px; padding: 6px 12px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
-button.btn.ghost { background: transparent; color: var(--accent); }
-button.btn.small { padding: 2px 9px; font-size: 12px; }
-button.btn.danger { border-color: var(--neg); color: var(--neg); background: transparent; }
-button.btn.danger.armed { background: var(--neg); color: var(--panel); }
-button:disabled { opacity: .45; cursor: not-allowed; }
-.more { display: flex; justify-content: center; gap: 10px; align-items: center; padding: 10px; font-size: 12px; color: var(--ink-3); }
-.empty { padding: 28px 16px; text-align: center; color: var(--ink-2); }
-.empty p { max-width: 52ch; margin: 6px auto; }
-.note { font-size: 12px; color: var(--ink-3); max-width: 90ch; }
-.notice { background: var(--warn-soft); color: var(--ink); border: 1px solid var(--warn); border-radius: var(--r); padding: 8px 12px; font-size: 13px; }
-.bars { display: grid; gap: 7px; }
-.bar { display: grid; grid-template-columns: minmax(90px, 140px) 1fr minmax(70px, auto); gap: 10px; align-items: center; font-size: 12px; }
-.bar .track { height: 10px; position: relative; }
-.bar .fill { position: absolute; top: 0; bottom: 0; background: var(--bar); border-radius: 0 4px 4px 0; min-width: 2px; }
-.bar .fill.neg { background: var(--bar-neg); border-radius: 4px 0 0 4px; }
-.bar .zero { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--ink-3); }
-.bar .val { font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-2); }
-dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); padding: 18px; width: min(460px, calc(100vw - 32px)); }
-dialog::backdrop { background: rgb(0 0 0 / .35); }
-.form { display: grid; gap: 12px; }
-.form label { display: grid; gap: 4px; font-size: 12px; color: var(--ink-2); }
-.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; min-width: 0; }
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-size: 13px; }
-.kv dt { color: var(--ink-3); } .kv dd { margin: 0; font-family: var(--f-mono); text-align: right; }
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 6px; font-size: 13px; max-width: calc(100vw - 32px); }
-.tag { font: 500 10px var(--f-body); letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; }
-.tag.buy { background: var(--accent-soft); color: var(--accent); } .tag.sell { background: var(--warn-soft); color: var(--neg); }
-.who { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-2); }
-.who img { width: 18px; height: 18px; border-radius: 50%; }
-@media (prefers-reduced-motion: no-preference) { tbody tr td { transition: background .12s } }
-@media (max-width: 560px) { .bar { grid-template-columns: 90px 1fr 64px } header.top h1 { font-size: 19px } }
+/* ---- shell ---- */
+.app { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; padding-inline: 16px; }
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; padding-block: 6px; border-bottom: 1px solid var(--line); min-width: 0; }
+.brand { color: var(--amber); font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+.brand span { color: var(--fg); font-weight: 400; }
+.stamp { display: flex; flex-wrap: wrap; gap: 2px 14px; color: var(--fg-3); min-width: 0; }
+.stamp b { color: var(--fg); font-weight: 400; }
+.acct { margin-left: auto; display: flex; gap: 10px; align-items: center; color: var(--fg-2); white-space: nowrap; }
+.clock { color: var(--amber); }
+.fkeys { display: flex; gap: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.fkeys button { background: var(--bg); border: 0; border-right: 1px solid var(--line); color: var(--fg-2); padding: 5px 14px; cursor: pointer; white-space: nowrap; letter-spacing: .04em; }
+.fkeys button kbd { color: var(--amber); font: inherit; margin-right: 6px; }
+.fkeys button:hover { background: var(--hover); color: var(--fg); }
+.fkeys button[aria-selected="true"] { background: var(--amber); color: #000; }
+.fkeys button[aria-selected="true"] kbd { color: #000; }
+.views { min-height: 0; padding-block: 8px; }
+.view { display: grid; gap: 8px; height: 100%; min-height: 0; }
+.status { display: flex; flex-wrap: wrap; gap: 2px 18px; align-items: center; border-top: 1px solid var(--line); padding-block: 4px; color: var(--fg-3); min-width: 0; }
+.status .msg { color: var(--amber); }
+.status .err { color: var(--neg); }
+.status .keys { margin-left: auto; }
+.status kbd { color: var(--amber); font: inherit; }
+
+/* ---- panels ---- */
+.panel { background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.ph { display: flex; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--line); background: var(--panel-2); min-width: 0; }
+.ph h2 { margin: 0; font: inherit; font-weight: 700; color: var(--amber); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.ph .sub { color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ph .tools { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.pb { flex: 1; min-height: 0; overflow: auto; }
+.pad { padding: 8px; }
+.note { color: var(--fg-3); margin: 0 0 8px; max-width: 95ch; }
+.note b { color: var(--fg-2); font-weight: 400; }
+
+/* ---- KPI strip ---- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); border: 1px solid var(--line); background: var(--line); gap: 1px; }
+.kpi { background: var(--panel); padding: 5px 8px; min-width: 0; }
+.kpi .l { color: var(--amber); letter-spacing: .06em; font-size: 11px; }
+.kpi .v { font-size: 19px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi .s { color: var(--fg-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- tables ---- */
+table.t { border-collapse: collapse; width: 100%; }
+.t th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); color: var(--amber); font-weight: 400; font-size: 11px; letter-spacing: .04em; text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line-2); white-space: nowrap; }
+.t td { padding: 2px 6px; border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line-2); white-space: nowrap; }
+.t th:last-child, .t td:last-child { border-right: 0; }
+.t .n { text-align: right; }
+.t th.sort { cursor: pointer; user-select: none; }
+.t th.sort:hover { color: var(--fg); }
+.t tbody tr:hover td { background: var(--hover); }
+.t tbody tr.sel td { background: var(--sel); }
+.t tbody tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--amber) !important; }
+.t tr.click { cursor: pointer; }
+.t td.nm { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.t tfoot td { border-top: 1px solid var(--line); color: var(--fg); background: var(--panel-2); }
+.muted { color: var(--fg-3); } .dim { color: var(--fg-2); } .amb { color: var(--amber); } .cy { color: var(--cyan); }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+.tag { display: inline-block; min-width: 3.2em; text-align: center; font-size: 11px; padding: 0 3px; }
+.tag.l { background: #0d3a1f; color: var(--pos); } .tag.s { background: #3f0d0d; color: var(--neg); }
+.ind { color: var(--amber-2); text-decoration: underline dotted; }
+
+/* ---- controls ---- */
+a.btn { text-decoration: none; display: inline-block; }
+.btn { background: #000; border: 1px solid var(--amber); color: var(--amber); padding: 2px 9px; cursor: pointer; white-space: nowrap; letter-spacing: .03em; }
+.btn:hover { background: var(--amber); color: #000; }
+.btn.solid { background: var(--amber); color: #000; }
+.btn.solid:hover { background: #ffd060; }
+.btn.buy { border-color: var(--pos); color: var(--pos); } .btn.buy:hover, .btn.buy[aria-pressed="true"] { background: var(--pos); color: #000; }
+.btn.sell { border-color: var(--neg); color: var(--neg); } .btn.sell:hover, .btn.sell[aria-pressed="true"] { background: var(--neg); color: #000; }
+.btn.x { border-color: #5a1a1a; color: var(--neg); padding: 0 6px; }
+.btn.x:hover, .btn.x.armed { background: var(--neg); color: #000; border-color: var(--neg); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn:disabled:hover { background: #000; color: var(--amber); }
+input, select { background: #000; border: 1px solid var(--line); padding: 2px 6px; caret-color: var(--amber); }
+input:hover, select:hover { border-color: var(--fg-3); }
+input.num { text-align: right; width: 8.5em; }
+.chips { display: flex; flex-wrap: wrap; gap: 0; }
+.chips button, .tog { background: #000; border: 1px solid var(--line); margin: 0 -1px -1px 0; color: var(--fg-2); padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+.chips button:hover, .tog:hover { color: var(--fg); border-color: var(--fg-3); }
+.chips button[aria-pressed="true"], .tog[aria-pressed="true"] { background: var(--amber); color: #000; border-color: var(--amber); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.filters input[type="search"] { flex: 1 1 220px; min-width: 0; }
+.more { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 4px 8px; border-top: 1px solid var(--line); color: var(--fg-3); }
+
+/* ---- bars / chart ---- */
+.bars { display: grid; gap: 3px; padding: 8px; }
+.bar { display: grid; grid-template-columns: minmax(80px, 130px) 1fr minmax(64px, auto); gap: 8px; align-items: center; }
+.bar .lb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
+.bar .tr { height: 9px; position: relative; background: var(--line-2); }
+.bar .f { position: absolute; top: 0; bottom: 0; background: var(--amber); }
+.bar .f.p { background: var(--pos); } .bar .f.n { background: var(--neg); }
+.bar .z { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--fg-3); left: 50%; }
+.bar .v { text-align: right; }
+svg.chart { display: block; }
+#curveBox { overflow: hidden; }
+svg.chart text { fill: var(--fg-3); font: 10px var(--mono); }
+svg.chart .grid { stroke: var(--line-2); stroke-width: 1; }
+svg.chart .axis { stroke: var(--line); stroke-width: 1; }
+svg.chart .curve { fill: none; stroke: var(--amber); stroke-width: 2; }
+svg.chart .dot { fill: var(--cyan); stroke: #000; stroke-width: 1; }
+svg.chart .dot.short { fill: var(--neg); }
+
+/* ---- ticket / key-value ---- */
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 12px; }
+.kv dt { color: var(--fg-3); } .kv dd { margin: 0; text-align: right; }
+.kv dd.big { font-size: 15px; }
+.sect { border-top: 1px solid var(--line); padding: 8px; display: grid; gap: 6px; }
+.sect:first-child { border-top: 0; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.lbl { color: var(--amber); letter-spacing: .05em; font-size: 11px; }
+.empty { padding: 16px 10px; color: var(--fg-2); }
+.empty p { margin: 4px 0; max-width: 60ch; }
+.who { color: var(--cyan); }
+
+/* ---- dialogs & toast ---- */
+dialog { background: #000; color: var(--fg); border: 1px solid var(--amber); padding: 0; width: min(520px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(0 0 0 / .75); }
+dialog .ph { background: var(--amber); } dialog .ph h2 { color: #000; }
+dialog .pb { padding: 10px; display: grid; gap: 8px; }
+dialog ol { margin: 0; padding-left: 18px; color: var(--fg-2); display: grid; gap: 3px; }
+dialog code { color: var(--amber); }
+dialog label { display: grid; gap: 3px; color: var(--amber); }
+.toast { position: fixed; right: 16px; bottom: calc(30px + env(safe-area-inset-bottom, 0px)); background: #000; border: 1px solid var(--amber); color: var(--amber); padding: 5px 10px; max-width: calc(100vw - 32px); z-index: 10; }
+
+/* ---- workspace grids ---- */
+#v-dash { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-areas: "kpi kpi kpi" "hold hold mkt" "buck sect curve"; }
+#v-hold { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1.5fr) minmax(0, 1fr);
+  grid-template-areas: "kpi kpi" "blot blot" "attr sum"; }
+#v-risk { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, .9fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "kpi kpi kpi" "krd hedge meth" "cs hedge meth"; }
+#v-desk { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-areas: "scr tkt" "fut tkt"; }
+@media (max-width: 1000px) {
+  .app { height: auto; min-height: 100vh; }
+  .views { padding-block: 8px 16px; }
+  .view { height: auto; grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: none !important; }
+  #v-dash { grid-template-areas: "kpi" "hold" "mkt" "buck" "sect" "curve"; }
+  #v-hold { grid-template-areas: "kpi" "blot" "attr" "sum"; }
+  #v-risk { grid-template-areas: "kpi" "krd" "cs" "hedge" "meth"; }
+  #v-desk { grid-template-areas: "tkt" "scr" "fut"; }
+  .panel .pb { max-height: 460px; }
+  .status .keys { display: none; }
+}
 </style>
 
-<div class="wrap">
+<div class="app">
   <header class="top">
-    <h1>KTH FICC <span>Portfolio</span></h1>
+    <div class="brand">KTH FICC <span>PAPER PORTFOLIO</span></div>
     <div class="stamp" id="stamp"></div>
     <div class="acct" id="acct"></div>
   </header>
-  <nav class="tabs" role="tablist">
-    <button role="tab" id="tab-pf" aria-selected="true" data-tab="pf">Portfolio</button>
-    <button role="tab" id="tab-bonds" aria-selected="false" data-tab="bonds">Bonds</button>
-    <button role="tab" id="tab-hedge" aria-selected="false" data-tab="hedge">Futures &amp; Hedging</button>
+  <nav class="fkeys" role="tablist" aria-label="Workspaces">
+    <button role="tab" data-view="dash" aria-selected="true"><kbd>1</kbd>DASHBOARD</button>
+    <button role="tab" data-view="hold" aria-selected="false"><kbd>2</kbd>HOLDINGS &amp; P&amp;L</button>
+    <button role="tab" data-view="risk" aria-selected="false"><kbd>3</kbd>RISK ANALYTICS</button>
+    <button role="tab" data-view="desk" aria-selected="false"><kbd>4</kbd>MARKET DESK</button>
   </nav>
-
-  <section id="pf" class="stack"></section>
-  <section id="bonds" class="stack" hidden></section>
-  <section id="hedge" class="stack" hidden></section>
+  <main class="views">
+    <section class="view" id="v-dash"></section>
+    <section class="view" id="v-hold" hidden></section>
+    <section class="view" id="v-risk" hidden></section>
+    <section class="view" id="v-desk" hidden></section>
+  </main>
+  <footer class="status" id="status"></footer>
 </div>
 
-<dialog id="ticket"><form class="form" id="ticketForm" method="dialog"></form></dialog>
-<dialog id="login"><form class="form" id="loginForm" method="dialog"></form></dialog>
-<div class="toast" id="toast" hidden></div>
+<dialog id="login"><form id="loginForm" method="dialog"></form></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
 
 <script>
 const DATA = /*__DATA__*/null;
@@ -140,7 +196,6 @@ const SECT = { CORP_NONFIN: "Corporates", CORP_FIN: "Financials", COVERED: "Cove
 const BONDS = DATA.bonds.map(r => Object.fromEntries(DATA.cols.map((c, i) => [c, r[i]])));
 const BY_ISIN = new Map(BONDS.map(b => [b.isin, b]));
 const FUT = new Map(DATA.futures.map(f => [f.code, f]));
-const ASOF = new Date(DATA.asof + "T12:00:00");
 const SETTLE = new Date(DATA.settle + "T12:00:00");
 for (const b of BONDS) { b.mid = (b.bid + b.ask) / 2; b.yrs = (new Date(b.mat + "T12:00:00") - SETTLE) / 3.15576e10; }
 
@@ -148,10 +203,24 @@ const nf = (d) => new Intl.NumberFormat("en-GB", { minimumFractionDigits: d, max
 const F = new Proxy({}, { get: (c, d) => c[d] ??= nf(+d) });
 const fmt = (x, d = 2) => x == null || !isFinite(x) ? "–" : F[d].format(x);
 const fmtS = (x, d = 0) => x == null || !isFinite(x) ? "–" : (x > 0 ? "+" : "") + F[d].format(x || 0);
-const dateEn = (s) => new Date(s + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const cls = (x) => x > 0 ? "pos" : x < 0 ? "neg" : "";
+const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const dTerm = (s) => { const d = new Date(s + "T12:00:00"); return `${String(d.getDate()).padStart(2, "0")}-${MON[d.getMonth()]}-${d.getFullYear()}`; };
+const mmmYY = (s) => { const d = new Date(s + "T12:00:00"); return `${MON[d.getMonth()]}${String(d.getFullYear()).slice(2)}`; };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const $ = (sel, root = document) => root.querySelector(sel);
 
 function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem("ficc." + k)); localStorage.setItem("ficc." + k, JSON.stringify(v)); } catch { return null; } }
+
+// ECB AAA Svensson spot curve (percent, continuously compounded)
+const C = DATA.curve;
+function spot(m) {
+  m = Math.max(m, 1e-6);
+  const l = (t) => { const x = m / t; return x < 1e-10 ? 1 : (1 - Math.exp(-x)) / x; };
+  const l1 = l(C.t1), l2 = l(C.t2);
+  return C.b0 + C.b1 * l1 + C.b2 * (l1 - Math.exp(-m / C.t1)) + C.b3 * (l2 - Math.exp(-m / C.t2));
+}
+const fwd = (a, b) => (spot(b) * b - spot(a) * a) / (b - a);
 
 // ------------------------------------------------------------------ risk
 // DV01/CS01: EUR P&L for a 1 bp fall in yield/spread (positive for a long bond).
@@ -179,13 +248,50 @@ function risk(p) {
            bucket: f.dv01 != null ? f.code : null };
 }
 
+// The whole book in one pass: rows, totals, bucket and sector aggregates.
+function book() {
+  const rows = state.positions.map(p => ({ p, r: risk(p) }));
+  const ok = rows.filter(x => !x.r.missing);
+  const bonds = ok.filter(x => x.p.kind === "bond"), futs = ok.filter(x => x.p.kind !== "bond");
+  const mv = bonds.reduce((s, x) => s + x.r.mv, 0);
+  const gross = bonds.reduce((s, x) => s + Math.abs(x.r.mv), 0);
+  const wavg = (k) => mv > 0 ? bonds.reduce((s, x) => s + x.r.mv * (x.r[k] ?? 0), 0) / mv : null;
+  const sum = (xs, k) => xs.reduce((s, x) => s + (x.r[k] ?? 0), 0);
+  const buck = Object.fromEntries(BUCKETS.map(([c]) => [c, { bonds: 0, futs: 0 }]));
+  for (const x of ok) if (x.r.bucket && x.r.dv01) buck[x.r.bucket][x.p.kind === "bond" ? "bonds" : "futs"] += x.r.dv01;
+  const sect = {};
+  for (const x of bonds) {
+    const k = x.r.b.sector, s = sect[k] ??= { mv: 0, dv01: 0, cs01: 0, y: 0, z: 0, n: 0 };
+    s.mv += x.r.mv; s.dv01 += x.r.dv01; s.cs01 += x.r.cs01; s.y += x.r.mv * x.r.y; s.z += x.r.mv * (x.r.z ?? 0); s.n++;
+  }
+  return { rows, ok, bonds, futs, mv, gross, wavg, dv01: sum(ok, "dv01"), cs01: sum(ok, "cs01"), pnl: sum(ok, "pnl"),
+           futNotional: futs.reduce((s, x) => s + Math.abs(x.r.notional), 0), buck, sect,
+           missing: rows.filter(x => x.r.missing).length };
+}
+
+// Hedge: credit first (credit futures carry spread and rate duration), then rates on the residual DV01 per bucket.
+function hedgeCalc(bk) {
+  const corpCs = bk.bonds.filter(x => x.r.b.sector.startsWith("CORP")).reduce((s, x) => s + x.r.cs01, 0)
+               + bk.futs.filter(x => x.r.f?.type === "credit").reduce((s, x) => s + (x.r.cs01 ?? 0), 0);
+  const cf = FUT.get(state.hedgeIdx), cd = indexDur(state.hedgeIdx);
+  const csPer = cf && cd ? cf.last * cf.mult * cd * 1e-4 : null;
+  const nCredit = csPer && state.hedgePct ? Math.round(-corpCs * state.hedgePct / 100 / csPer) || 0 : 0;
+  const pre = Object.fromEntries(BUCKETS.map(([c]) => [c, bk.buck[c].bonds + bk.buck[c].futs]));
+  if (nCredit && csPer) pre[bucketOf(cd)] += nCredit * csPer;
+  const rateTrades = BUCKETS.map(([c, l]) => { const f = FUT.get(c); const n = f?.dv01 ? Math.round(-pre[c] / f.dv01) || 0 : 0; return { c, l, f, dv: pre[c], n }; });
+  const trades = [...(nCredit ? [{ code: state.hedgeIdx, n: nCredit }] : []), ...rateTrades.filter(t => t.n).map(t => ({ code: t.c, n: t.n }))];
+  const after = rateTrades.reduce((s, t) => s + t.dv + t.n * (t.f?.dv01 || 0), 0);
+  return { corpCs, csPer, nCredit, rateTrades, trades, after, cd };
+}
+
 // ------------------------------------------------------------------ state
 const state = {
-  tab: store("tab") || "pf",
+  view: store("view") || "dash",
   q: "", sectors: new Set(store("sectors") || ["CORP_NONFIN", "CORP_FIN"]), bench: store("bench") ?? true,
-  firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1], limit: 100,
+  firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1], limit: 200,
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
-  positions: [], dbState: "loading", canWrite: false, loadedAt: 0,
+  sel: store("sel") || null, side: 1, nominal: 1e6, lots: 1,
+  positions: [], dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
 };
 
 // ------------------------------------------------------------------ GitHub storage
@@ -194,6 +300,7 @@ const state = {
 const REPO = DATA.repo;
 const API = `https://api.github.com/repos/${REPO.owner}/${REPO.name}`;
 const FILE = `${API}/contents/${REPO.path}`;
+const HISTORY = `https://github.com/${REPO.owner}/${REPO.name}/commits/${encodeURIComponent(REPO.branch)}/${REPO.path}`;
 const utf8ToB64 = (str) => { const bytes = new TextEncoder().encode(str); let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
 const b64ToUtf8 = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, "")), c => c.charCodeAt(0)));
 const gh = {
@@ -231,212 +338,6 @@ const gh = {
   },
 };
 
-// ------------------------------------------------------------------ chrome
-document.getElementById("stamp").innerHTML =
-  `<span>Prices <b>Börse Frankfurt close ${dateEn(DATA.asof)}</b> (last two-way quote before 17:30 CET)</span>` +
-  `<span>Settlement <b>${dateEn(DATA.settle)}</b> (T+2)</span>` +
-  `<span>Curve <b>ECB AAA ${dateEn(DATA.curve.date)}</b></span>`;
-
-function setTab(t) {
-  state.tab = t; store("tab", t);
-  for (const b of document.querySelectorAll("nav.tabs button")) b.setAttribute("aria-selected", b.dataset.tab === t);
-  for (const id of ["pf", "bonds", "hedge"]) document.getElementById(id).hidden = id !== t;
-  render();
-}
-document.addEventListener("click", e => {
-  if (e.target.closest("[data-login]")) openLogin();
-  if (e.target.closest("#retry")) loadPositions();
-  if (e.target.closest("#logout")) { gh.token = gh.login = null; store("ghToken", null); store("ghLogin", null); state.canWrite = false; renderAcct(); render(); toast("Signed out"); }
-});
-document.querySelector("nav.tabs").addEventListener("click", e => { const t = e.target.closest("button")?.dataset.tab; if (t) setTab(t); });
-
-let toastTimer;
-function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3500); }
-
-function bars(items, fmtv) {
-  const max = Math.max(1e-9, ...items.map(i => Math.abs(i.v)));
-  const hasNeg = items.some(i => i.v < 0);
-  return `<div class="bars">` + items.map(i => {
-    const w = Math.abs(i.v) / max * (hasNeg ? 50 : 100);
-    const left = hasNeg ? (i.v < 0 ? 50 - w : 50) : 0;
-    return `<div class="bar" title="${esc(i.l)}: ${esc(fmtv(i.v))}"><span>${esc(i.l)}</span><span class="track">` +
-      (hasNeg ? `<span class="zero" style="left:50%"></span>` : "") +
-      `<span class="fill${i.v < 0 ? " neg" : ""}" style="left:${left}%;width:${w}%"></span></span><span class="val">${esc(fmtv(i.v))}</span></div>`;
-  }).join("") + `</div>`;
-}
-
-// ------------------------------------------------------------------ portfolio tab
-function renderPf() {
-  const el = document.getElementById("pf");
-  const rows = state.positions.map(p => ({ p, r: risk(p) }));
-  const ok = rows.filter(x => !x.r.missing);
-  const bondsR = ok.filter(x => x.p.kind === "bond");
-  const mv = bondsR.reduce((s, x) => s + x.r.mv, 0);
-  const wavg = (k) => mv > 0 ? bondsR.reduce((s, x) => s + x.r.mv * (x.r[k] ?? 0), 0) / mv : null;
-  const dv01 = ok.reduce((s, x) => s + (x.r.dv01 ?? 0), 0);
-  const cs01 = ok.reduce((s, x) => s + (x.r.cs01 ?? 0), 0);
-  const pnl = ok.reduce((s, x) => s + x.r.pnl, 0);
-  const ids = [...new Set(state.positions.map(p => p.by).filter(Boolean))];
-
-  let dbNote = "";
-  if (state.dbState === "error") dbNote = `<div class="notice">Could not load the portfolio from GitHub${state.loadErr === 403 ? " (API rate limit for signed-out users; try again shortly or sign in)" : ""}. The bond screener and futures still work. <button class="btn small ghost" id="retry">Retry</button></div>`;
-  else if (!state.canWrite) dbNote = `<div class="notice">Read-only view of the club portfolio. To trade: <button class="btn small ghost" data-login>Sign in with GitHub</button></div>`;
-
-  const kpis = `<div class="kpis">
-    <div class="kpi"><div class="l">Market value</div><div class="v">${fmt(mv / 1e6, 2)}m</div><div class="s">EUR, dirty</div></div>
-    <div class="kpi"><div class="l">P&amp;L</div><div class="v ${pnl > 0 ? "pos" : pnl < 0 ? "neg" : ""}">${fmtS(pnl, 0)}</div><div class="s">EUR, price P&amp;L since inception</div></div>
-    <div class="kpi"><div class="l">YTM</div><div class="v">${fmt(wavg("y"), 2)}%</div><div class="s">MV-weighted, bonds</div></div>
-    <div class="kpi"><div class="l">Z-spread</div><div class="v">${fmt(wavg("z"), 0)} bp</div><div class="s">vs ECB AAA curve</div></div>
-    <div class="kpi"><div class="l">Mod. duration</div><div class="v">${fmt(wavg("dur"), 2)}</div><div class="s">MV-weighted, bonds</div></div>
-    <div class="kpi"><div class="l">DV01</div><div class="v">${fmtS(dv01, 0)}</div><div class="s">EUR/bp, incl. futures</div></div>
-    <div class="kpi"><div class="l">CS01</div><div class="v">${fmtS(cs01, 0)}</div><div class="s">EUR/bp of spread</div></div>
-  </div>`;
-
-  if (!state.positions.length) {
-    el.innerHTML = dbNote + kpis + `<div class="panel empty">
-      <h2>No positions yet</h2>
-      <p>${state.dbState === "loading" ? "Loading the club's positions…" : "Open Bonds, screen for a bond and click Trade. The position is saved to the repo and visible to everyone."}</p>
-      <p class="muted">Buys execute at the offer and sells at the bid, as in the market.</p>
-      <p><button class="btn" id="goBonds">Open bond screener</button> <a href="https://github.com/${REPO.owner}/${REPO.name}/commits/${encodeURIComponent(REPO.branch)}/${REPO.path}" target="_blank" rel="noopener">Trade history</a></p></div>`;
-    document.getElementById("goBonds").onclick = () => setTab("bonds");
-    return;
-  }
-
-  const sect = {}, buck = {};
-  for (const x of bondsR) sect[SECT[x.r.b.sector]] = (sect[SECT[x.r.b.sector]] || 0) + x.r.mv;
-  for (const x of ok) if (x.r.bucket && x.r.dv01) buck[x.r.bucket] = (buck[x.r.bucket] || 0) + x.r.dv01;
-
-  const tbl = `<div class="tablebox"><table><thead><tr>
-      <th>Instrument</th><th class="n">Nominal / contracts</th><th class="n">Trade px</th><th class="n">Mark</th>
-      <th class="n">Market value</th><th class="n">P&amp;L</th><th class="n">YTM %</th><th class="n">Z bp</th>
-      <th class="n">Mod dur</th><th class="n">DV01</th><th>Trader</th><th></th></tr></thead><tbody>` +
-    rows.map(({ p, r }) => {
-      const whoHtml = p.by ? `<span class="who"><img alt="" src="https://github.com/${encodeURIComponent(p.by)}.png?size=36"><span>${esc(p.by)}</span></span>` : "";
-      const name = p.kind === "bond"
-        ? (r.b ? `<div class="t">${esc(r.b.name)}</div><div class="i">${esc(p.isin)} · ${esc(SECT[r.b.sector])}</div>` : `<div class="t">${esc(p.isin)}</div><div class="i">no price in today's data</div>`)
-        : `<div class="t">${esc(p.code)} ${esc(r.f ? r.f.contract.slice(0, 7) : "")}</div><div class="i">${esc(r.f?.name || "")}</div>`;
-      const side = p.qty >= 0 ? `<span class="tag buy">Long</span>` : `<span class="tag sell">Short</span>`;
-      const qty = p.kind === "bond" ? fmt(p.qty, 0) : fmt(p.qty, 0) + " lots";
-      return `<tr><td class="name">${side} ${name}</td><td class="n">${qty}</td><td class="n">${fmt(p.price, 3)}</td>
-        <td class="n">${fmt(r.now, 3)}</td><td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted" title="Notional exposure">${fmt(r.notional, 0)}</span>`}</td>
-        <td class="n ${r.pnl > 0 ? "pos" : r.pnl < 0 ? "neg" : ""}">${fmtS(r.pnl, 0)}</td><td class="n">${fmt(r.y, 2)}</td>
-        <td class="n">${fmt(r.z, 0)}</td><td class="n">${fmt(r.dur, 2)}</td><td class="n">${fmtS(r.dv01, 0)}</td>
-        <td>${whoHtml}<div class="i muted">${esc((p.at || "").slice(0, 10))}</div></td>
-        <td>${state.canWrite ? `<button class="btn danger small" data-del="${esc(p.id)}">Close</button>` : ""}</td></tr>`;
-    }).join("") + `</tbody></table></div>`;
-
-  el.innerHTML = dbNote + kpis + tbl + `<div class="grid2">
-    <div class="panel"><h3>Sector allocation, market value</h3>${bars(Object.entries(sect).sort((a, b) => b[1] - a[1]).map(([l, v]) => ({ l, v })), v => fmt(v / 1e6, 2) + "m")}</div>
-    <div class="panel"><h3>DV01 by bucket (EUR/bp)</h3>${bars(BUCKETS.map(([c, l]) => ({ l, v: buck[c] || 0 })), v => fmtS(v, 0))}
-      <p class="note">Buckets map to the German futures by modified duration: Schatz &lt; 3.3, Bobl 3.3–6.2, Bund 6.2–13, Buxl &gt; 13. Size the hedge under Futures &amp; Hedging.</p></div>
-  </div>
-  <p class="note">P&amp;L is clean-price P&amp;L versus the trade price, excluding carry and accrued interest. Marks update each business day after the close.</p>`;
-
-  el.querySelectorAll("[data-del]").forEach(btn => btn.onclick = async () => {
-    if (!btn.classList.contains("armed")) { btn.classList.add("armed"); btn.textContent = "Confirm"; setTimeout(() => { btn.classList.remove("armed"); btn.textContent = "Close"; }, 4000); return; }
-    btn.disabled = true;
-    const pos = state.positions.find(x => x.id === btn.dataset.del);
-    try {
-      state.positions = await gh.save(cur => cur.filter(x => x.id !== btn.dataset.del), `Portfolio: close ${describe(pos)} (${gh.login})`);
-      render(); toast("Position closed");
-    } catch (e) { btn.disabled = false; writeError(e); }
-  });
-}
-
-// ------------------------------------------------------------------ bonds tab
-const BCOLS = [["name", "Bond"], ["sector", "Sector"], ["cpn", "Coupon", 3], ["mat", "Maturity"], ["amt", "Size (m)", 0],
-  ["bid", "Bid", 3], ["ask", "Offer", 3], ["ytm", "YTM %", 2], ["z", "Z-spread bp", 0], ["mdur", "Mod dur", 2]];
-
-function filtered() {
-  const q = state.q.trim().toLowerCase();
-  const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat];
-  let xs = BONDS.filter(b => state.sectors.has(b.sector) && (!state.bench || b.bench) && (!state.firm || b.firm)
-    && b.yrs >= mlo && b.yrs < mhi && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q)));
-  const [k, dir] = state.sort;
-  xs.sort((a, b) => { const x = a[k], y = b[k]; if (x == null) return 1; if (y == null) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
-  return xs;
-}
-
-function renderBonds() {
-  const el = document.getElementById("bonds");
-  if (!el.dataset.built) {
-    el.dataset.built = 1;
-    el.innerHTML = `<div class="filters">
-        <input type="search" id="q" placeholder="Search issuer, ticker or ISIN" aria-label="Search bonds">
-        <div class="seg" id="sectors" aria-label="Sector">${Object.entries(SECT).map(([k, l]) => `<button data-s="${k}">${l}</button>`).join("")}</div>
-      </div>
-      <div class="filters">
-        <div class="seg" id="mat" aria-label="Maturity">${[["all", "All maturities"], ["0-3", "0–3y"], ["3-7", "3–7y"], ["7-15", "7–15y"], ["15+", "15y+"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
-        <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">Benchmark ≥ €500m, senior</button>
-        <button class="tog" id="firm" title="Bid and offer both with size">Firm two-way</button>
-      </div>
-      <div id="btable"></div>
-      <p class="note">Analytics use the mid of Börse Frankfurt's last two-way quote. YTM assumes annual coupons (semi-annual for BTPs), ACT/ACT ICMA, T+2 settlement. Z-spread is the continuously compounded spread over the ECB AAA Svensson curve. Dashed offers have no size on one side and are indicative only.</p>`;
-    const qi = el.querySelector("#q"); qi.value = state.q;
-    qi.oninput = () => { state.q = qi.value; state.limit = 100; renderBondTable(); };
-    el.querySelector("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.sectors.has(s) ? state.sectors.delete(s) : state.sectors.add(s); store("sectors", [...state.sectors]); state.limit = 100; renderBondTable(); };
-    el.querySelector("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); state.limit = 100; renderBondTable(); };
-    el.querySelector("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); state.limit = 100; renderBondTable(); };
-    el.querySelector("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); state.limit = 100; renderBondTable(); };
-  }
-  renderBondTable();
-}
-
-function renderBondTable() {
-  const el = document.getElementById("bonds");
-  el.querySelectorAll("#sectors button").forEach(b => b.setAttribute("aria-pressed", state.sectors.has(b.dataset.s)));
-  el.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
-  el.querySelector("#bench").setAttribute("aria-pressed", state.bench);
-  el.querySelector("#firm").setAttribute("aria-pressed", state.firm);
-  const xs = filtered(), [sk, sd] = state.sort;
-  const head = BCOLS.map(([k, l, d]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}">${l} ${sk === k ? `<span class="arr">${sd > 0 ? "▲" : "▼"}</span>` : ""}</th>`).join("");
-  const body = xs.slice(0, state.limit).map(b => `<tr>
-      <td class="name"><div class="t">${esc(b.name)}</div><div class="i">${b.isin}${b.sub ? " · subordinated" : ""}</div></td>
-      <td><span class="chip">${SECT[b.sector]}</span></td><td class="n">${fmt(b.cpn, 3)}</td><td class="num">${b.mat}</td>
-      <td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
-      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="chip ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
-      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td>
-      <td><button class="btn small ghost" data-buy="${b.isin}">Trade</button></td></tr>`).join("");
-  const tb = el.querySelector("#btable");
-  tb.innerHTML = `<div class="tablebox"><table><thead><tr>${head}<th></th></tr></thead><tbody>${body ||
-    `<tr><td colspan="11" class="empty">No bonds match these filters. Add a sector or turn off the benchmark filter.</td></tr>`}</tbody></table></div>
-    <div class="more"><span>Showing ${fmt(Math.min(state.limit, xs.length), 0)} of ${fmt(xs.length, 0)}</span>
-    ${xs.length > state.limit ? `<button class="btn ghost small" id="moreBtn">Show 100 more</button>` : ""}</div>`;
-  tb.querySelectorAll("th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (k === "name" || k === "mat" || k === "sector" ? 1 : -1)]; store("sort", state.sort); renderBondTable(); });
-  tb.querySelector("#moreBtn")?.addEventListener("click", () => { state.limit += 100; renderBondTable(); });
-  tb.querySelectorAll("[data-buy]").forEach(btn => btn.onclick = () => state.canWrite ? openTicket(btn.dataset.buy) : openLogin());
-}
-
-// ------------------------------------------------------------------ trade ticket
-function openTicket(isin) {
-  const b = BY_ISIN.get(isin), dlg = document.getElementById("ticket"), f = document.getElementById("ticketForm");
-  f.innerHTML = `<h2>${esc(b.name)}</h2>
-    <div class="muted" style="font-size:12px">${b.isin} · ${SECT[b.sector]} · matures ${b.mat}</div>
-    <div class="seg" id="side"><button type="button" data-side="1" aria-pressed="true">Buy</button><button type="button" data-side="-1" aria-pressed="false">Sell / short</button></div>
-    <label for="nom">Nominal (EUR)<input id="nom" class="numin" inputmode="numeric" value="1,000,000"></label>
-    <dl class="kv" id="tk"></dl>
-    <div class="row"><button class="btn" id="tkOk" type="button">Book trade</button><button class="btn ghost" type="button" id="tkCancel">Cancel</button></div>`;
-  let side = 1;
-  const upd = () => {
-    const nom = Number(f.querySelector("#nom").value.replace(/[^\d]/g, "")) || 0;
-    const px = side > 0 ? b.ask : b.bid, dirty = px + b.acc;
-    f.querySelector("#tk").innerHTML = `<dt>Clean price (${side > 0 ? "offer, you buy" : "bid, you sell"})</dt><dd>${fmt(px, 3)}</dd>
-      <dt>Accrued interest</dt><dd>${fmt(b.acc, 4)}</dd><dt>Settlement amount, EUR</dt><dd>${fmt(nom * dirty / 100, 2)}</dd>
-      <dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp</dd><dt>DV01, EUR/bp</dt><dd>${fmtS(side * nom * dirty / 100 * b.mdur * 1e-4, 0)}</dd>`;
-    return { nom, px };
-  };
-  f.querySelector("#side").onclick = e => { const s = e.target.dataset.side; if (!s) return; side = +s; f.querySelectorAll("#side button").forEach(x => x.setAttribute("aria-pressed", x.dataset.side === s)); upd(); };
-  f.querySelector("#nom").oninput = upd;
-  f.querySelector("#tkCancel").onclick = () => dlg.close();
-  f.querySelector("#tkOk").onclick = async () => {
-    const { nom, px } = upd();
-    if (nom <= 0) { toast("Enter a nominal greater than zero"); return; }
-    const ok = await addPositions([{ kind: "bond", isin, qty: side * nom, price: px }]);
-    if (ok) { dlg.close(); toast(`${side > 0 ? "Bought" : "Sold"} EUR ${fmt(nom, 0)} ${b.name}`); }
-  };
-  upd(); dlg.showModal();
-}
-
 function describe(p) {
   if (!p) return "position";
   if (p.kind === "bond") return `${p.qty >= 0 ? "buy" : "sell"} EUR ${fmt(Math.abs(p.qty), 0)} ${BY_ISIN.get(p.isin)?.name || p.isin}`;
@@ -451,33 +352,428 @@ async function addPositions(list) {
     render(); return true;
   } catch (e) { writeError(e); return false; }
 }
+async function closePosition(id, btn) {
+  const pos = state.positions.find(x => x.id === id);
+  try {
+    state.positions = await gh.save(cur => cur.filter(x => x.id !== id), `Portfolio: close ${describe(pos)} (${gh.login})`);
+    render(); toast("Position closed");
+  } catch (e) { if (btn) btn.disabled = false; writeError(e); }
+}
 function writeError(e) {
-  if (e?.status === 401) { toast("Your GitHub token is no longer valid. Please sign in again."); gh.token = null; store("ghToken", null); state.canWrite = false; renderAcct(); render(); }
+  if (e?.status === 401) { toast("Your GitHub token is no longer valid. Please sign in again."); gh.token = null; store("ghToken", null); state.canWrite = false; render(); }
   else if (e?.status === 403 || e?.status === 404) toast("Your GitHub account cannot write to the repo. Ask Elliot to add you as a collaborator.");
   else toast("Could not save the trade. Please try again.");
 }
 
-// ------------------------------------------------------------------ sign-in
-function renderAcct() {
-  const el = document.getElementById("acct");
-  el.innerHTML = gh.login && gh.token
-    ? `<img alt="" src="https://github.com/${encodeURIComponent(gh.login)}.png?size=40"><span>${esc(gh.login)}</span><button class="btn small ghost" id="logout">Sign out</button>`
-    : `<button class="btn small" data-login>Sign in to trade</button>`;
+// ------------------------------------------------------------------ chrome
+$("#stamp").innerHTML =
+  `<span>PX <b>BÖRSE FRANKFURT ${dTerm(DATA.asof)}</b> last two-way before 17:30 CET</span>` +
+  `<span>SETTLE <b>${dTerm(DATA.settle)}</b> T+2</span>` +
+  `<span>CURVE <b>ECB AAA ${dTerm(DATA.curve.date)}</b></span>`;
+
+let toastTimer;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3500); }
+
+function setView(v) {
+  state.view = v; store("view", v);
+  document.querySelectorAll(".fkeys button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === v));
+  for (const id of ["dash", "hold", "risk", "desk"]) $("#v-" + id).hidden = id !== v;
+  render();
 }
+$(".fkeys").addEventListener("click", e => { const v = e.target.closest("button")?.dataset.view; if (v) setView(v); });
+
+function renderAcct() {
+  $("#acct").innerHTML = (gh.login && gh.token
+    ? `<span>USER <span class="who">${esc(gh.login)}</span></span><button class="btn" id="logout">SIGN OUT</button>`
+    : `<button class="btn solid" data-login>SIGN IN TO TRADE</button>`) + `<span class="clock" id="clock"></span>`;
+  tick();
+}
+function tick() {
+  const el = $("#clock"); if (!el) return;
+  el.textContent = new Date().toLocaleTimeString("en-GB", { timeZone: "Europe/Stockholm", hour12: false }) + " CET";
+}
+setInterval(tick, 1000);
+
+function renderStatus() {
+  const n = state.positions.length;
+  const db = state.dbState === "loading" ? `<span class="msg">LOADING BOOK…</span>`
+    : state.dbState === "error" ? `<span class="err">BOOK UNAVAILABLE${state.loadErr === 403 ? " (GITHUB RATE LIMIT, SIGN IN OR RETRY)" : ""}</span> <button class="btn" id="retry">RETRY</button>`
+    : `<span>BOOK <b class="amb">${n}</b> POSITION${n === 1 ? "" : "S"} · ${REPO.path}</span>`;
+  $("#status").innerHTML = `${db}<span>${state.canWrite ? "TRADING ENABLED" : "READ-ONLY"}</span>
+    <a href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>
+    <span>UNIVERSE <b class="amb">${fmt(BONDS.length, 0)}</b> EUR BONDS · ${DATA.futures.length} FUTURES</span>
+    <span class="keys"><kbd>1-4</kbd> VIEW · <kbd>/</kbd> SEARCH · <kbd>↑↓</kbd> SELECT · <kbd>ENTER</kbd> TICKET · <kbd>ESC</kbd> CLOSE</span>`;
+}
+
+document.addEventListener("click", e => {
+  if (e.target.closest("[data-login]")) openLogin();
+  if (e.target.closest("#retry")) loadPositions();
+  if (e.target.closest("#logout")) { gh.token = gh.login = null; store("ghToken", null); store("ghLogin", null); state.canWrite = false; render(); toast("Signed out"); }
+  const go = e.target.closest("[data-go]"); if (go) setView(go.dataset.go);
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    if (!del.classList.contains("armed")) { del.classList.add("armed"); del.textContent = "CONFIRM"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "CLOSE"; }, 4000); return; }
+    del.disabled = true; closePosition(del.dataset.del, del);
+  }
+  const pick = e.target.closest("[data-pick]");
+  if (pick && !e.target.closest("button, input")) { select(pick.dataset.kind, pick.dataset.pick); if (state.view !== "desk") setView("desk"); }
+});
+
+// ------------------------------------------------------------------ shared components
+const panel = (area, title, body, opts = {}) =>
+  `<div class="panel" style="grid-area:${area}"><div class="ph"><h2>${title}</h2>${opts.sub ? `<span class="sub">${opts.sub}</span>` : ""}${opts.tools ? `<span class="tools">${opts.tools}</span>` : ""}</div><div class="pb${opts.pad ? " pad" : ""}" ${opts.id ? `id="${opts.id}"` : ""}>${body}</div></div>`;
+
+function kpiStrip(bk) {
+  const k = (l, v, s, c = "") => `<div class="kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`;
+  return `<div class="kpis" style="grid-area:kpi">` +
+    k("MARKET VALUE", `${fmt(bk.mv / 1e6, 2)}M`, "EUR dirty, bonds") +
+    k("UNREALISED P&amp;L", fmtS(bk.pnl, 0), "EUR clean vs trade px", cls(bk.pnl)) +
+    k("YTM", `${fmt(bk.wavg("y"), 2)}%`, "MV-weighted") +
+    k("Z-SPREAD", `${fmt(bk.wavg("z"), 0)} BP`, "vs ECB AAA") +
+    k("MOD DURATION", fmt(bk.wavg("dur"), 2), "MV-weighted") +
+    k("DV01", fmtS(bk.dv01, 0), "EUR/bp, net of futures", cls(bk.dv01)) +
+    k("CS01", fmtS(bk.cs01, 0), "EUR/bp spread", cls(bk.cs01)) +
+    k("POSITIONS", `${bk.bonds.length}<span class="muted"> / ${bk.futs.length}</span>`, "bonds / futures") +
+    k("FUT NOTIONAL", `${fmt(bk.futNotional / 1e6, 2)}M`, "gross, contract ccy") + `</div>`;
+}
+
+function bars(items, fmtv, kind = "amber") {
+  if (!items.length) return `<div class="empty">No exposure.</div>`;
+  const max = Math.max(1e-9, ...items.map(i => Math.abs(i.v)));
+  const hasNeg = items.some(i => i.v < 0);
+  return `<div class="bars">` + items.map(i => {
+    const w = Math.abs(i.v) / max * (hasNeg ? 50 : 100), left = hasNeg ? (i.v < 0 ? 50 - w : 50) : 0;
+    const c = kind === "pnl" ? (i.v < 0 ? "n" : "p") : hasNeg && i.v < 0 ? "n" : "";
+    return `<div class="bar" title="${esc(i.l)}: ${esc(fmtv(i.v))}"><span class="lb">${esc(i.l)}</span><span class="tr">${hasNeg ? `<span class="z"></span>` : ""}` +
+      `<span class="f ${c}" style="left:${left}%;width:${w}%"></span></span><span class="v ${kind === "pnl" ? cls(i.v) : ""}">${esc(fmtv(i.v))}</span></div>`;
+  }).join("") + `</div>`;
+}
+
+function emptyBook(compact) {
+  if (state.dbState === "loading") return `<div class="empty">Loading the club's positions…</div>`;
+  if (state.dbState === "error") return `<div class="empty">The book could not be loaded from GitHub. <button class="btn" id="retry">RETRY</button></div>`;
+  return `<div class="empty"><p class="amb">NO POSITIONS</p><p>Open the Market Desk, select a bond or future and book a trade. Buys execute at the offer, sells at the bid; the trade is committed to the repo and visible to everyone.</p>
+    ${compact ? "" : `<p class="muted">${state.canWrite ? "" : "Sign in with GitHub to trade."}</p>`}<p><button class="btn solid" data-go="desk">OPEN MARKET DESK [4]</button></p></div>`;
+}
+
+const instr = (p, r) => p.kind === "bond"
+  ? (r.b ? `${esc(r.b.name)}` : `${esc(p.isin)} <span class="neg">NO PX</span>`)
+  : `${esc(p.code)} ${r.f ? mmmYY(r.f.contract) : ""}`;
+const sideTag = (q) => q >= 0 ? `<span class="tag l">LONG</span>` : `<span class="tag s">SHORT</span>`;
+
+// ------------------------------------------------------------------ DASHBOARD
+function renderDash() {
+  const bk = book();
+  const hold = bk.rows.length ? `<table class="t"><thead><tr><th></th><th>INSTRUMENT</th><th class="n">NOMINAL</th><th class="n">MARK</th><th class="n">MKT VALUE</th><th class="n">P&amp;L</th><th class="n">YTM</th><th class="n">DV01</th></tr></thead><tbody>` +
+    bk.rows.map(({ p, r }) => `<tr class="click" data-pick="${esc(p.kind === "bond" ? p.isin : p.code)}" data-kind="${p.kind === "bond" ? "bond" : "fut"}">
+      <td>${sideTag(p.qty)}</td><td class="nm">${instr(p, r)}</td>
+      <td class="n">${p.kind === "bond" ? fmt(p.qty, 0) : fmt(p.qty, 0) + " lots"}</td><td class="n">${fmt(r.now, 3)}</td>
+      <td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted">${fmt(r.notional, 0)}</span>`}</td>
+      <td class="n ${cls(r.pnl)}">${fmtS(r.pnl, 0)}</td><td class="n">${fmt(r.y, 2)}</td><td class="n ${cls(r.dv01)}">${fmtS(r.dv01, 0)}</td></tr>`).join("") +
+    `</tbody></table>` : emptyBook(true);
+
+  const mktCodes = ["FGBS", "FGBM", "FGBL", "FGBX", "FBTP", "FOAT", "FECX", "FEHY", "FGBC"].filter(c => FUT.has(c));
+  const mkt = `<table class="t"><thead><tr><th>FUTURE</th><th>EXP</th><th class="n">LAST</th><th class="n">TRADES</th><th class="n">DV01/CS01</th></tr></thead><tbody>` +
+    mktCodes.map(c => { const f = FUT.get(c), d = f.type === "credit" ? indexDur(c) : null, per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
+      return `<tr class="click" data-pick="${c}" data-kind="fut"><td><span class="amb">${c}</span> <span class="muted">${f.type === "credit" ? "CR" : "GV"}</span></td><td>${mmmYY(f.contract)}</td><td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(per, 1)}</td></tr>`; }).join("") +
+    `</tbody></table><table class="t"><thead><tr><th>ECB AAA</th><th class="n">2Y</th><th class="n">5Y</th><th class="n">10Y</th><th class="n">30Y</th></tr></thead><tbody>
+      <tr><td>SPOT %</td>${[2, 5, 10, 30].map(m => `<td class="n">${fmt(spot(m), 3)}</td>`).join("")}</tr></tbody></table>
+    <table class="t"><tbody><tr><td>2S10S</td><td class="n">${fmtS((spot(10) - spot(2)) * 100, 1)} bp</td><td>5S30S</td><td class="n">${fmtS((spot(30) - spot(5)) * 100, 1)} bp</td><td>5Y5Y</td><td class="n">${fmt(fwd(5, 10), 3)}%</td></tr></tbody></table>`;
+
+  const buckItems = BUCKETS.map(([c, l]) => ({ l: `${l} (${c})`, v: bk.buck[c].bonds + bk.buck[c].futs }));
+  const sectItems = Object.entries(bk.sect).sort((a, b) => b[1].mv - a[1].mv).map(([k, s]) => ({ l: SECT[k], v: s.mv }));
+
+  $("#v-dash").innerHTML = kpiStrip(bk) +
+    panel("hold", "Holdings", hold, { sub: `${bk.rows.length} positions · click to trade`, tools: `<button class="btn" data-go="hold">FULL BLOTTER [2]</button>` }) +
+    panel("mkt", "Market monitor", mkt, { sub: `Eurex last · ${dTerm(DATA.asof)}` }) +
+    panel("buck", "DV01 by bucket", bars(buckItems, v => fmtS(v, 0)), { sub: "EUR/bp, net", tools: `<button class="btn" data-go="risk">RISK [3]</button>` }) +
+    panel("sect", "Sector allocation", bars(sectItems, v => fmt(v / 1e6, 2) + "M"), { sub: "market value" }) +
+    panel("curve", "ECB AAA curve vs holdings", "", { sub: "spot % (cont.) · dots = holdings YTM", id: "curveBox" });
+  drawCurve(bk);
+}
+// Draw at the panel's real pixel size so text and dots are not distorted.
+function drawCurve(bk = book()) {
+  const box = $("#curveBox"); if (!box || box.closest("[hidden]")) return;
+  const w = Math.max(280, box.clientWidth), h = Math.max(160, box.clientHeight);
+  box.innerHTML = curveChart(bk, w, h);
+}
+let resizeTimer;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.view === "dash") drawCurve(); }, 80); });
+
+function curveChart(bk, W = 600, H = 230) {
+  const L = 38, R = 12, T = 10, B = 22;
+  const pts = bk.bonds.filter(x => x.r.y != null && x.r.y > -2 && x.r.y < 20).map(x => ({ x: Math.min(x.r.b.yrs, 30), y: x.r.y, s: x.p.qty < 0, n: x.r.b.name }));
+  const xs = Array.from({ length: 121 }, (_, i) => 0.25 + i * (29.75 / 120));
+  const ys = xs.map(spot);
+  let lo = Math.min(...ys, ...pts.map(p => p.y)), hi = Math.max(...ys, ...pts.map(p => p.y));
+  const pad = (hi - lo) * 0.12 || 0.5; lo = Math.floor((lo - pad) * 4) / 4; hi = Math.ceil((hi + pad) * 4) / 4;
+  const X = (x) => L + x / 30 * (W - L - R), Y = (y) => T + (hi - y) / (hi - lo) * (H - T - B);
+  const step = (hi - lo) > 3 ? 1 : 0.5;
+  let g = "";
+  for (let y = Math.ceil(lo / step) * step; y <= hi + 1e-9; y += step) g += `<line class="grid" x1="${L}" x2="${W - R}" y1="${Y(y)}" y2="${Y(y)}"/><text x="${L - 4}" y="${Y(y) + 3}" text-anchor="end">${fmt(y, step < 1 ? 1 : 0)}</text>`;
+  for (const x of [0, 2, 5, 10, 20, 30]) g += `<line class="grid" x1="${X(x)}" x2="${X(x)}" y1="${T}" y2="${H - B}"/><text x="${X(x)}" y="${H - B + 13}" text-anchor="middle">${x}Y</text>`;
+  const path = xs.map((x, i) => `${i ? "L" : "M"}${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join("");
+  const dots = pts.map(p => `<circle class="dot${p.s ? " short" : ""}" cx="${X(p.x)}" cy="${Y(p.y)}" r="4"><title>${esc(p.n)}: YTM ${fmt(p.y, 2)}% at ${fmt(p.x, 1)}y</title></circle>`).join("");
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="ECB AAA spot curve with holdings yields">${g}<line class="axis" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/><path class="curve" d="${path}"/>${dots}</svg>`;
+}
+
+// ------------------------------------------------------------------ HOLDINGS & P&L
+function renderHold() {
+  const bk = book();
+  const tools = `<button class="btn" id="csvBook" ${bk.rows.length ? "" : "disabled"}>EXPORT CSV</button><a class="btn" href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>`;
+  const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">P&amp;L</th><th class="n">YTM</th><th class="n">Z BP</th><th class="n">MOD DUR</th><th class="n">DV01</th><th class="n">CS01</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
+    bk.rows.map(({ p, r }) => `<tr class="click" data-pick="${esc(p.kind === "bond" ? p.isin : p.code)}" data-kind="${p.kind === "bond" ? "bond" : "fut"}">
+      <td>${sideTag(p.qty)}</td><td class="nm">${instr(p, r)}</td><td class="dim">${esc(p.kind === "bond" ? p.isin : (p.contract || ""))}</td>
+      <td class="dim">${p.kind === "bond" ? esc(SECT[r.b?.sector] || "–") : (r.f?.type === "credit" ? "Credit fut." : "Govt fut.")}</td>
+      <td class="n">${p.kind === "bond" ? fmt(p.qty, 0) : fmt(p.qty, 0)}</td><td class="n">${fmt(p.price, 3)}</td><td class="n">${fmt(r.now, 3)}</td>
+      <td class="n ${cls(r.now - p.price)}">${r.now != null ? fmtS(r.now - p.price, 3) : "–"}</td>
+      <td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted" title="notional">${fmt(r.notional, 0)}</span>`}</td>
+      <td class="n">${p.kind === "bond" && bk.gross ? fmt(r.mv / bk.gross * 100, 1) + "%" : "–"}</td>
+      <td class="n ${cls(r.pnl)}">${fmtS(r.pnl, 0)}</td><td class="n">${fmt(r.y, 2)}</td><td class="n">${fmt(r.z, 0)}</td><td class="n">${fmt(r.dur, 2)}</td>
+      <td class="n ${cls(r.dv01)}">${fmtS(r.dv01, 0)}</td><td class="n ${cls(r.cs01)}">${fmtS(r.cs01, 0)}</td>
+      <td class="who">${esc(p.by || "")}</td><td class="dim">${esc((p.at || "").slice(0, 10))}</td>
+      <td>${state.canWrite ? `<button class="btn x" data-del="${esc(p.id)}">CLOSE</button>` : ""}</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td colspan="8">TOTAL</td><td class="n">${fmt(bk.mv, 0)}</td><td class="n">100%</td><td class="n ${cls(bk.pnl)}">${fmtS(bk.pnl, 0)}</td>
+      <td class="n">${fmt(bk.wavg("y"), 2)}</td><td class="n">${fmt(bk.wavg("z"), 0)}</td><td class="n">${fmt(bk.wavg("dur"), 2)}</td>
+      <td class="n ${cls(bk.dv01)}">${fmtS(bk.dv01, 0)}</td><td class="n ${cls(bk.cs01)}">${fmtS(bk.cs01, 0)}</td><td colspan="3"></td></tr></tfoot></table>` : emptyBook();
+
+  const attr = bars(bk.ok.map(x => ({ l: x.p.kind === "bond" ? x.r.b.name : `${x.p.code} ${mmmYY(x.r.f.contract)}`, v: x.r.pnl })).sort((a, b) => b.v - a.v), v => fmtS(v, 0), "pnl");
+  const sectRows = Object.entries(bk.sect).sort((a, b) => b[1].mv - a[1].mv);
+  const sum = sectRows.length ? `<table class="t"><thead><tr><th>SECTOR</th><th class="n">#</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">YTM</th><th class="n">Z BP</th><th class="n">DV01</th><th class="n">CS01</th></tr></thead><tbody>` +
+    sectRows.map(([k, s]) => `<tr><td>${SECT[k]}</td><td class="n">${s.n}</td><td class="n">${fmt(s.mv, 0)}</td><td class="n">${bk.gross ? fmt(Math.abs(s.mv) / bk.gross * 100, 1) + "%" : "–"}</td>
+      <td class="n">${s.mv ? fmt(s.y / s.mv, 2) : "–"}</td><td class="n">${s.mv ? fmt(s.z / s.mv, 0) : "–"}</td><td class="n ${cls(s.dv01)}">${fmtS(s.dv01, 0)}</td><td class="n ${cls(s.cs01)}">${fmtS(s.cs01, 0)}</td></tr>`).join("") +
+    `</tbody></table>` : `<div class="empty">No bond positions.</div>`;
+
+  $("#v-hold").innerHTML = kpiStrip(bk) +
+    panel("blot", "Position blotter", blot, { sub: `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${dTerm(DATA.asof)}`, tools }) +
+    panel("attr", "P&amp;L attribution", attr, { sub: "EUR, clean-price P&L since trade" }) +
+    panel("sum", "Summary by sector", sum + `<p class="note pad">P&amp;L is clean-price P&amp;L versus the trade price, excluding carry and accrued interest. Weights use gross bond market value.</p>`);
+  $("#csvBook")?.addEventListener("click", () => csv(`kthficc-book-${DATA.asof}.csv`,
+    ["side", "kind", "instrument", "isin_or_contract", "sector", "qty", "trade_px", "mark", "market_value", "pnl", "ytm", "z_bp", "mod_dur", "dv01", "cs01", "trader", "trade_time"],
+    bk.rows.map(({ p, r }) => [p.qty >= 0 ? "long" : "short", p.kind, p.kind === "bond" ? r.b?.name : p.code, p.kind === "bond" ? p.isin : p.contract,
+      p.kind === "bond" ? SECT[r.b?.sector] : r.f?.type, p.qty, p.price, r.now, p.kind === "bond" ? r.mv : r.notional, r.pnl, r.y, r.z, r.dur, r.dv01, r.cs01, p.by, p.at])));
+}
+
+function csv(name, head, rows) {
+  const q = (v) => v == null || (typeof v === "number" && !isFinite(v)) ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+  const blob = new Blob([[head, ...rows].map(r => r.map(q).join(",")).join("\n") + "\n"], { type: "text/csv" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// ------------------------------------------------------------------ RISK ANALYTICS
+function renderRisk() {
+  const bk = book(), h = hedgeCalc(bk);
+  const krd = `<table class="t"><thead><tr><th>BUCKET</th><th>DUR RANGE</th><th class="n">BONDS</th><th class="n">FUTURES</th><th class="n">NET DV01</th></tr></thead><tbody>` +
+    BUCKETS.map(([c, l, lo, hi]) => { const b = bk.buck[c]; return `<tr><td>${l} <span class="muted">${c}</span></td><td class="dim">${fmt(lo, 1)}–${hi > 100 ? "∞" : fmt(hi, 1)}</td><td class="n ${cls(b.bonds)}">${fmtS(b.bonds, 0)}</td><td class="n ${cls(b.futs)}">${fmtS(b.futs, 0)}</td><td class="n ${cls(b.bonds + b.futs)}">${fmtS(b.bonds + b.futs, 0)}</td></tr>`; }).join("") +
+    `</tbody><tfoot><tr><td colspan="2">TOTAL</td><td class="n">${fmtS(BUCKETS.reduce((s, [c]) => s + bk.buck[c].bonds, 0), 0)}</td><td class="n">${fmtS(BUCKETS.reduce((s, [c]) => s + bk.buck[c].futs, 0), 0)}</td><td class="n ${cls(bk.dv01)}">${fmtS(bk.dv01, 0)}</td></tr></tfoot></table>` +
+    bars(BUCKETS.map(([c, l]) => ({ l, v: bk.buck[c].bonds + bk.buck[c].futs })), v => fmtS(v, 0));
+
+  const csRows = Object.entries(bk.sect).filter(([k]) => k !== "SOV").sort((a, b) => b[1].cs01 - a[1].cs01);
+  const credFut = bk.futs.filter(x => x.r.f?.type === "credit");
+  const cs = (csRows.length || credFut.length) ? `<table class="t"><thead><tr><th>SECTOR / HEDGE</th><th class="n">CS01</th><th class="n">AVG Z BP</th></tr></thead><tbody>` +
+    csRows.map(([k, s]) => `<tr><td>${SECT[k]}</td><td class="n ${cls(s.cs01)}">${fmtS(s.cs01, 0)}</td><td class="n">${s.mv ? fmt(s.z / s.mv, 0) : "–"}</td></tr>`).join("") +
+    credFut.map(x => `<tr><td>${x.p.code} ${mmmYY(x.r.f.contract)} <span class="muted">${fmt(x.p.qty, 0)} lots</span></td><td class="n ${cls(x.r.cs01)}">${fmtS(x.r.cs01, 0)}</td><td class="n">–</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td>NET CS01</td><td class="n ${cls(bk.cs01)}">${fmtS(bk.cs01, 0)}</td><td></td></tr></tfoot></table>` : `<div class="empty">No credit exposure.</div>`;
+
+  const credOpts = DATA.futures.filter(f => f.type === "credit" && f.ccy === "EUR").map(f => `<option value="${f.code}" ${f.code === state.hedgeIdx ? "selected" : ""}>${f.code} ${esc(f.name)}</option>`).join("");
+  const hedge = `<div class="sect">
+      <p class="note">Credit first, then rates. Credit futures reference total-return indices and carry spread <b>and</b> rate duration, so the Bund-family hedge is sized on the residual DV01.</p>
+      <div class="row"><label class="lbl" for="hIdx">CREDIT INDEX</label><select id="hIdx">${credOpts}</select></div>
+      <div class="row"><label class="lbl" for="hPct">HEDGE RATIO (CS01)</label><input id="hPct" class="num" style="width:6em" value="${state.hedgePct}"><span class="muted">%</span>
+        <span class="chips">${[0, 50, 100].map(v => `<button data-hp="${v}" aria-pressed="${state.hedgePct == v}">${v}%</button>`).join("")}</span></div>
+      <dl class="kv"><dt>Corporate CS01</dt><dd>${fmtS(h.corpCs, 0)} EUR/bp</dd><dt>CS01 per ${state.hedgeIdx} contract</dt><dd>${fmt(h.csPer, 1)} EUR/bp</dd>
+        <dt>Index duration (assumed)</dt><dd>${fmt(h.cd, 1)}</dd><dt>Credit futures</dt><dd class="big ${cls(h.nCredit)}">${fmtS(h.nCredit, 0)} ${state.hedgeIdx}</dd></dl></div>
+    <div class="sect" style="padding:0"><table class="t"><thead><tr><th>BUCKET</th><th class="n">DV01 PRE-HEDGE</th><th class="n">DV01/CONTRACT</th><th class="n">CONTRACTS</th><th class="n">DV01 POST</th></tr></thead><tbody>` +
+      h.rateTrades.map(t => `<tr><td>${t.l} <span class="muted">${t.c}</span></td><td class="n ${cls(t.dv)}">${fmtS(t.dv, 0)}</td><td class="n">${fmt(t.f?.dv01, 1)}</td><td class="n ${cls(t.n)}">${fmtS(t.n, 0)}</td><td class="n">${fmtS(t.dv + t.n * (t.f?.dv01 || 0), 0)}</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td colspan="4">RESIDUAL DV01</td><td class="n ${cls(h.after)}">${fmtS(h.after, 0)}</td></tr></tfoot></table></div>
+    <div class="sect"><div class="lbl">ORDERS</div><div>${h.trades.length ? h.trades.map(t => `<div>${t.n > 0 ? `<span class="pos">BUY </span>` : `<span class="neg">SELL</span>`} ${fmt(Math.abs(t.n), 0).padStart(4, " ")} ${t.code} ${mmmYY(FUT.get(t.code).contract)} @ ${fmt(FUT.get(t.code).last, 3)}</div>`).join("") : `<span class="muted">No hedge needed for the current book.</span>`}</div>
+      <div class="row"><button class="btn solid" id="addHedge" ${!h.trades.length || state.dbState !== "ready" ? "disabled" : ""}>BOOK HEDGE</button>${state.canWrite ? "" : `<span class="muted">sign-in required</span>`}</div></div>`;
+
+  const meth = `<p class="note"><b>DV01</b> is the EUR P&amp;L for a 1 bp fall in yield. Bonds: dirty market value × modified duration × 0.0001.</p>
+    <p class="note"><b>Govt futures</b> (Schatz, Bobl, Bund, Buxl): DV01 of the cheapest-to-deliver divided by its conversion factor, per EUR 100,000 contract. The CTD is the deliverable Bund with the lowest gross basis (clean price − futures price × CF) in today's data. The CF is the clean price at a 6% yield (Buxl: 4%) on the delivery date.</p>
+    <p class="note"><b>CS01</b> per credit futures contract: index level × multiplier × spread duration × 0.0001. Index durations are not in the Eurex feed; the values on the Market Desk are editable assumptions. Check them against the index factsheet.</p>
+    <p class="note"><b>Buckets</b> map exposure to the German futures by modified duration: Schatz &lt; 3.3, Bobl 3.3–6.2, Bund 6.2–13, Buxl &gt; 13. Credit futures fall in the bucket of their index duration.</p>
+    <p class="note">Contract counts are rounded to whole lots. BTP, OAT and BONO futures are tradeable on the desk but not used in the proposal, as their CTD is not computed here. Sovereign bonds carry no CS01.</p>`;
+
+  $("#v-risk").innerHTML = kpiStrip(bk) +
+    panel("krd", "Key-rate DV01", krd, { sub: "EUR/bp by futures bucket" }) +
+    panel("cs", "Credit spread risk", cs, { sub: "CS01 EUR/bp" }) +
+    panel("hedge", "Hedge proposal", hedge) +
+    panel("meth", "Methodology", meth, { pad: true });
+
+  $("#hIdx").onchange = e => { state.hedgeIdx = e.target.value; store("hedgeIdx", state.hedgeIdx); renderRisk(); };
+  $("#hPct").onchange = e => setHedgePct(Number(String(e.target.value).replace(",", ".")) || 0);
+  document.querySelectorAll("[data-hp]").forEach(b => b.onclick = () => setHedgePct(+b.dataset.hp));
+  $("#addHedge").onclick = async () => {
+    const ok = await addPositions(h.trades.map(t => ({ kind: "future", code: t.code, contract: FUT.get(t.code).contract, qty: t.n, price: FUT.get(t.code).last })));
+    if (ok) toast("Hedge booked");
+  };
+}
+function setHedgePct(v) { state.hedgePct = Math.max(0, Math.min(200, v)); store("hedgePct", state.hedgePct); renderRisk(); }
+
+// ------------------------------------------------------------------ MARKET DESK
+const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
+  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["mdur", "MOD DUR", 2]];
+let VISIBLE = [];
+
+function filtered() {
+  const q = state.q.trim().toLowerCase();
+  const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat];
+  const xs = BONDS.filter(b => state.sectors.has(b.sector) && (!state.bench || b.bench) && (!state.firm || b.firm)
+    && b.yrs >= mlo && b.yrs < mhi && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q)));
+  const [k, dir] = state.sort;
+  xs.sort((a, b) => { const x = a[k], y = b[k]; if (x == null) return 1; if (y == null) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
+  return xs;
+}
+
+function renderDesk() {
+  const el = $("#v-desk");
+  if (!el.dataset.built) {
+    el.dataset.built = 1;
+    el.innerHTML =
+      `<div class="panel" style="grid-area:scr"><div class="ph"><h2>Bond screener</h2><span class="sub" id="scrCount"></span><span class="tools"><button class="btn" id="csvScr">EXPORT CSV</button></span></div>
+        <div class="filters">
+          <input type="search" id="q" placeholder="/  search issuer, ticker or ISIN" aria-label="Search bonds">
+          <div class="chips" id="sectors" aria-label="Sector">${Object.entries(SECT).map(([k, l]) => `<button data-s="${k}">${l.toUpperCase()}</button>`).join("")}</div>
+          <div class="chips" id="mat" aria-label="Maturity">${[["all", "ALL"], ["0-3", "0-3Y"], ["3-7", "3-7Y"], ["7-15", "7-15Y"], ["15+", "15Y+"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
+          <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">BENCHMARK ≥€500M SENIOR</button>
+          <button class="tog" id="firm" title="Bid and offer both with size">FIRM TWO-WAY</button>
+        </div>
+        <div class="pb" id="scrBody" tabindex="0" aria-label="Bond list, use arrow keys to select"></div>
+        <div class="more" id="scrMore"></div></div>` +
+      `<div class="panel" style="grid-area:fut"><div class="ph"><h2>Eurex futures</h2><span class="sub">last on-book trade ${dTerm(DATA.asof)}, not the official settlement price</span></div><div class="pb" id="futBody"></div></div>` +
+      `<div class="panel" style="grid-area:tkt"><div class="ph"><h2>Trade ticket</h2><span class="sub" id="tktSub"></span></div><div class="pb" id="tktBody"></div></div>`;
+    const qi = $("#q"); qi.value = state.q;
+    qi.oninput = () => { state.q = qi.value; state.limit = 200; renderScreener(); };
+    $("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.sectors.has(s) ? state.sectors.delete(s) : state.sectors.add(s); store("sectors", [...state.sectors]); state.limit = 200; renderScreener(); };
+    $("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); state.limit = 200; renderScreener(); };
+    $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); state.limit = 200; renderScreener(); };
+    $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); state.limit = 200; renderScreener(); };
+    $("#csvScr").onclick = () => csv(`kthficc-screener-${DATA.asof}.csv`, BCOLS.map(c => c[0]).concat(["subordinated", "firm", "accrued"]),
+      filtered().map(b => BCOLS.map(c => c[0] === "sector" ? SECT[b.sector] : b[c[0]]).concat([b.sub, b.firm, b.acc])));
+  }
+  renderScreener(); renderFutures(); renderTicket();
+}
+
+function renderScreener() {
+  document.querySelectorAll("#sectors button").forEach(b => b.setAttribute("aria-pressed", state.sectors.has(b.dataset.s)));
+  document.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
+  $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm);
+  const xs = filtered(), [sk, sd] = state.sort;
+  VISIBLE = xs.slice(0, state.limit);
+  const head = BCOLS.map(([k, l, d]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}">${l}${sk === k ? (sd > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
+  const selIsin = state.sel?.kind === "bond" ? state.sel.id : null;
+  const body = VISIBLE.map(b => `<tr class="click${b.isin === selIsin ? " sel" : ""}" data-pick="${b.isin}" data-kind="bond">
+      <td class="nm">${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
+      <td class="n">${fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
+      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
+      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`).join("");
+  $("#scrBody").innerHTML = `<table class="t"><thead><tr>${head}</tr></thead><tbody>${body ||
+    `<tr><td colspan="11" class="empty">No bonds match these filters. Add a sector or turn off the benchmark filter.</td></tr>`}</tbody></table>`;
+  $("#scrCount").textContent = `${fmt(xs.length, 0)} bonds · mid-based analytics`;
+  $("#scrMore").innerHTML = `<span>SHOWING ${fmt(VISIBLE.length, 0)} OF ${fmt(xs.length, 0)} · dotted offer = indicative</span>${xs.length > state.limit ? `<button class="btn" id="moreBtn">SHOW 200 MORE</button>` : ""}`;
+  document.querySelectorAll("#scrBody th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["name", "mat", "sector", "isin"].includes(k) ? 1 : -1)]; store("sort", state.sort); renderScreener(); });
+  $("#moreBtn")?.addEventListener("click", () => { state.limit += 200; renderScreener(); });
+}
+
+function renderFutures() {
+  const selCode = state.sel?.kind === "fut" ? state.sel.id : null;
+  $("#futBody").innerHTML = `<table class="t"><thead><tr><th>CONTRACT</th><th>NAME</th><th>EXPIRY</th><th class="n">LAST</th><th class="n">LOW</th><th class="n">HIGH</th><th class="n">TRADES</th><th class="n">VOLUME</th><th class="n">BLOCK</th><th class="n">CONTRACT VALUE</th><th class="n">DV01/CS01</th><th>INDEX DUR</th><th>CTD</th></tr></thead><tbody>` +
+    DATA.futures.map(f => {
+      const d = f.type === "credit" ? indexDur(f.code) : null;
+      const per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
+      const durIn = f.type === "credit" ? `<input class="num" style="width:4.5em" data-dur="${f.code}" value="${fmt(d, 1)}" aria-label="Index duration ${f.code}">` : "";
+      const ctd = f.ctd ? `${esc(f.ctd.name)} <span class="muted">CF ${fmt(f.ctd.cf, 4)} · basis ${fmt(f.ctd.basis, 3)}</span>` : `<span class="muted">${f.type === "credit" ? "cash-settled" : "–"}</span>`;
+      return `<tr class="click${f.code === selCode ? " sel" : ""}" data-pick="${f.code}" data-kind="fut"><td class="amb">${f.code}</td><td class="nm dim">${esc(f.name)}</td><td>${f.contract}</td>
+        <td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.low, 3)}</td><td class="n">${fmt(f.high, 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(f.lots, 0)}</td><td class="n">${fmt(f.block, 0)}</td>
+        <td class="n">${fmt(f.last * f.mult, 0)} ${f.ccy}</td><td class="n">${fmt(per, 1)}</td><td>${durIn}</td><td>${ctd}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+  document.querySelectorAll("[data-dur]").forEach(inp => inp.onchange = () => { const v = Number(inp.value.replace(",", ".")); if (v > 0) { state.dur[inp.dataset.dur] = v; store("dur", state.dur); } render(); });
+}
+
+function select(kind, id) {
+  state.sel = { kind, id }; store("sel", state.sel);
+  if (kind === "fut") state.lots = state.lots || 1;
+  if (state.view === "desk") { renderScreener(); renderFutures(); renderTicket(); }
+}
+
+function renderTicket() {
+  const s = state.sel, body = $("#tktBody");
+  if (!s || (s.kind === "bond" && !BY_ISIN.has(s.id)) || (s.kind === "fut" && !FUT.has(s.id))) {
+    $("#tktSub").textContent = "";
+    body.innerHTML = `<div class="empty"><p class="amb">NO INSTRUMENT SELECTED</p><p>Click a bond or future, or use <span class="amb">↑ ↓</span> in the screener. <span class="amb">ENTER</span> jumps to the size field.</p><p class="muted">Buys execute at the offer, sells at the bid (futures at last).</p></div>`;
+    return;
+  }
+  const held = state.positions.filter(p => (s.kind === "bond" ? p.isin : p.code) === s.id).reduce((a, p) => a + p.qty, 0);
+  const sideBtns = `<div class="row"><button class="btn buy" data-side="1" aria-pressed="${state.side > 0}">BUY</button><button class="btn sell" data-side="-1" aria-pressed="${state.side < 0}">SELL / SHORT</button></div>`;
+  let head, sizeField, calc;
+  if (s.kind === "bond") {
+    const b = BY_ISIN.get(s.id);
+    $("#tktSub").textContent = b.isin;
+    head = `<div class="sect"><div class="amb" style="font-size:14px">${esc(b.name)}</div><div class="dim">${esc(b.issuer)} · ${SECT[b.sector]}${b.sub ? " · SUBORDINATED" : ""}</div>
+      <dl class="kv"><dt>Coupon</dt><dd>${fmt(b.cpn, 3)}%${b.freq === 2 ? " s/a" : ""}</dd><dt>Maturity</dt><dd>${b.mat} (${fmt(b.yrs, 2)}y)</dd><dt>Issue size</dt><dd>${fmt(b.amt, 0)}M</dd>
+        <dt>Bid / Offer</dt><dd class="big">${fmt(b.bid, 3)} / ${fmt(b.ask, 3)}${b.firm ? "" : ` <span class="ind" title="indicative">IND</span>`}</dd><dt>Bid-offer</dt><dd>${fmt((b.ask - b.bid) * 100, 1)} cents</dd>
+        <dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp</dd><dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
+        <dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) : "–"}</dd></dl></div>`;
+    sizeField = `<label class="lbl" for="tkSize">NOMINAL (EUR)</label><input id="tkSize" class="num" style="width:100%" inputmode="numeric" value="${fmt(state.nominal, 0)}">
+      <div class="chips">${[250000, 500000, 1000000, 5000000].map(v => `<button data-nom="${v}" aria-pressed="${state.nominal === v}">${v >= 1e6 ? v / 1e6 + "M" : v / 1e3 + "K"}</button>`).join("")}</div>`;
+    calc = () => { const px = state.side > 0 ? b.ask : b.bid, dirty = px + b.acc, n = state.nominal;
+      return { px, html: `<dl class="kv"><dt>Clean price (${state.side > 0 ? "offer" : "bid"})</dt><dd class="big">${fmt(px, 3)}</dd><dt>Accrued interest</dt><dd>${fmt(n * b.acc / 100, 2)}</dd>
+        <dt>Settlement amount</dt><dd class="big">EUR ${fmt(n * dirty / 100, 2)}</dd><dt>Settles</dt><dd>${dTerm(DATA.settle)}</dd>
+        <dt>DV01</dt><dd class="${cls(state.side)}">${fmtS(state.side * n * dirty / 100 * b.mdur * 1e-4, 0)} EUR/bp</dd></dl>`,
+        order: { kind: "bond", isin: b.isin, qty: state.side * n, price: px }, ok: n > 0, desc: `EUR ${fmt(n, 0)} ${b.name}` }; };
+  } else {
+    const f = FUT.get(s.id), d = f.type === "credit" ? indexDur(f.code) : null;
+    $("#tktSub").textContent = `${f.code} ${f.contract}`;
+    head = `<div class="sect"><div class="amb" style="font-size:14px">${f.code} ${mmmYY(f.contract)}</div><div class="dim">${esc(f.name)} · ${f.type === "credit" ? "cash-settled" : "physical delivery"}</div>
+      <dl class="kv"><dt>Last</dt><dd class="big">${fmt(f.last, 3)}</dd><dt>Low / High</dt><dd>${fmt(f.low, 3)} / ${fmt(f.high, 3)}</dd><dt>Trades / Volume</dt><dd>${fmt(f.trades, 0)} / ${fmt(f.lots, 0)}</dd>
+        <dt>Contract value</dt><dd>${fmt(f.last * f.mult, 0)} ${f.ccy}</dd>
+        ${f.ctd ? `<dt>CTD</dt><dd>${esc(f.ctd.name)}</dd><dt>CF / gross basis</dt><dd>${fmt(f.ctd.cf, 4)} / ${fmt(f.ctd.basis, 3)}</dd>` : ""}
+        ${d ? `<dt>Index duration</dt><dd>${fmt(d, 1)} (assumed)</dd>` : ""}<dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) + " lots" : "–"}</dd></dl></div>`;
+    sizeField = `<label class="lbl" for="tkSize">CONTRACTS</label><input id="tkSize" class="num" style="width:100%" inputmode="numeric" value="${state.lots}">
+      <div class="chips">${[1, 5, 10, 25].map(v => `<button data-lots="${v}" aria-pressed="${state.lots === v}">${v}</button>`).join("")}</div>`;
+    calc = () => { const n = state.lots, per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
+      return { px: f.last, html: `<dl class="kv"><dt>Price (last)</dt><dd class="big">${fmt(f.last, 3)}</dd><dt>Notional</dt><dd>${fmt(n * f.last * f.mult, 0)} ${f.ccy}</dd>
+        <dt>${f.type === "credit" ? "CS01 / DV01" : "DV01"}</dt><dd class="${cls(state.side)}">${per != null ? fmtS(state.side * n * per, 0) + " EUR/bp" : "–"}</dd></dl>`,
+        order: { kind: "future", code: f.code, contract: f.contract, qty: state.side * n, price: f.last }, ok: n > 0, desc: `${n} ${f.code} ${mmmYY(f.contract)}` }; };
+  }
+  body.innerHTML = head + `<div class="sect">${sideBtns}${sizeField}<div id="tkCalc"></div>
+    <button class="btn solid" id="tkBook" style="padding:5px">${state.canWrite ? "BOOK TRADE" : "SIGN IN TO BOOK"}</button></div>`;
+  const upd = () => { const c = calc(); $("#tkCalc").innerHTML = c.html; return c; };
+  upd();
+  body.querySelectorAll("[data-side]").forEach(b => b.onclick = () => { state.side = +b.dataset.side; renderTicket(); });
+  body.querySelectorAll("[data-nom]").forEach(b => b.onclick = () => { state.nominal = +b.dataset.nom; renderTicket(); });
+  body.querySelectorAll("[data-lots]").forEach(b => b.onclick = () => { state.lots = +b.dataset.lots; renderTicket(); });
+  $("#tkSize").oninput = e => { const v = Number(e.target.value.replace(/[^\d]/g, "")) || 0; if (s.kind === "bond") state.nominal = v; else state.lots = v; upd(); };
+  $("#tkSize").onkeydown = e => { if (e.key === "Enter") $("#tkBook").click(); };
+  $("#tkBook").onclick = async () => {
+    if (!state.canWrite) { openLogin(); return; }
+    const c = upd();
+    if (!c.ok) { toast("Enter a size greater than zero"); return; }
+    const btn = $("#tkBook"); btn.disabled = true;
+    const ok = await addPositions([c.order]);
+    btn.disabled = false;
+    if (ok) toast(`${state.side > 0 ? "BOUGHT" : "SOLD"} ${c.desc} @ ${fmt(c.px, 3)}`);
+  };
+}
+
+// ------------------------------------------------------------------ sign-in
 function openLogin() {
-  const dlg = document.getElementById("login"), f = document.getElementById("loginForm");
+  const dlg = $("#login"), f = $("#loginForm");
   const url = "https://github.com/settings/tokens/new?scopes=public_repo&description=KTH%20FICC%20portfolio";
-  f.innerHTML = `<h2>Sign in with GitHub</h2>
+  f.innerHTML = `<div class="ph"><h2>Sign in with GitHub</h2></div><div class="pb">
     <p class="note">Trades are booked to <a href="https://github.com/${REPO.owner}/${REPO.name}" target="_blank" rel="noopener">${REPO.owner}/${REPO.name}</a>. To trade, your GitHub account needs write access to the repo (ask Elliot to add you as a collaborator) and a personal access token:</p>
-    <ol class="steps"><li>Open <a href="${url}" target="_blank" rel="noopener">github.com/settings/tokens/new</a> (the <code>public_repo</code> scope is pre-selected).</li>
+    <ol><li>Open <a href="${url}" target="_blank" rel="noopener">github.com/settings/tokens/new</a> (the <code>public_repo</code> scope is pre-selected).</li>
       <li>Pick an expiry and click <i>Generate token</i>.</li><li>Copy the token (starts with <code>ghp_</code>) and paste it below.</li></ol>
-    <label for="tok">Personal access token<input id="tok" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_…"></label>
+    <label for="tok">PERSONAL ACCESS TOKEN<input id="tok" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_…"></label>
     <p class="note">The token is stored only in this browser and is only sent to api.github.com.</p>
-    <p class="note" id="loginMsg" role="status"></p>
-    <div class="row"><button class="btn" type="button" id="loginOk">Sign in</button><button class="btn ghost" type="button" id="loginCancel">Cancel</button></div>`;
-  f.querySelector("#loginCancel").onclick = () => dlg.close();
-  f.querySelector("#loginOk").onclick = async () => {
-    const tok = f.querySelector("#tok").value.trim(), msg = f.querySelector("#loginMsg");
+    <p class="note amb" id="loginMsg" role="status"></p>
+    <div class="row"><button class="btn solid" type="button" id="loginOk">SIGN IN</button><button class="btn" type="button" id="loginCancel">CANCEL</button></div></div>`;
+  $("#loginCancel").onclick = () => dlg.close();
+  $("#tok").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $("#loginOk").click(); } };
+  $("#loginOk").onclick = async () => {
+    const tok = $("#tok").value.trim(), msg = $("#loginMsg");
     if (!tok) { msg.textContent = "Paste your token first."; return; }
     msg.textContent = "Checking token…";
     let res;
@@ -485,78 +781,34 @@ function openLogin() {
     if (res.error) { msg.textContent = res.error; return; }
     if (!res.push) { msg.textContent = `The account ${res.login} has no write access to the repo. Ask Elliot to add you as a collaborator, then try again.`; return; }
     gh.token = tok; gh.login = res.login; store("ghToken", tok); store("ghLogin", res.login);
-    state.canWrite = true; dlg.close(); renderAcct(); render(); toast(`Signed in as ${res.login}`);
+    state.canWrite = true; dlg.close(); render(); toast(`Signed in as ${res.login}`);
   };
   dlg.showModal();
 }
 
-// ------------------------------------------------------------------ hedge tab
-function renderHedge() {
-  const el = document.getElementById("hedge");
-  const rows = state.positions.map(p => ({ p, r: risk(p) })).filter(x => !x.r.missing);
-  // credit: CS01 of corporate bonds (+ existing credit futures)
-  const corpCs = rows.filter(x => x.p.kind === "bond" && x.r.b.sector.startsWith("CORP")).reduce((s, x) => s + x.r.cs01, 0)
-               + rows.filter(x => x.r.f?.type === "credit").reduce((s, x) => s + (x.r.cs01 ?? 0), 0);
-  const cf = FUT.get(state.hedgeIdx), cd = indexDur(state.hedgeIdx);
-  const csPer = cf && cd ? cf.last * cf.mult * cd * 1e-4 : null;
-  const nCredit = csPer && state.hedgePct ? Math.round(-corpCs * state.hedgePct / 100 / csPer) || 0 : 0;
-  // rates: DV01 per bucket after the credit hedge
-  const buck = Object.fromEntries(BUCKETS.map(([c]) => [c, 0]));
-  for (const x of rows) if (x.r.bucket && x.r.dv01) buck[x.r.bucket] += x.r.dv01;
-  if (nCredit && csPer) buck[bucketOf(cd)] += nCredit * csPer;
-  const rateTrades = BUCKETS.map(([c, l]) => { const f = FUT.get(c); const n = f?.dv01 ? Math.round(-buck[c] / f.dv01) || 0 : 0; return { c, l, f, dv: buck[c], n }; });
-  const trades = [...(nCredit ? [{ code: state.hedgeIdx, n: nCredit }] : []), ...rateTrades.filter(t => t.n).map(t => ({ code: t.c, n: t.n }))];
-  const after = rateTrades.reduce((s, t) => s + t.dv + t.n * (t.f?.dv01 || 0), 0);
-
-  const futRows = DATA.futures.map(f => {
-    const d = f.type === "credit" ? indexDur(f.code) : null;
-    const per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
-    const durIn = f.type === "credit" ? `<input class="numin" style="width:5em" data-dur="${f.code}" value="${fmt(d, 1)}" aria-label="Index duration ${f.code}">` : "";
-    const ctd = f.ctd ? `<div>${esc(f.ctd.name)}</div><div class="i muted">CF ${fmt(f.ctd.cf, 4)} · basis ${fmt(f.ctd.basis, 3)} · ${f.ctd.isin}</div>` : `<span class="muted">${f.type === "credit" ? "cash-settled" : "–"}</span>`;
-    return `<tr><td class="name"><div class="t">${f.code}</div><div class="i">${esc(f.name)}</div></td><td class="num">${f.contract}</td>
-      <td class="n">${fmt(f.last, f.last > 1000 ? 1 : 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(f.lots, 0)}</td>
-      <td class="n">${fmt(f.last * f.mult, 0)} ${f.ccy}</td><td class="n">${fmt(per, 1)}</td><td>${durIn}</td><td class="name">${ctd}</td></tr>`;
-  }).join("");
-
-  el.innerHTML = `<div class="grid2">
-    <div class="panel stack">
-      <div><h2>Hedge proposal</h2><p class="note">Credit first, then rates. The credit futures reference total-return indices and carry both spread and rate duration, so the Bund-family hedge is sized on the residual DV01.</p></div>
-      <div class="row">
-        <label class="row" for="hIdx">Credit index <select id="hIdx">${DATA.futures.filter(f => f.type === "credit" && f.ccy === "EUR").map(f => `<option value="${f.code}" ${f.code === state.hedgeIdx ? "selected" : ""}>${f.code} ${esc(f.name)}</option>`).join("")}</select></label>
-        <label class="row" for="hPct">Hedge ratio (CS01) <input id="hPct" class="numin" style="width:5em" value="${state.hedgePct}"> %</label>
-      </div>
-      <dl class="kv"><dt>Corporate CS01</dt><dd>${fmtS(corpCs, 0)} EUR/bp</dd>
-        <dt>CS01 per ${state.hedgeIdx} contract</dt><dd>${fmt(csPer, 1)} EUR/bp</dd>
-        <dt>Credit futures</dt><dd>${fmtS(nCredit, 0)} ${state.hedgeIdx}</dd></dl>
-      <div class="tablebox"><table><thead><tr><th>Bucket</th><th class="n">DV01 pre-hedge</th><th class="n">DV01/contract</th><th class="n">Contracts</th></tr></thead><tbody>
-        ${rateTrades.map(t => `<tr><td>${t.l} (${t.c})</td><td class="n">${fmtS(t.dv, 0)}</td><td class="n">${fmt(t.f?.dv01, 1)}</td><td class="n ${t.n < 0 ? "neg" : t.n > 0 ? "pos" : ""}">${fmtS(t.n, 0)}</td></tr>`).join("")}
-      </tbody></table></div>
-      <dl class="kv"><dt>Residual DV01</dt><dd>${fmtS(after, 0)} EUR/bp</dd></dl>
-      <div class="row"><button class="btn" id="addHedge" ${!trades.length || state.dbState !== "ready" ? "disabled" : ""}>Book hedge</button>
-        <span class="note">${trades.length ? trades.map(t => `${t.n > 0 ? "buy" : "sell"} ${Math.abs(t.n)} ${t.code}`).join(", ") : "No hedge needed for the current book."}</span></div>
-    </div>
-    <div class="panel stack"><h2>Methodology</h2>
-      <p class="note">DV01 is the EUR P&amp;L for a 1 bp fall in yield. Bonds: dirty market value × modified duration × 0.0001. Schatz, Bobl, Bund and Buxl: DV01 of the cheapest-to-deliver divided by its conversion factor, per EUR 100,000 contract. The CTD is the deliverable Bund with the lowest gross basis (clean price − futures price × CF) in today's data. The conversion factor is the clean price at a 6% yield (Buxl: 4%) on the delivery date.</p>
-      <p class="note">CS01 per credit futures contract: index level × multiplier × spread duration × 0.0001. Index durations are not in the Eurex feed; the values below are editable assumptions. Check them against the index factsheet.</p>
-      <p class="note">Contract counts are rounded to whole lots. BTP, OAT and BONO futures are shown but not used in the proposal, as their CTD is not computed here.</p>
-    </div></div>
-    <div><h2 style="margin-bottom:8px">Eurex futures</h2>
-    <div class="tablebox"><table><thead><tr><th>Contract</th><th>Expiry</th><th class="n">Last</th><th class="n">Trades</th><th class="n">Volume</th><th class="n">Contract value</th><th class="n">DV01/CS01 per contract</th><th>Index duration (assumed)</th><th>CTD</th></tr></thead>
-    <tbody>${futRows}</tbody></table></div>
-    <p class="note">Last is the final on-book trade on ${dateEn(DATA.asof)} (Eurex MiFID II post-trade data), not the official Eurex daily settlement price.</p></div>`;
-
-  el.querySelector("#hIdx").onchange = e => { state.hedgeIdx = e.target.value; store("hedgeIdx", state.hedgeIdx); renderHedge(); };
-  el.querySelector("#hPct").onchange = e => { const v = Math.max(0, Math.min(200, Number(String(e.target.value).replace(",", ".")) || 0)); state.hedgePct = v; store("hedgePct", v); renderHedge(); };
-  el.querySelectorAll("[data-dur]").forEach(inp => inp.onchange = () => { const v = Number(inp.value.replace(",", ".")); if (v > 0) { state.dur[inp.dataset.dur] = v; store("dur", state.dur); } render(); });
-  el.querySelector("#addHedge").onclick = async () => {
-    const ok = await addPositions(trades.map(t => ({ kind: "future", code: t.code, contract: FUT.get(t.code).contract, qty: t.n, price: FUT.get(t.code).last })));
-    if (ok) toast("Hedge booked");
-  };
-}
+// ------------------------------------------------------------------ keyboard
+document.addEventListener("keydown", e => {
+  const typing = e.target.closest("input, select, textarea");
+  if (e.key === "Escape") { if (typing) e.target.blur(); else if (state.sel && state.view === "desk") { state.sel = null; store("sel", null); renderDesk(); } return; }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey || $("#login").open) return;
+  const views = { 1: "dash", 2: "hold", 3: "risk", 4: "desk" };
+  if (views[e.key]) { e.preventDefault(); setView(views[e.key]); return; }
+  if (e.key === "/") { e.preventDefault(); setView("desk"); $("#q").focus(); return; }
+  if (state.view === "desk" && (e.key === "ArrowDown" || e.key === "ArrowUp") && VISIBLE.length) {
+    e.preventDefault();
+    let i = state.sel?.kind === "bond" ? VISIBLE.findIndex(b => b.isin === state.sel.id) : -1;
+    i = Math.max(0, Math.min(VISIBLE.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)));
+    select("bond", VISIBLE[i].isin);
+    $(`#scrBody tr[data-pick="${VISIBLE[i].isin}"]`)?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  if (state.view === "desk" && e.key === "Enter" && state.sel) { e.preventDefault(); $("#tkSize")?.focus(); $("#tkSize")?.select(); }
+});
 
 // ------------------------------------------------------------------ render + storage
 function render() {
-  if (state.tab === "pf") renderPf(); else if (state.tab === "bonds") renderBonds(); else renderHedge();
+  renderAcct(); renderStatus();
+  ({ dash: renderDash, hold: renderHold, risk: renderRisk, desk: renderDesk })[state.view]();
 }
 
 async function loadPositions() {
@@ -568,7 +820,7 @@ async function loadPositions() {
 
 async function init() {
   state.canWrite = !!(gh.token && gh.login);
-  renderAcct(); setTab(state.tab);
+  setView(state.view);
   await loadPositions();
   // reload when the tab becomes visible again (at most every 2 minutes, for GitHub's rate limit)
   document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - state.loadedAt > 120000) loadPositions(); });
