@@ -430,3 +430,16 @@ def test_sync_prefers_daily_file_for_eurex(tmp_path, monkeypatch):
     arch2 = str(tmp_path / "b")
     assert mfs.sync(["DEUR-posttrade"], arch2, workers=1) == (2, 0)
     assert sorted(os.listdir(os.path.join(arch2, "DEUR-posttrade", "2026-10-02"))) == sorted(f[1:])
+
+
+def test_site_coupon_cleaning():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    assert build.name_coupon("DANBNK 4 1/2 11/09/28") == 4.5
+    assert build.name_coupon("BGOSK 1 ⅝ 04/30/28 ") == 1.625
+    assert build.name_coupon("IBESM 4 7/8 PERP") == 4.875
+    assert build.name_coupon("Landesbank Saar Inh.-Schv. Serie 0GA v.20(35)") is None
+    assert build.clean_coupon(45.0, "DANBNK 4 1/2 11/09/28") == 4.5
+    assert build.clean_coupon(1125.0, "FINPOW 1  1/8  11/23/27 BOND") == 1.125
+    assert build.clean_coupon(2.7, "BKO 0 09/13/28") == 2.7       # FIRDS vinner under 20 %
+    assert build.clean_coupon(36.0, "Utan kupong i namnet") is None

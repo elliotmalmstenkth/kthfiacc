@@ -1,4 +1,4 @@
-<title>KTH FICC Portfölj</title>
+<title>KTH FICC Portfolio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -46,6 +46,7 @@ h2 { font: 600 16px/1.2 var(--f-display); letter-spacing: .02em; margin: 0; text
 h3 { font: 600 13px/1.2 var(--f-body); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin: 0 0 8px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; min-width: 0; }
 .stack { display: grid; gap: 16px; align-content: start; }
+.stack > * { min-width: 0; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
 .grid2 > * { min-width: 0; }
 select { max-width: 100%; }
@@ -111,14 +112,14 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 
 <div class="wrap">
   <header class="top">
-    <h1>KTH FICC <span>Portfölj</span></h1>
+    <h1>KTH FICC <span>Portfolio</span></h1>
     <div class="stamp" id="stamp"></div>
     <div class="acct" id="acct"></div>
   </header>
   <nav class="tabs" role="tablist">
-    <button role="tab" id="tab-pf" aria-selected="true" data-tab="pf">Portfölj</button>
-    <button role="tab" id="tab-bonds" aria-selected="false" data-tab="bonds">Obligationer</button>
-    <button role="tab" id="tab-hedge" aria-selected="false" data-tab="hedge">Terminer och hedge</button>
+    <button role="tab" id="tab-pf" aria-selected="true" data-tab="pf">Portfolio</button>
+    <button role="tab" id="tab-bonds" aria-selected="false" data-tab="bonds">Bonds</button>
+    <button role="tab" id="tab-hedge" aria-selected="false" data-tab="hedge">Futures &amp; Hedging</button>
   </nav>
 
   <section id="pf" class="stack"></section>
@@ -134,8 +135,8 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 const DATA = /*__DATA__*/null;
 
 // ------------------------------------------------------------------ data
-const SECT = { CORP_NONFIN: "Företag", CORP_FIN: "Finans", COVERED: "Säkerställd", SOV: "Stat",
-               SUBSOV: "Delstat/kommun", AGENCY: "Agency", SUPRA: "Supranationell" };
+const SECT = { CORP_NONFIN: "Corporates", CORP_FIN: "Financials", COVERED: "Covered", SOV: "Sovereigns",
+               SUBSOV: "Sub-sovereigns", AGENCY: "Agencies", SUPRA: "Supranationals" };
 const BONDS = DATA.bonds.map(r => Object.fromEntries(DATA.cols.map((c, i) => [c, r[i]])));
 const BY_ISIN = new Map(BONDS.map(b => [b.isin, b]));
 const FUT = new Map(DATA.futures.map(f => [f.code, f]));
@@ -143,17 +144,17 @@ const ASOF = new Date(DATA.asof + "T12:00:00");
 const SETTLE = new Date(DATA.settle + "T12:00:00");
 for (const b of BONDS) { b.mid = (b.bid + b.ask) / 2; b.yrs = (new Date(b.mat + "T12:00:00") - SETTLE) / 3.15576e10; }
 
-const nf = (d) => new Intl.NumberFormat("sv-SE", { minimumFractionDigits: d, maximumFractionDigits: d });
+const nf = (d) => new Intl.NumberFormat("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
 const F = new Proxy({}, { get: (c, d) => c[d] ??= nf(+d) });
 const fmt = (x, d = 2) => x == null || !isFinite(x) ? "–" : F[d].format(x);
 const fmtS = (x, d = 0) => x == null || !isFinite(x) ? "–" : (x > 0 ? "+" : "") + F[d].format(x || 0);
-const dateSv = (s) => new Date(s + "T12:00:00").toLocaleDateString("sv-SE", { day: "numeric", month: "short", year: "numeric" });
+const dateEn = (s) => new Date(s + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem("ficc." + k)); localStorage.setItem("ficc." + k, JSON.stringify(v)); } catch { return null; } }
 
 // ------------------------------------------------------------------ risk
-// DV01/CS01: EUR-förändring när räntan/spreaden faller 1 bp (positivt för en lång obligation).
+// DV01/CS01: EUR P&L for a 1 bp fall in yield/spread (positive for a long bond).
 const BUCKETS = [["FGBS", "Schatz", 0, 3.3], ["FGBM", "Bobl", 3.3, 6.2], ["FGBL", "Bund", 6.2, 13], ["FGBX", "Buxl", 13, 1e9]];
 const bucketOf = (dur) => BUCKETS.find(([, , lo, hi]) => dur >= lo && dur < hi)[0];
 const indexDur = (code) => (state.dur[code] ?? FUT.get(code)?.dur ?? null);
@@ -182,14 +183,14 @@ function risk(p) {
 const state = {
   tab: store("tab") || "pf",
   q: "", sectors: new Set(store("sectors") || ["CORP_NONFIN", "CORP_FIN"]), bench: store("bench") ?? true,
-  firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["z", -1], limit: 100,
+  firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1], limit: 100,
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   positions: [], dbState: "loading", canWrite: false, loadedAt: 0,
 };
 
-// ------------------------------------------------------------------ GitHub-lagring
-// Portföljen är filen portfolio/positions.json i repot. Alla kan läsa den; den som har
-// skrivrätt till repot sparar med en personlig GitHub-nyckel (lagras bara i den här webbläsaren).
+// ------------------------------------------------------------------ GitHub storage
+// The portfolio is portfolio/positions.json in the repo. Anyone can read it; collaborators with
+// write access save with a personal GitHub token (kept only in this browser).
 const REPO = DATA.repo;
 const API = `https://api.github.com/repos/${REPO.owner}/${REPO.name}`;
 const FILE = `${API}/contents/${REPO.path}`;
@@ -206,7 +207,7 @@ const gh = {
     this.sha = j.sha;
     return JSON.parse(b64ToUtf8(j.content)).positions || [];
   },
-  // mutate(nuvarande) -> nya listan. Om någon annan sparat under tiden (409) hämtas filen om och ändringen görs igen.
+  // mutate(current) -> new list. If someone else saved in between (409), reload the file and re-apply.
   async save(mutate, message) {
     for (let attempt = 0; ; attempt++) {
       const next = mutate(await this.load());
@@ -218,11 +219,11 @@ const gh = {
       throw Object.assign(new Error("save " + r.status), { status: r.status });
     }
   },
-  // Kontrollerar nyckeln: vem den tillhör och om kontot har skrivrätt till repot.
+  // Checks the token: whose it is and whether that account can push to the repo.
   async check(token) {
     const h = { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" };
     const u = await fetch("https://api.github.com/user", { headers: h });
-    if (!u.ok) return { error: "Nyckeln godtogs inte av GitHub. Kontrollera att du kopierade hela nyckeln." };
+    if (!u.ok) return { error: "GitHub rejected the token. Check that you copied all of it." };
     const login = (await u.json()).login;
     const rr = await fetch(API, { headers: h });
     const push = rr.ok ? !!(await rr.json()).permissions?.push : false;
@@ -232,9 +233,9 @@ const gh = {
 
 // ------------------------------------------------------------------ chrome
 document.getElementById("stamp").innerHTML =
-  `<span>Kurser <b>Börse Frankfurt ${dateSv(DATA.asof)}</b>, senaste tvåsidiga före 17:30</span>` +
-  `<span>Likviddag <b>${dateSv(DATA.settle)}</b></span>` +
-  `<span>Kurva <b>ECB AAA ${dateSv(DATA.curve.date)}</b></span>`;
+  `<span>Prices <b>Börse Frankfurt close ${dateEn(DATA.asof)}</b> (last two-way quote before 17:30 CET)</span>` +
+  `<span>Settlement <b>${dateEn(DATA.settle)}</b> (T+2)</span>` +
+  `<span>Curve <b>ECB AAA ${dateEn(DATA.curve.date)}</b></span>`;
 
 function setTab(t) {
   state.tab = t; store("tab", t);
@@ -245,7 +246,7 @@ function setTab(t) {
 document.addEventListener("click", e => {
   if (e.target.closest("[data-login]")) openLogin();
   if (e.target.closest("#retry")) loadPositions();
-  if (e.target.closest("#logout")) { gh.token = gh.login = null; store("ghToken", null); store("ghLogin", null); state.canWrite = false; renderAcct(); render(); toast("Du är utloggad"); }
+  if (e.target.closest("#logout")) { gh.token = gh.login = null; store("ghToken", null); store("ghLogin", null); state.canWrite = false; renderAcct(); render(); toast("Signed out"); }
 });
 document.querySelector("nav.tabs").addEventListener("click", e => { const t = e.target.closest("button")?.dataset.tab; if (t) setTab(t); });
 
@@ -278,25 +279,25 @@ function renderPf() {
   const ids = [...new Set(state.positions.map(p => p.by).filter(Boolean))];
 
   let dbNote = "";
-  if (state.dbState === "error") dbNote = `<div class="notice">Det gick inte att hämta portföljen från GitHub${state.loadErr === 403 ? " (för många anrop utan inloggning, försök igen om en stund eller logga in)" : ""}. Obligationslistan och terminerna fungerar ändå. <button class="btn small ghost" id="retry">Försök igen</button></div>`;
-  else if (!state.canWrite) dbNote = `<div class="notice">Du ser klubbens portfölj. För att handla: <button class="btn small ghost" data-login>Logga in med GitHub</button></div>`;
+  if (state.dbState === "error") dbNote = `<div class="notice">Could not load the portfolio from GitHub${state.loadErr === 403 ? " (API rate limit for signed-out users; try again shortly or sign in)" : ""}. The bond screener and futures still work. <button class="btn small ghost" id="retry">Retry</button></div>`;
+  else if (!state.canWrite) dbNote = `<div class="notice">Read-only view of the club portfolio. To trade: <button class="btn small ghost" data-login>Sign in with GitHub</button></div>`;
 
   const kpis = `<div class="kpis">
-    <div class="kpi"><div class="l">Marknadsvärde</div><div class="v">${fmt(mv / 1e6, 2)} mn</div><div class="s">EUR, inkl. upplupen ränta</div></div>
-    <div class="kpi"><div class="l">Resultat</div><div class="v ${pnl > 0 ? "pos" : pnl < 0 ? "neg" : ""}">${fmtS(pnl, 0)}</div><div class="s">EUR, kursförändring sedan köp</div></div>
-    <div class="kpi"><div class="l">Yield</div><div class="v">${fmt(wavg("y"), 2)} %</div><div class="s">värdeviktad, obligationer</div></div>
-    <div class="kpi"><div class="l">Z-spread</div><div class="v">${fmt(wavg("z"), 0)} bp</div><div class="s">mot ECB AAA</div></div>
-    <div class="kpi"><div class="l">Duration</div><div class="v">${fmt(wavg("dur"), 2)}</div><div class="s">modifierad, obligationer</div></div>
-    <div class="kpi"><div class="l">DV01</div><div class="v">${fmtS(dv01, 0)}</div><div class="s">EUR per bp, inkl. terminer</div></div>
-    <div class="kpi"><div class="l">CS01</div><div class="v">${fmtS(cs01, 0)}</div><div class="s">EUR per bp spread</div></div>
+    <div class="kpi"><div class="l">Market value</div><div class="v">${fmt(mv / 1e6, 2)}m</div><div class="s">EUR, dirty</div></div>
+    <div class="kpi"><div class="l">P&amp;L</div><div class="v ${pnl > 0 ? "pos" : pnl < 0 ? "neg" : ""}">${fmtS(pnl, 0)}</div><div class="s">EUR, price P&amp;L since inception</div></div>
+    <div class="kpi"><div class="l">YTM</div><div class="v">${fmt(wavg("y"), 2)}%</div><div class="s">MV-weighted, bonds</div></div>
+    <div class="kpi"><div class="l">Z-spread</div><div class="v">${fmt(wavg("z"), 0)} bp</div><div class="s">vs ECB AAA curve</div></div>
+    <div class="kpi"><div class="l">Mod. duration</div><div class="v">${fmt(wavg("dur"), 2)}</div><div class="s">MV-weighted, bonds</div></div>
+    <div class="kpi"><div class="l">DV01</div><div class="v">${fmtS(dv01, 0)}</div><div class="s">EUR/bp, incl. futures</div></div>
+    <div class="kpi"><div class="l">CS01</div><div class="v">${fmtS(cs01, 0)}</div><div class="s">EUR/bp of spread</div></div>
   </div>`;
 
   if (!state.positions.length) {
     el.innerHTML = dbNote + kpis + `<div class="panel empty">
-      <h2>Portföljen är tom</h2>
-      <p>${state.dbState === "loading" ? "Hämtar klubbens positioner…" : "Gå till Obligationer, filtrera fram en obligation och välj Köp. Positionen sparas i repot och syns för alla."}</p>
-      <p class="muted">Köp sker till säljkurs och försäljning till budkurs, som på riktigt.</p>
-      <p><button class="btn" id="goBonds">Visa obligationer</button> <a href="https://github.com/${REPO.owner}/${REPO.name}/commits/${encodeURIComponent(REPO.branch)}/${REPO.path}" target="_blank" rel="noopener">Historik</a></p></div>`;
+      <h2>No positions yet</h2>
+      <p>${state.dbState === "loading" ? "Loading the club's positions…" : "Open Bonds, screen for a bond and click Trade. The position is saved to the repo and visible to everyone."}</p>
+      <p class="muted">Buys execute at the offer and sells at the bid, as in the market.</p>
+      <p><button class="btn" id="goBonds">Open bond screener</button> <a href="https://github.com/${REPO.owner}/${REPO.name}/commits/${encodeURIComponent(REPO.branch)}/${REPO.path}" target="_blank" rel="noopener">Trade history</a></p></div>`;
     document.getElementById("goBonds").onclick = () => setTab("bonds");
     return;
   }
@@ -306,45 +307,45 @@ function renderPf() {
   for (const x of ok) if (x.r.bucket && x.r.dv01) buck[x.r.bucket] = (buck[x.r.bucket] || 0) + x.r.dv01;
 
   const tbl = `<div class="tablebox"><table><thead><tr>
-      <th>Instrument</th><th class="n">Antal / nominellt</th><th class="n">Köpkurs</th><th class="n">Kurs nu</th>
-      <th class="n">Marknadsvärde</th><th class="n">Resultat</th><th class="n">Yield %</th><th class="n">Z bp</th>
-      <th class="n">Dur</th><th class="n">DV01</th><th>Tillagd av</th><th></th></tr></thead><tbody>` +
+      <th>Instrument</th><th class="n">Nominal / contracts</th><th class="n">Trade px</th><th class="n">Mark</th>
+      <th class="n">Market value</th><th class="n">P&amp;L</th><th class="n">YTM %</th><th class="n">Z bp</th>
+      <th class="n">Mod dur</th><th class="n">DV01</th><th>Trader</th><th></th></tr></thead><tbody>` +
     rows.map(({ p, r }) => {
       const whoHtml = p.by ? `<span class="who"><img alt="" src="https://github.com/${encodeURIComponent(p.by)}.png?size=36"><span>${esc(p.by)}</span></span>` : "";
       const name = p.kind === "bond"
-        ? (r.b ? `<div class="t">${esc(r.b.name)}</div><div class="i">${esc(p.isin)} · ${esc(SECT[r.b.sector])}</div>` : `<div class="t">${esc(p.isin)}</div><div class="i">saknar kurs i dagens data</div>`)
+        ? (r.b ? `<div class="t">${esc(r.b.name)}</div><div class="i">${esc(p.isin)} · ${esc(SECT[r.b.sector])}</div>` : `<div class="t">${esc(p.isin)}</div><div class="i">no price in today's data</div>`)
         : `<div class="t">${esc(p.code)} ${esc(r.f ? r.f.contract.slice(0, 7) : "")}</div><div class="i">${esc(r.f?.name || "")}</div>`;
-      const side = p.qty >= 0 ? `<span class="tag buy">Lång</span>` : `<span class="tag sell">Kort</span>`;
-      const qty = p.kind === "bond" ? fmt(p.qty, 0) : fmt(p.qty, 0) + " kontr.";
+      const side = p.qty >= 0 ? `<span class="tag buy">Long</span>` : `<span class="tag sell">Short</span>`;
+      const qty = p.kind === "bond" ? fmt(p.qty, 0) : fmt(p.qty, 0) + " lots";
       return `<tr><td class="name">${side} ${name}</td><td class="n">${qty}</td><td class="n">${fmt(p.price, 3)}</td>
-        <td class="n">${fmt(r.now, 3)}</td><td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted" title="Nominell exponering">${fmt(r.notional, 0)}</span>`}</td>
+        <td class="n">${fmt(r.now, 3)}</td><td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted" title="Notional exposure">${fmt(r.notional, 0)}</span>`}</td>
         <td class="n ${r.pnl > 0 ? "pos" : r.pnl < 0 ? "neg" : ""}">${fmtS(r.pnl, 0)}</td><td class="n">${fmt(r.y, 2)}</td>
         <td class="n">${fmt(r.z, 0)}</td><td class="n">${fmt(r.dur, 2)}</td><td class="n">${fmtS(r.dv01, 0)}</td>
         <td>${whoHtml}<div class="i muted">${esc((p.at || "").slice(0, 10))}</div></td>
-        <td>${state.canWrite ? `<button class="btn danger small" data-del="${esc(p.id)}">Ta bort</button>` : ""}</td></tr>`;
+        <td>${state.canWrite ? `<button class="btn danger small" data-del="${esc(p.id)}">Close</button>` : ""}</td></tr>`;
     }).join("") + `</tbody></table></div>`;
 
   el.innerHTML = dbNote + kpis + tbl + `<div class="grid2">
-    <div class="panel"><h3>Fördelning per sektor, marknadsvärde</h3>${bars(Object.entries(sect).sort((a, b) => b[1] - a[1]).map(([l, v]) => ({ l, v })), v => fmt(v / 1e6, 2) + " mn")}</div>
-    <div class="panel"><h3>DV01 per löptidshink (EUR/bp)</h3>${bars(BUCKETS.map(([c, l]) => ({ l, v: buck[c] || 0 })), v => fmtS(v, 0))}
-      <p class="note">Hinkarna följer terminerna: Schatz &lt; 3,3 års duration, Bobl 3,3–6,2, Bund 6,2–13, Buxl över 13. Hedgen görs under Terminer och hedge.</p></div>
+    <div class="panel"><h3>Sector allocation, market value</h3>${bars(Object.entries(sect).sort((a, b) => b[1] - a[1]).map(([l, v]) => ({ l, v })), v => fmt(v / 1e6, 2) + "m")}</div>
+    <div class="panel"><h3>DV01 by bucket (EUR/bp)</h3>${bars(BUCKETS.map(([c, l]) => ({ l, v: buck[c] || 0 })), v => fmtS(v, 0))}
+      <p class="note">Buckets map to the German futures by modified duration: Schatz &lt; 3.3, Bobl 3.3–6.2, Bund 6.2–13, Buxl &gt; 13. Size the hedge under Futures &amp; Hedging.</p></div>
   </div>
-  <p class="note">Resultatet visar kursförändring sedan positionen lades till, utan upplupen ränta. Med ett enda dagsdatum är det noll tills sidan byggs om med nya kurser.</p>`;
+  <p class="note">P&amp;L is clean-price P&amp;L versus the trade price, excluding carry and accrued interest. Marks update each business day after the close.</p>`;
 
   el.querySelectorAll("[data-del]").forEach(btn => btn.onclick = async () => {
-    if (!btn.classList.contains("armed")) { btn.classList.add("armed"); btn.textContent = "Bekräfta"; setTimeout(() => { btn.classList.remove("armed"); btn.textContent = "Ta bort"; }, 4000); return; }
+    if (!btn.classList.contains("armed")) { btn.classList.add("armed"); btn.textContent = "Confirm"; setTimeout(() => { btn.classList.remove("armed"); btn.textContent = "Close"; }, 4000); return; }
     btn.disabled = true;
     const pos = state.positions.find(x => x.id === btn.dataset.del);
     try {
-      state.positions = await gh.save(cur => cur.filter(x => x.id !== btn.dataset.del), `Portfölj: ta bort ${describe(pos)} (${gh.login})`);
-      render(); toast("Positionen är borttagen");
+      state.positions = await gh.save(cur => cur.filter(x => x.id !== btn.dataset.del), `Portfolio: close ${describe(pos)} (${gh.login})`);
+      render(); toast("Position closed");
     } catch (e) { btn.disabled = false; writeError(e); }
   });
 }
 
 // ------------------------------------------------------------------ bonds tab
-const BCOLS = [["name", "Obligation"], ["sector", "Sektor"], ["cpn", "Kupong", 3], ["mat", "Förfall"], ["amt", "Emission mn", 0],
-  ["bid", "Bud", 3], ["ask", "Sälj", 3], ["ytm", "Yield %", 2], ["z", "Z-spread bp", 0], ["mdur", "Dur", 2]];
+const BCOLS = [["name", "Bond"], ["sector", "Sector"], ["cpn", "Coupon", 3], ["mat", "Maturity"], ["amt", "Size (m)", 0],
+  ["bid", "Bid", 3], ["ask", "Offer", 3], ["ytm", "YTM %", 2], ["z", "Z-spread bp", 0], ["mdur", "Mod dur", 2]];
 
 function filtered() {
   const q = state.q.trim().toLowerCase();
@@ -361,16 +362,16 @@ function renderBonds() {
   if (!el.dataset.built) {
     el.dataset.built = 1;
     el.innerHTML = `<div class="filters">
-        <input type="search" id="q" placeholder="Sök emittent, namn eller ISIN" aria-label="Sök obligation">
-        <div class="seg" id="sectors" aria-label="Sektor">${Object.entries(SECT).map(([k, l]) => `<button data-s="${k}">${l}</button>`).join("")}</div>
+        <input type="search" id="q" placeholder="Search issuer, ticker or ISIN" aria-label="Search bonds">
+        <div class="seg" id="sectors" aria-label="Sector">${Object.entries(SECT).map(([k, l]) => `<button data-s="${k}">${l}</button>`).join("")}</div>
       </div>
       <div class="filters">
-        <div class="seg" id="mat" aria-label="Löptid">${[["all", "Alla löptider"], ["0-3", "0–3 år"], ["3-7", "3–7 år"], ["7-15", "7–15 år"], ["15+", "15+ år"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
-        <button class="tog" id="bench" title="Emission minst 500 mn EUR, inte efterställd">Benchmark ≥ 500 mn, senior</button>
-        <button class="tog" id="firm" title="Både bud och sälj med volym">Fast tvåsidig kurs</button>
+        <div class="seg" id="mat" aria-label="Maturity">${[["all", "All maturities"], ["0-3", "0–3y"], ["3-7", "3–7y"], ["7-15", "7–15y"], ["15+", "15y+"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
+        <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">Benchmark ≥ €500m, senior</button>
+        <button class="tog" id="firm" title="Bid and offer both with size">Firm two-way</button>
       </div>
       <div id="btable"></div>
-      <p class="note">Kurser är mittkurs av Börse Frankfurts senaste tvåsidiga kurs. Yield med årlig kupong (italienska statsobligationer halvårs), ACT/ACT. Z-spread är kontinuerlig spread över ECB:s AAA-kurva. Kurser med streckad markering har ingen volym på ena sidan och är indikativa.</p>`;
+      <p class="note">Analytics use the mid of Börse Frankfurt's last two-way quote. YTM assumes annual coupons (semi-annual for BTPs), ACT/ACT ICMA, T+2 settlement. Z-spread is the continuously compounded spread over the ECB AAA Svensson curve. Dashed offers have no size on one side and are indicative only.</p>`;
     const qi = el.querySelector("#q"); qi.value = state.q;
     qi.oninput = () => { state.q = qi.value; state.limit = 100; renderBondTable(); };
     el.querySelector("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.sectors.has(s) ? state.sectors.delete(s) : state.sectors.add(s); store("sectors", [...state.sectors]); state.limit = 100; renderBondTable(); };
@@ -390,17 +391,17 @@ function renderBondTable() {
   const xs = filtered(), [sk, sd] = state.sort;
   const head = BCOLS.map(([k, l, d]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}">${l} ${sk === k ? `<span class="arr">${sd > 0 ? "▲" : "▼"}</span>` : ""}</th>`).join("");
   const body = xs.slice(0, state.limit).map(b => `<tr>
-      <td class="name"><div class="t">${esc(b.name)}</div><div class="i">${b.isin}${b.sub ? " · efterställd" : ""}</div></td>
+      <td class="name"><div class="t">${esc(b.name)}</div><div class="i">${b.isin}${b.sub ? " · subordinated" : ""}</div></td>
       <td><span class="chip">${SECT[b.sector]}</span></td><td class="n">${fmt(b.cpn, 3)}</td><td class="num">${b.mat}</td>
       <td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
-      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="chip ind" title="Indikativ: ingen volym på ena sidan">${fmt(b.ask, 3)}</span>`}</td>
+      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="chip ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
       <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td>
-      <td><button class="btn small ghost" data-buy="${b.isin}">Köp</button></td></tr>`).join("");
+      <td><button class="btn small ghost" data-buy="${b.isin}">Trade</button></td></tr>`).join("");
   const tb = el.querySelector("#btable");
   tb.innerHTML = `<div class="tablebox"><table><thead><tr>${head}<th></th></tr></thead><tbody>${body ||
-    `<tr><td colspan="11" class="empty">Inga obligationer matchar filtren. Lägg till en sektor eller ta bort benchmarkfiltret.</td></tr>`}</tbody></table></div>
-    <div class="more"><span>Visar ${fmt(Math.min(state.limit, xs.length), 0)} av ${fmt(xs.length, 0)}</span>
-    ${xs.length > state.limit ? `<button class="btn ghost small" id="moreBtn">Visa 100 till</button>` : ""}</div>`;
+    `<tr><td colspan="11" class="empty">No bonds match these filters. Add a sector or turn off the benchmark filter.</td></tr>`}</tbody></table></div>
+    <div class="more"><span>Showing ${fmt(Math.min(state.limit, xs.length), 0)} of ${fmt(xs.length, 0)}</span>
+    ${xs.length > state.limit ? `<button class="btn ghost small" id="moreBtn">Show 100 more</button>` : ""}</div>`;
   tb.querySelectorAll("th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (k === "name" || k === "mat" || k === "sector" ? 1 : -1)]; store("sort", state.sort); renderBondTable(); });
   tb.querySelector("#moreBtn")?.addEventListener("click", () => { state.limit += 100; renderBondTable(); });
   tb.querySelectorAll("[data-buy]").forEach(btn => btn.onclick = () => state.canWrite ? openTicket(btn.dataset.buy) : openLogin());
@@ -410,18 +411,18 @@ function renderBondTable() {
 function openTicket(isin) {
   const b = BY_ISIN.get(isin), dlg = document.getElementById("ticket"), f = document.getElementById("ticketForm");
   f.innerHTML = `<h2>${esc(b.name)}</h2>
-    <div class="muted" style="font-size:12px">${b.isin} · ${SECT[b.sector]} · förfall ${b.mat}</div>
-    <div class="seg" id="side"><button type="button" data-side="1" aria-pressed="true">Köp</button><button type="button" data-side="-1" aria-pressed="false">Sälj (blanka)</button></div>
-    <label for="nom">Nominellt belopp, EUR<input id="nom" class="numin" inputmode="numeric" value="1 000 000"></label>
+    <div class="muted" style="font-size:12px">${b.isin} · ${SECT[b.sector]} · matures ${b.mat}</div>
+    <div class="seg" id="side"><button type="button" data-side="1" aria-pressed="true">Buy</button><button type="button" data-side="-1" aria-pressed="false">Sell / short</button></div>
+    <label for="nom">Nominal (EUR)<input id="nom" class="numin" inputmode="numeric" value="1,000,000"></label>
     <dl class="kv" id="tk"></dl>
-    <div class="row"><button class="btn" id="tkOk" type="button">Lägg till i portföljen</button><button class="btn ghost" type="button" id="tkCancel">Avbryt</button></div>`;
+    <div class="row"><button class="btn" id="tkOk" type="button">Book trade</button><button class="btn ghost" type="button" id="tkCancel">Cancel</button></div>`;
   let side = 1;
   const upd = () => {
     const nom = Number(f.querySelector("#nom").value.replace(/[^\d]/g, "")) || 0;
     const px = side > 0 ? b.ask : b.bid, dirty = px + b.acc;
-    f.querySelector("#tk").innerHTML = `<dt>Kurs (${side > 0 ? "säljkurs, du köper" : "budkurs, du säljer"})</dt><dd>${fmt(px, 3)}</dd>
-      <dt>Upplupen ränta</dt><dd>${fmt(b.acc, 4)}</dd><dt>Likvid, EUR</dt><dd>${fmt(nom * dirty / 100, 2)}</dd>
-      <dt>Yield / Z-spread (mitt)</dt><dd>${fmt(b.ytm, 2)} % / ${fmt(b.z, 0)} bp</dd><dt>DV01, EUR/bp</dt><dd>${fmtS(side * nom * dirty / 100 * b.mdur * 1e-4, 0)}</dd>`;
+    f.querySelector("#tk").innerHTML = `<dt>Clean price (${side > 0 ? "offer, you buy" : "bid, you sell"})</dt><dd>${fmt(px, 3)}</dd>
+      <dt>Accrued interest</dt><dd>${fmt(b.acc, 4)}</dd><dt>Settlement amount, EUR</dt><dd>${fmt(nom * dirty / 100, 2)}</dd>
+      <dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp</dd><dt>DV01, EUR/bp</dt><dd>${fmtS(side * nom * dirty / 100 * b.mdur * 1e-4, 0)}</dd>`;
     return { nom, px };
   };
   f.querySelector("#side").onclick = e => { const s = e.target.dataset.side; if (!s) return; side = +s; f.querySelectorAll("#side button").forEach(x => x.setAttribute("aria-pressed", x.dataset.side === s)); upd(); };
@@ -429,62 +430,62 @@ function openTicket(isin) {
   f.querySelector("#tkCancel").onclick = () => dlg.close();
   f.querySelector("#tkOk").onclick = async () => {
     const { nom, px } = upd();
-    if (nom <= 0) { toast("Ange ett nominellt belopp större än noll"); return; }
+    if (nom <= 0) { toast("Enter a nominal greater than zero"); return; }
     const ok = await addPositions([{ kind: "bond", isin, qty: side * nom, price: px }]);
-    if (ok) { dlg.close(); toast(`${side > 0 ? "Köpt" : "Sålt"}: ${fmt(nom, 0)} EUR ${b.name}`); }
+    if (ok) { dlg.close(); toast(`${side > 0 ? "Bought" : "Sold"} EUR ${fmt(nom, 0)} ${b.name}`); }
   };
   upd(); dlg.showModal();
 }
 
 function describe(p) {
   if (!p) return "position";
-  if (p.kind === "bond") return `${p.qty >= 0 ? "köp" : "sälj"} ${fmt(Math.abs(p.qty), 0)} EUR ${BY_ISIN.get(p.isin)?.name || p.isin}`;
-  return `${p.qty >= 0 ? "köp" : "sälj"} ${Math.abs(p.qty)} ${p.code} ${(p.contract || "").slice(0, 7)}`;
+  if (p.kind === "bond") return `${p.qty >= 0 ? "buy" : "sell"} EUR ${fmt(Math.abs(p.qty), 0)} ${BY_ISIN.get(p.isin)?.name || p.isin}`;
+  return `${p.qty >= 0 ? "buy" : "sell"} ${Math.abs(p.qty)} ${p.code} ${(p.contract || "").slice(0, 7)}`;
 }
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 async function addPositions(list) {
   if (!state.canWrite) { openLogin(); return false; }
   const rows = list.map(p => ({ id: newId(), ...p, date: DATA.asof, by: gh.login, at: new Date().toISOString() }));
   try {
-    state.positions = await gh.save(cur => [...cur, ...rows], `Portfölj: ${rows.map(describe).join(", ")} (${gh.login})`);
+    state.positions = await gh.save(cur => [...cur, ...rows], `Portfolio: ${rows.map(describe).join(", ")} (${gh.login})`);
     render(); return true;
   } catch (e) { writeError(e); return false; }
 }
 function writeError(e) {
-  if (e?.status === 401) { toast("GitHub-nyckeln gäller inte längre. Logga in igen."); gh.token = null; store("ghToken", null); state.canWrite = false; renderAcct(); render(); }
-  else if (e?.status === 403 || e?.status === 404) toast("Ditt GitHub-konto får inte ändra repot. Be Elliot lägga till dig som collaborator.");
-  else toast("Det gick inte att spara. Försök igen.");
+  if (e?.status === 401) { toast("Your GitHub token is no longer valid. Please sign in again."); gh.token = null; store("ghToken", null); state.canWrite = false; renderAcct(); render(); }
+  else if (e?.status === 403 || e?.status === 404) toast("Your GitHub account cannot write to the repo. Ask Elliot to add you as a collaborator.");
+  else toast("Could not save the trade. Please try again.");
 }
 
-// ------------------------------------------------------------------ inloggning
+// ------------------------------------------------------------------ sign-in
 function renderAcct() {
   const el = document.getElementById("acct");
   el.innerHTML = gh.login && gh.token
-    ? `<img alt="" src="https://github.com/${encodeURIComponent(gh.login)}.png?size=40"><span>${esc(gh.login)}</span><button class="btn small ghost" id="logout">Logga ut</button>`
-    : `<button class="btn small" data-login>Logga in för att handla</button>`;
+    ? `<img alt="" src="https://github.com/${encodeURIComponent(gh.login)}.png?size=40"><span>${esc(gh.login)}</span><button class="btn small ghost" id="logout">Sign out</button>`
+    : `<button class="btn small" data-login>Sign in to trade</button>`;
 }
 function openLogin() {
   const dlg = document.getElementById("login"), f = document.getElementById("loginForm");
-  const url = "https://github.com/settings/tokens/new?scopes=public_repo&description=KTH%20FICC%20portf%C3%B6lj";
-  f.innerHTML = `<h2>Logga in med GitHub</h2>
-    <p class="note">Portföljen sparas i repot <a href="https://github.com/${REPO.owner}/${REPO.name}" target="_blank" rel="noopener">${REPO.owner}/${REPO.name}</a>. För att handla behöver ditt GitHub-konto skrivrätt dit (be Elliot lägga till dig som collaborator) och en personlig nyckel:</p>
-    <ol class="steps"><li>Öppna <a href="${url}" target="_blank" rel="noopener">github.com/settings/tokens/new</a> (rutan <code>public_repo</code> är redan ikryssad).</li>
-      <li>Välj giltighetstid och klicka <i>Generate token</i>.</li><li>Kopiera nyckeln (börjar med <code>ghp_</code>) och klistra in den här.</li></ol>
-    <label for="tok">GitHub-nyckel<input id="tok" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_…"></label>
-    <p class="note">Nyckeln sparas bara i den här webbläsaren och skickas bara till api.github.com.</p>
+  const url = "https://github.com/settings/tokens/new?scopes=public_repo&description=KTH%20FICC%20portfolio";
+  f.innerHTML = `<h2>Sign in with GitHub</h2>
+    <p class="note">Trades are booked to <a href="https://github.com/${REPO.owner}/${REPO.name}" target="_blank" rel="noopener">${REPO.owner}/${REPO.name}</a>. To trade, your GitHub account needs write access to the repo (ask Elliot to add you as a collaborator) and a personal access token:</p>
+    <ol class="steps"><li>Open <a href="${url}" target="_blank" rel="noopener">github.com/settings/tokens/new</a> (the <code>public_repo</code> scope is pre-selected).</li>
+      <li>Pick an expiry and click <i>Generate token</i>.</li><li>Copy the token (starts with <code>ghp_</code>) and paste it below.</li></ol>
+    <label for="tok">Personal access token<input id="tok" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_…"></label>
+    <p class="note">The token is stored only in this browser and is only sent to api.github.com.</p>
     <p class="note" id="loginMsg" role="status"></p>
-    <div class="row"><button class="btn" type="button" id="loginOk">Logga in</button><button class="btn ghost" type="button" id="loginCancel">Avbryt</button></div>`;
+    <div class="row"><button class="btn" type="button" id="loginOk">Sign in</button><button class="btn ghost" type="button" id="loginCancel">Cancel</button></div>`;
   f.querySelector("#loginCancel").onclick = () => dlg.close();
   f.querySelector("#loginOk").onclick = async () => {
     const tok = f.querySelector("#tok").value.trim(), msg = f.querySelector("#loginMsg");
-    if (!tok) { msg.textContent = "Klistra in nyckeln först."; return; }
-    msg.textContent = "Kontrollerar nyckeln…";
+    if (!tok) { msg.textContent = "Paste your token first."; return; }
+    msg.textContent = "Checking token…";
     let res;
-    try { res = await gh.check(tok); } catch { msg.textContent = "Kunde inte nå GitHub. Kontrollera nätverket och försök igen."; return; }
+    try { res = await gh.check(tok); } catch { msg.textContent = "Could not reach GitHub. Check your connection and try again."; return; }
     if (res.error) { msg.textContent = res.error; return; }
-    if (!res.push) { msg.textContent = `Kontot ${res.login} har inte skrivrätt till repot. Be Elliot lägga till dig som collaborator och försök igen.`; return; }
+    if (!res.push) { msg.textContent = `The account ${res.login} has no write access to the repo. Ask Elliot to add you as a collaborator, then try again.`; return; }
     gh.token = tok; gh.login = res.login; store("ghToken", tok); store("ghLogin", res.login);
-    state.canWrite = true; dlg.close(); renderAcct(); render(); toast(`Inloggad som ${res.login}`);
+    state.canWrite = true; dlg.close(); renderAcct(); render(); toast(`Signed in as ${res.login}`);
   };
   dlg.showModal();
 }
@@ -493,13 +494,13 @@ function openLogin() {
 function renderHedge() {
   const el = document.getElementById("hedge");
   const rows = state.positions.map(p => ({ p, r: risk(p) })).filter(x => !x.r.missing);
-  // kredit: företagsobligationernas CS01 (+ befintliga kreditterminer)
+  // credit: CS01 of corporate bonds (+ existing credit futures)
   const corpCs = rows.filter(x => x.p.kind === "bond" && x.r.b.sector.startsWith("CORP")).reduce((s, x) => s + x.r.cs01, 0)
                + rows.filter(x => x.r.f?.type === "credit").reduce((s, x) => s + (x.r.cs01 ?? 0), 0);
   const cf = FUT.get(state.hedgeIdx), cd = indexDur(state.hedgeIdx);
   const csPer = cf && cd ? cf.last * cf.mult * cd * 1e-4 : null;
   const nCredit = csPer && state.hedgePct ? Math.round(-corpCs * state.hedgePct / 100 / csPer) || 0 : 0;
-  // ränta: DV01 per hink efter kredithedgen
+  // rates: DV01 per bucket after the credit hedge
   const buck = Object.fromEntries(BUCKETS.map(([c]) => [c, 0]));
   for (const x of rows) if (x.r.bucket && x.r.dv01) buck[x.r.bucket] += x.r.dv01;
   if (nCredit && csPer) buck[bucketOf(cd)] += nCredit * csPer;
@@ -510,8 +511,8 @@ function renderHedge() {
   const futRows = DATA.futures.map(f => {
     const d = f.type === "credit" ? indexDur(f.code) : null;
     const per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
-    const durIn = f.type === "credit" ? `<input class="numin" style="width:5em" data-dur="${f.code}" value="${fmt(d, 1)}" aria-label="Duration ${f.code}">` : "";
-    const ctd = f.ctd ? `<div>${esc(f.ctd.name)}</div><div class="i muted">CF ${fmt(f.ctd.cf, 4)} · basis ${fmt(f.ctd.basis, 3)} · ${f.ctd.isin}</div>` : `<span class="muted">${f.type === "credit" ? "kontant avräkning" : "–"}</span>`;
+    const durIn = f.type === "credit" ? `<input class="numin" style="width:5em" data-dur="${f.code}" value="${fmt(d, 1)}" aria-label="Index duration ${f.code}">` : "";
+    const ctd = f.ctd ? `<div>${esc(f.ctd.name)}</div><div class="i muted">CF ${fmt(f.ctd.cf, 4)} · basis ${fmt(f.ctd.basis, 3)} · ${f.ctd.isin}</div>` : `<span class="muted">${f.type === "credit" ? "cash-settled" : "–"}</span>`;
     return `<tr><td class="name"><div class="t">${f.code}</div><div class="i">${esc(f.name)}</div></td><td class="num">${f.contract}</td>
       <td class="n">${fmt(f.last, f.last > 1000 ? 1 : 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(f.lots, 0)}</td>
       <td class="n">${fmt(f.last * f.mult, 0)} ${f.ccy}</td><td class="n">${fmt(per, 1)}</td><td>${durIn}</td><td class="name">${ctd}</td></tr>`;
@@ -519,41 +520,41 @@ function renderHedge() {
 
   el.innerHTML = `<div class="grid2">
     <div class="panel stack">
-      <div><h2>Hedgeförslag</h2><p class="note">Först kredit, sedan ränta. Kreditterminerna är totalavkastningsindex och bär både spread- och ränterisk, så ränteterminerna räknas på det som återstår.</p></div>
+      <div><h2>Hedge proposal</h2><p class="note">Credit first, then rates. The credit futures reference total-return indices and carry both spread and rate duration, so the Bund-family hedge is sized on the residual DV01.</p></div>
       <div class="row">
-        <label class="row" for="hIdx">Kreditindex <select id="hIdx">${DATA.futures.filter(f => f.type === "credit" && f.ccy === "EUR").map(f => `<option value="${f.code}" ${f.code === state.hedgeIdx ? "selected" : ""}>${f.code} ${esc(f.name)}</option>`).join("")}</select></label>
-        <label class="row" for="hPct">Andel av kreditrisken <input id="hPct" class="numin" style="width:5em" value="${state.hedgePct}"> %</label>
+        <label class="row" for="hIdx">Credit index <select id="hIdx">${DATA.futures.filter(f => f.type === "credit" && f.ccy === "EUR").map(f => `<option value="${f.code}" ${f.code === state.hedgeIdx ? "selected" : ""}>${f.code} ${esc(f.name)}</option>`).join("")}</select></label>
+        <label class="row" for="hPct">Hedge ratio (CS01) <input id="hPct" class="numin" style="width:5em" value="${state.hedgePct}"> %</label>
       </div>
-      <dl class="kv"><dt>Företagens CS01</dt><dd>${fmtS(corpCs, 0)} EUR/bp</dd>
-        <dt>CS01 per ${state.hedgeIdx}-kontrakt</dt><dd>${fmt(csPer, 1)} EUR/bp</dd>
-        <dt>Kreditterminer</dt><dd>${fmtS(nCredit, 0)} ${state.hedgeIdx}</dd></dl>
-      <div class="tablebox"><table><thead><tr><th>Hink</th><th class="n">DV01 före</th><th class="n">DV01/kontrakt</th><th class="n">Kontrakt</th></tr></thead><tbody>
+      <dl class="kv"><dt>Corporate CS01</dt><dd>${fmtS(corpCs, 0)} EUR/bp</dd>
+        <dt>CS01 per ${state.hedgeIdx} contract</dt><dd>${fmt(csPer, 1)} EUR/bp</dd>
+        <dt>Credit futures</dt><dd>${fmtS(nCredit, 0)} ${state.hedgeIdx}</dd></dl>
+      <div class="tablebox"><table><thead><tr><th>Bucket</th><th class="n">DV01 pre-hedge</th><th class="n">DV01/contract</th><th class="n">Contracts</th></tr></thead><tbody>
         ${rateTrades.map(t => `<tr><td>${t.l} (${t.c})</td><td class="n">${fmtS(t.dv, 0)}</td><td class="n">${fmt(t.f?.dv01, 1)}</td><td class="n ${t.n < 0 ? "neg" : t.n > 0 ? "pos" : ""}">${fmtS(t.n, 0)}</td></tr>`).join("")}
       </tbody></table></div>
-      <dl class="kv"><dt>DV01 efter hedge</dt><dd>${fmtS(after, 0)} EUR/bp</dd></dl>
-      <div class="row"><button class="btn" id="addHedge" ${!trades.length || state.dbState !== "ready" ? "disabled" : ""}>Lägg till hedgen i portföljen</button>
-        <span class="note">${trades.length ? trades.map(t => `${t.n > 0 ? "köp" : "sälj"} ${Math.abs(t.n)} ${t.code}`).join(", ") : "Ingen hedge behövs för nuvarande portfölj."}</span></div>
+      <dl class="kv"><dt>Residual DV01</dt><dd>${fmtS(after, 0)} EUR/bp</dd></dl>
+      <div class="row"><button class="btn" id="addHedge" ${!trades.length || state.dbState !== "ready" ? "disabled" : ""}>Book hedge</button>
+        <span class="note">${trades.length ? trades.map(t => `${t.n > 0 ? "buy" : "sell"} ${Math.abs(t.n)} ${t.code}`).join(", ") : "No hedge needed for the current book."}</span></div>
     </div>
-    <div class="panel stack"><h2>Så räknas det</h2>
-      <p class="note">DV01 är EUR-förändringen när räntan faller en baspunkt. För en obligation: marknadsvärde × modifierad duration × 0,0001. För Schatz, Bobl, Bund och Buxl: CTD-obligationens DV01 delad med omvandlingsfaktorn, per 100 000 EUR nominellt. CTD är den leveransbara Bund med lägst bruttobasis (kurs − terminskurs × omvandlingsfaktor) i dagens data. Omvandlingsfaktorn är kursen vid 6 % yield (Buxl 4 %) på leveransdagen.</p>
-      <p class="note">CS01 per kreditterminskontrakt: indexvärde × multiplikator × spreadduration × 0,0001. Indexdurationen finns inte i Eurex-filerna. Värdena i tabellen nedan är antaganden som går att ändra; kontrollera dem mot indexets faktablad.</p>
-      <p class="note">Kontraktsantalen avrundas till heltal. Ränteterminer i BTP, OAT och BONO visas men ingår inte i förslaget eftersom deras CTD inte räknas här.</p>
+    <div class="panel stack"><h2>Methodology</h2>
+      <p class="note">DV01 is the EUR P&amp;L for a 1 bp fall in yield. Bonds: dirty market value × modified duration × 0.0001. Schatz, Bobl, Bund and Buxl: DV01 of the cheapest-to-deliver divided by its conversion factor, per EUR 100,000 contract. The CTD is the deliverable Bund with the lowest gross basis (clean price − futures price × CF) in today's data. The conversion factor is the clean price at a 6% yield (Buxl: 4%) on the delivery date.</p>
+      <p class="note">CS01 per credit futures contract: index level × multiplier × spread duration × 0.0001. Index durations are not in the Eurex feed; the values below are editable assumptions. Check them against the index factsheet.</p>
+      <p class="note">Contract counts are rounded to whole lots. BTP, OAT and BONO futures are shown but not used in the proposal, as their CTD is not computed here.</p>
     </div></div>
-    <div><h2 style="margin-bottom:8px">Eurex-terminer</h2>
-    <div class="tablebox"><table><thead><tr><th>Termin</th><th>Förfall</th><th class="n">Senast</th><th class="n">Affärer</th><th class="n">Kontrakt</th><th class="n">Kontraktsvärde</th><th class="n">DV01/CS01 per kontrakt</th><th>Duration (antagen)</th><th>CTD</th></tr></thead>
+    <div><h2 style="margin-bottom:8px">Eurex futures</h2>
+    <div class="tablebox"><table><thead><tr><th>Contract</th><th>Expiry</th><th class="n">Last</th><th class="n">Trades</th><th class="n">Volume</th><th class="n">Contract value</th><th class="n">DV01/CS01 per contract</th><th>Index duration (assumed)</th><th>CTD</th></tr></thead>
     <tbody>${futRows}</tbody></table></div>
-    <p class="note">Senast är sista orderboksaffär ${dateSv(DATA.asof)} (Eurex MiFID II-data), inte Eurex officiella avräkningskurs.</p></div>`;
+    <p class="note">Last is the final on-book trade on ${dateEn(DATA.asof)} (Eurex MiFID II post-trade data), not the official Eurex daily settlement price.</p></div>`;
 
   el.querySelector("#hIdx").onchange = e => { state.hedgeIdx = e.target.value; store("hedgeIdx", state.hedgeIdx); renderHedge(); };
   el.querySelector("#hPct").onchange = e => { const v = Math.max(0, Math.min(200, Number(String(e.target.value).replace(",", ".")) || 0)); state.hedgePct = v; store("hedgePct", v); renderHedge(); };
   el.querySelectorAll("[data-dur]").forEach(inp => inp.onchange = () => { const v = Number(inp.value.replace(",", ".")); if (v > 0) { state.dur[inp.dataset.dur] = v; store("dur", state.dur); } render(); });
   el.querySelector("#addHedge").onclick = async () => {
     const ok = await addPositions(trades.map(t => ({ kind: "future", code: t.code, contract: FUT.get(t.code).contract, qty: t.n, price: FUT.get(t.code).last })));
-    if (ok) toast("Hedgen är tillagd i portföljen");
+    if (ok) toast("Hedge booked");
   };
 }
 
-// ------------------------------------------------------------------ render + db
+// ------------------------------------------------------------------ render + storage
 function render() {
   if (state.tab === "pf") renderPf(); else if (state.tab === "bonds") renderBonds(); else renderHedge();
 }
@@ -569,7 +570,7 @@ async function init() {
   state.canWrite = !!(gh.token && gh.login);
   renderAcct(); setTab(state.tab);
   await loadPositions();
-  // hämta om när fliken blir synlig igen (högst varannan minut, för GitHubs anropsgräns)
+  // reload when the tab becomes visible again (at most every 2 minutes, for GitHub's rate limit)
   document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - state.loadedAt > 120000) loadPositions(); });
 }
 init();

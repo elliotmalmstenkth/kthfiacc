@@ -21,6 +21,29 @@ STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\b
 INDEX_DURATION = {"FECX": 4.5, "FEHY": 3.0, "FGBC": 6.0, "FUIG": 6.5, "FUHY": 3.2, "FUEM": 6.5, "FGGI": 6.5}
 
 
+FRACTIONS = {"⅛": " 1/8", "¼": " 1/4", "⅜": " 3/8", "½": " 1/2", "⅝": " 5/8", "¾": " 3/4", "⅞": " 7/8"}
+NAME_CPN = re.compile(r"^\S+\s+(\d+(?:\.\d+)?)(?:\s+(\d)/(\d+))?\s+(?:PERP|\d{1,2}/\d{1,2}/\d{2})")
+
+
+def name_coupon(name):
+    """Kupong ur Bloomberg-liknande namn, t.ex. 'DANBNK 4 1/2 11/09/28' -> 4.5."""
+    n = str(name)
+    for k, v in FRACTIONS.items():
+        n = n.replace(k, v)
+    m = NAME_CPN.match(n)
+    if not m:
+        return None
+    return float(m.group(1)) + (int(m.group(2)) / int(m.group(3)) if m.group(2) else 0.0)
+
+
+def clean_coupon(firds_cpn, name):
+    """FIRDS har enstaka kuponger i fel skala (45 i st.f. 4,5; 1125 i st.f. 1,125).
+    Över 20 % ersätts med kupongen i namnet; saknas den blir kupongen okänd."""
+    if firds_cpn is None or math.isnan(firds_cpn) or firds_cpn <= 20:
+        return firds_cpn
+    return name_coupon(name)
+
+
 def r(x, n):
     return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), n)
 
@@ -41,8 +64,8 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
 
     rows = []
     for isin, x in u.iterrows():
-        cpn = 0.0 if x.coupon_type == "zero" else x.coupon_fixed
-        if pd.isna(cpn):
+        cpn = 0.0 if x.coupon_type == "zero" else clean_coupon(x.coupon_fixed, x.full_name)
+        if cpn is None or pd.isna(cpn):
             continue
         freq = 2 if (isin.startswith("IT") and x.sector == "SOV") else 1
         mid = (x.bid_px + x.ask_px) / 2
@@ -90,7 +113,7 @@ def as_document(page):
     """Mallen är skriven som sidinnehåll (title, style, markup); gör ett fristående dokument för GitHub Pages."""
     m = re.match(r"\s*(<title>.*?</title>)", page, re.S)
     title, body = (m.group(1), page[m.end():]) if m else ("", page)
-    return ('<!doctype html><html lang="sv"><head><meta charset="utf-8">'
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
             f'{title}<style>:root{{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}}'
             'body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>'

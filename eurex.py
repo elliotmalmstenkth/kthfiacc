@@ -25,10 +25,10 @@ import mfs
 # kod: (produkt-ISIN, namn, typ, valuta, värde per indexpunkt/procentenhet)
 PRODUCTS = {
     # statsobligationsterminer: nominellt 100 000, kurs i procent -> 1 000 per punkt
-    "FGBS": ("DE0009652669", "Euro-Schatz (DE 1,75–2,25 år)", "govt", "EUR", 1000),
-    "FGBM": ("DE0009652651", "Euro-Bobl (DE 4,5–5,5 år)", "govt", "EUR", 1000),
-    "FGBL": ("DE0009652644", "Euro-Bund (DE 8,5–10,5 år)", "govt", "EUR", 1000),
-    "FGBX": ("DE0009652636", "Euro-Buxl (DE 24–35 år)", "govt", "EUR", 1000),
+    "FGBS": ("DE0009652669", "Euro-Schatz (DE 1.75–2.25y)", "govt", "EUR", 1000),
+    "FGBM": ("DE0009652651", "Euro-Bobl (DE 4.5–5.5y)", "govt", "EUR", 1000),
+    "FGBL": ("DE0009652644", "Euro-Bund (DE 8.5–10.5y)", "govt", "EUR", 1000),
+    "FGBX": ("DE0009652636", "Euro-Buxl (DE 24–35y)", "govt", "EUR", 1000),
     "FBTS": ("DE000A1EZJ09", "Short-Term Euro-BTP", "govt", "EUR", 1000),
     "FBTM": ("DE000A1KQR10", "Mid-Term Euro-BTP", "govt", "EUR", 1000),
     "FBTP": ("DE000A0ZW3V8", "Long-Term Euro-BTP", "govt", "EUR", 1000),
@@ -36,7 +36,7 @@ PRODUCTS = {
     "FOAT": ("DE000A1MAPW3", "Euro-OAT", "govt", "EUR", 1000),
     "FBON": ("DE000A163W29", "Euro-BONO", "govt", "EUR", 1000),
     "FBEU": ("DE000A3ETB78", "Euro-EU Bond", "govt", "EUR", 1000),
-    "CONF": ("CH0002741988", "CONF (Schweiz)", "govt", "CHF", 1000),
+    "CONF": ("CH0002741988", "CONF (Swiss Confederation)", "govt", "CHF", 1000),
     # kreditindexterminer: kontant avräkning, multiplikator från FIRDS
     "FECX": ("DE000A2QQU00", "Bloomberg MSCI Euro Corporate Screened", "credit", "EUR", 1000),
     "FEHY": ("DE000A3DLQ96", "Bloomberg Liquidity Screened Euro High Yield", "credit", "EUR", 200),
