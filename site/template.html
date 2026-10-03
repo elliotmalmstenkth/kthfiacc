@@ -675,7 +675,7 @@ function writeError(e) {
 const LIVE = { sha: null, data: null, raw: null, err: null, checked: null };
 const tradeDay = () => LIVE.data?.day || DATA.asof;
 const valSettle = () => LIVE.data ? addBD(LIVE.data.day, 2) : DATA.settle;
-const utcToCet = (s) => s ? new Date(s.endsWith("Z") ? s : s + "Z").toLocaleTimeString("en-GB", { timeZone: "Europe/Berlin", hour12: false, hour: "2-digit", minute: "2-digit" }) : "–";
+const utcToCet = (s) => s && isFinite(Date.parse(s.endsWith("Z") ? s : s + "Z")) ? new Date(s.endsWith("Z") ? s : s + "Z").toLocaleTimeString("en-GB", { timeZone: "Europe/Berlin", hour12: false, hour: "2-digit", minute: "2-digit" }) : "–";
 function applyLive(j) {
   if (!j || !j.day || j.day <= DATA.asof) return false;   // the evening build already covers this day
   LIVE.data = j;
@@ -729,19 +729,26 @@ function feedOpen() {
   const hm = `${p.hour}:${p.minute}`;
   return !["Sat", "Sun"].includes(p.weekday) && hm >= "07:45" && hm < "17:45";
 }
-const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m < 120 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+const tsMs = (iso) => { const t = Date.parse(iso || ""); return isFinite(t) ? t : null; };   // null for a missing or malformed time
+const ago = (iso) => {
+  const t = tsMs(iso);
+  if (t == null) return null;
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  return m < 1 ? "just now" : m < 120 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+};
 function renderStamp() {
   const L = LIVE.data, R = LIVE.raw, open = feedOpen();
   const px = L
     ? `<span>PX <b>BÖRSE FRANKFURT ${dTerm(L.day)} ${utcToCet(L.msg)} CET</b> intraday, delayed</span>`
     : `<span>PX <b>BÖRSE FRANKFURT ${dTerm(DATA.asof)}</b> close (last two-way before 17:30 CET)</span>`;
-  const stale = R && open && (Date.now() - new Date(R.gen)) / 60000 > 5;
+  const stale = R && open && (Date.now() - (tsMs(R.gen) ?? 0)) / 60000 > 5;   // no valid publish time counts as stale
   const state = !LIVE.checked ? `<span class="muted">checking…</span>`
     : LIVE.err && !R ? `<span class="neg">UNAVAILABLE</span> <span class="muted">${esc(String(LIVE.err))}</span>`
     : stale ? `<span class="neg">STALE</span>`
     : L ? `<span class="pos">LIVE</span>`
     : `<span class="muted">${open ? "WAITING FOR TODAY'S FIRST FILE" : "MARKET CLOSED"}</span>`;
-  const last = R ? ` · latest quote <b>${dTerm(R.day)} ${utcToCet(R.msg)} CET</b> · published ${ago(R.gen)}` : "";
+  const pub = R ? ago(R.gen) : null;
+  const last = R ? `${R.msg ? ` · latest quote <b>${dTerm(R.day)} ${utcToCet(R.msg)} CET</b>` : ""}${pub ? ` · published ${pub}` : ""}` : "";
   const feed = `<span title="Deutsche Börse minute files via GitHub Actions; the page checks every ${gh.token ? 1 : 2} min">FEED ${state}${last}${LIVE.checked ? ` · checked ${LIVE.checked.toLocaleTimeString("en-GB", { hour12: false })}` : ""}</span>`;
   $("#stamp").innerHTML = px + feed + `<span>SETTLE <b>${dTerm(valSettle())}</b> T+2</span>` + `<span>CURVE <b>ECB AAA ${dTerm(DATA.curve.date)}</b></span>`;
 }
