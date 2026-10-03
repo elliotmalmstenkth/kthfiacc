@@ -1,0 +1,9 @@
+# data hålls utanför git (stort och/eller licensbundet)
+archive/
+raw/
+firds_raw/
+*.sqlite
+*.csv
+!overrides.csv
+__pycache__/
+.pytest_cache/
