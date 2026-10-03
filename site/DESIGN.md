@@ -15,6 +15,7 @@ as thin text for identifiers and as the fill of small editable fields, never for
 | Column headers, section rows | grey bands, light text | grey bands `#1a1a1a`/`#262626`, grey text | `--band-2`, `--band` |
 | Function menu bar | red band, white text | active workspace in red, red rule under the function bar; red dialog headers | `--red-bar` |
 | Clickable rows | white outline on hover | 1px white outline on hover | – |
+| Asset-class tabs (SECF: Corp, Govt …) | dark grey tabs, active tab light grey with black text | same; CORP / GOVT / SSA / COVERED in the screener | `.atabs` |
 | Selection / focus | blue cursor, highlighted row | dark-blue row, blue left marker, blue focus ring | `--sel`, `--blue` |
 | Up / down | green / red | green `#1ee36f` / red `#ff3b30` | `--pos`, `--neg` |
 | Up / down, CVD mode | blue / red | blue `#3fa9ff` / red (toggle **CVD** in the status line) | `[data-cvd="1"]` |

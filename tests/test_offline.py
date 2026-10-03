@@ -152,6 +152,7 @@ R2 = namedtuple("R2", "cfi fisn issuer_lei full_name")
     ("DTFUFB", "ABN AMRO BANK N/0.01 MTN 20350228", "ABN AMRO Bank N.V. EO-Med.-T.Cov.Bds 2026(35)", "COVERED"),
     ("DBFTFB", "DZ HYP AG/0.875 MTH 20300118 R. 358", "DZ HYP 0.875 01/18/30", "COVERED"),  # MTH = mortgage Pfandbrief
     ("DTFUFB", "ABN AMRO BANK N/2.830 MTN 20300228", "ABNANV 2.83 02/28/30 BOND", "CORP_FIN"),
+    ("DBFUFR", "MINISTRY OF FI/2.375 BD 20291125", "CHINA 2 3/8 11/25/29", "SOV"),             # issuer name cut at 14 characters
 ])
 def test_sector_rules_full_name(cfi, fisn, name, want):
     assert classify.sector_of(R2(cfi, fisn, "", name), {})[0] == want

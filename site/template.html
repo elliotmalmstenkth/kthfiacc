@@ -118,6 +118,14 @@ input.cmd:hover { border-color: var(--fg-3); }
 .chips button:hover, .tog:hover { color: #fff; background: #2a2a2a; }
 .chips button[aria-pressed="true"], .tog[aria-pressed="true"] { background: #3b3b3b; color: #fff; border-color: #5a5a5a; }
 .chips button[aria-pressed="true"]::before, .tog[aria-pressed="true"]::before { content: "\25A0\00A0"; color: #fff; }
+/* asset-class tabs, as in Bloomberg SECF: dark grey tabs, the active tab light grey with black text */
+.atabs { display: flex; gap: 1px; padding: 4px 8px 0; border-bottom: 1px solid #9a9a9a; overflow-x: auto; }
+.atabs button { background: #2b2b2b; border: 1px solid #3d3d3d; border-bottom: 0; color: var(--fg); padding: 1px 12px; cursor: pointer; white-space: nowrap; letter-spacing: .03em; }
+.atabs button:hover { background: #474747; color: #fff; }
+.atabs button[aria-selected="true"] { background: #b4b4b4; border-color: #b4b4b4; color: #000; }
+.atabs .ct { color: var(--fg-3); margin-left: 6px; }
+@media (max-width: 600px) { .atabs button { padding: 1px 7px; } }
+.atabs button[aria-selected="true"] .ct { color: #333; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .filters input[type="search"] { flex: 1 1 220px; min-width: 0; }
 .more { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 3px 8px; border-top: 1px solid var(--line); color: var(--fg-3); }
@@ -217,6 +225,14 @@ const DATA = /*__DATA__*/null;
 // ------------------------------------------------------------------ data
 const SECT = { CORP_NONFIN: "Corporates", CORP_FIN: "Financials", COVERED: "Covered", SOV: "Sovereigns",
                SUBSOV: "Sub-sovereigns", AGENCY: "Agencies", SUPRA: "Supranationals" };
+// screener tabs by asset class (Bloomberg SECF: Corp, Govt …); s = sectors in the tab, with chip labels
+const TABS = [
+  { k: "corp", l: "CORP", t: "Corporates: financials and non-financials", s: [["CORP_FIN", "FIN"], ["CORP_NONFIN", "NON-FIN"]] },
+  { k: "govt", l: "GOVT", t: "Sovereigns", s: [["SOV", "SOVEREIGNS"]] },
+  { k: "ssa", l: "SSA", t: "Supranationals, sub-sovereigns and agencies", s: [["SUPRA", "SUPRA"], ["SUBSOV", "SUB-SOV"], ["AGENCY", "AGENCY"]] },
+  { k: "cov", l: "COVERED", t: "Covered bonds (Pfandbriefe, obligations foncières, cédulas …)", s: [["COVERED", "COVERED"]] },
+];
+const TAB_OF = Object.fromEntries(TABS.flatMap(t => t.s.map(([s]) => [s, t.k])));
 const BONDS = DATA.bonds.map(r => Object.fromEntries(DATA.cols.map((c, i) => [c, r[i]])));
 const BY_ISIN = new Map(BONDS.map(b => [b.isin, b]));
 const FUT = new Map(DATA.futures.map(f => [f.code, f]));
@@ -311,7 +327,7 @@ function hedgeCalc(bk) {
 // ------------------------------------------------------------------ state
 const state = {
   view: store("view") || "dash",
-  q: "", sectors: new Set(store("sectors") || ["CORP_NONFIN", "CORP_FIN"]), bench: store("bench") ?? true,
+  q: "", tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", off: new Set(store("subOff") || []), bench: store("bench") ?? true,
   firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1], limit: 200,
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
@@ -427,7 +443,7 @@ function renderStatus() {
     <a href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>
     <span>UNIVERSE <b>${fmt(BONDS.length, 0)}</b> EUR BONDS · ${DATA.futures.length} FUTURES</span>
     <button class="tog" id="cvd" aria-pressed="${state.cvd}" title="Colour-vision-deficiency scheme: blue up / red down (as on the Bloomberg Terminal)">CVD</button>
-    <span class="keys"><kbd>1-4</kbd> VIEW · <kbd>/</kbd> SEARCH · <kbd>↑↓</kbd> SELECT · <kbd>ENTER</kbd> TICKET · <kbd>ESC</kbd> CLOSE</span>`;
+    <span class="keys"><kbd>1-4</kbd> VIEW · <kbd>/</kbd> SEARCH · <kbd>[ ]</kbd> TAB · <kbd>↑↓</kbd> SELECT · <kbd>ENTER</kbd> TICKET · <kbd>ESC</kbd> CLOSE</span>`;
 }
 
 document.addEventListener("click", e => {
@@ -644,11 +660,25 @@ const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn",
   ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["mdur", "MOD DUR", 2]];
 let VISIBLE = [];
 
-function filtered() {
+const curTab = () => TABS.find(t => t.k === state.tab);
+
+// search, maturity, benchmark and firm filters (everything except the tab and its sector chips)
+function matcher() {
   const q = state.q.trim().toLowerCase();
   const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat];
-  const xs = BONDS.filter(b => state.sectors.has(b.sector) && (!state.bench || b.bench) && (!state.firm || b.firm)
-    && b.yrs >= mlo && b.yrs < mhi && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q)));
+  return b => (!state.bench || b.bench) && (!state.firm || b.firm) && b.yrs >= mlo && b.yrs < mhi
+    && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q));
+}
+
+function tabCounts() {
+  const ok = matcher(), n = Object.fromEntries(TABS.map(t => [t.k, 0]));
+  for (const b of BONDS) if (ok(b)) n[TAB_OF[b.sector]]++;
+  return n;
+}
+
+function filtered() {
+  const ok = matcher(), secs = curTab().s.map(([s]) => s).filter(s => !state.off.has(s));
+  const xs = BONDS.filter(b => secs.includes(b.sector) && ok(b));
   const [k, dir] = state.sort;
   xs.sort((a, b) => { const x = a[k], y = b[k]; if (x == null) return 1; if (y == null) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
   return xs;
@@ -660,9 +690,10 @@ function renderDesk() {
     el.dataset.built = 1;
     el.innerHTML =
       `<div class="panel" style="grid-area:scr"><div class="ph"><h2>Bond screener</h2><span class="sub" id="scrCount"></span><span class="tools"><button class="btn" id="csvScr">EXPORT CSV</button></span></div>
+        <div class="atabs" id="atabs" role="tablist" aria-label="Asset class">${TABS.map(t => `<button role="tab" data-tab="${t.k}" title="${t.t}">${t.l}<span class="ct"></span></button>`).join("")}</div>
         <div class="filters">
-          <input type="search" id="q" class="cmd" placeholder="/  search issuer, ticker or ISIN" aria-label="Search bonds">
-          <div class="chips" id="sectors" aria-label="Sector">${Object.entries(SECT).map(([k, l]) => `<button data-s="${k}">${l.toUpperCase()}</button>`).join("")}</div>
+          <input type="search" id="q" class="cmd" placeholder="/  issuer, ticker, ISIN" aria-label="Search bonds">
+          <div class="chips" id="sectors" aria-label="Sector"></div>
           <div class="chips" id="mat" aria-label="Maturity">${[["all", "ALL"], ["0-3", "0-3Y"], ["3-7", "3-7Y"], ["7-15", "7-15Y"], ["15+", "15Y+"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
           <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">BENCHMARK ≥€500M SENIOR</button>
           <button class="tog" id="firm" title="Bid and offer both with size">FIRM TWO-WAY</button>
@@ -673,18 +704,26 @@ function renderDesk() {
       `<div class="panel" style="grid-area:tkt"><div class="ph"><h2>Trade ticket</h2><span class="sub" id="tktSub"></span></div><div class="pb" id="tktBody"></div></div>`;
     const qi = $("#q"); qi.value = state.q;
     qi.oninput = () => { state.q = qi.value; state.limit = 200; renderScreener(); };
-    $("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.sectors.has(s) ? state.sectors.delete(s) : state.sectors.add(s); store("sectors", [...state.sectors]); state.limit = 200; renderScreener(); };
+    qi.addEventListener("search", qi.oninput);   // Esc clears a search box without an input event
+    $("#atabs").onclick = e => { const k = e.target.closest("button")?.dataset.tab; if (k) setTab(k); };
+    $("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.off.has(s) ? state.off.delete(s) : state.off.add(s); store("subOff", [...state.off]); state.limit = 200; renderScreener(); };
     $("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); state.limit = 200; renderScreener(); };
     $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); state.limit = 200; renderScreener(); };
     $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); state.limit = 200; renderScreener(); };
-    $("#csvScr").onclick = () => csv(`kthficc-screener-${DATA.asof}.csv`, BCOLS.map(c => c[0]).concat(["subordinated", "firm", "accrued"]),
+    $("#csvScr").onclick = () => csv(`kthficc-screener-${state.tab}-${DATA.asof}.csv`, BCOLS.map(c => c[0]).concat(["subordinated", "firm", "accrued"]),
       filtered().map(b => BCOLS.map(c => c[0] === "sector" ? SECT[b.sector] : b[c[0]]).concat([b.sub, b.firm, b.acc])));
   }
   renderScreener(); renderFutures(); renderTicket();
 }
 
+function setTab(k) { state.tab = k; store("tab", k); state.limit = 200; renderScreener(); $("#scrBody").scrollTop = 0; }
+
 function renderScreener() {
-  document.querySelectorAll("#sectors button").forEach(b => b.setAttribute("aria-pressed", state.sectors.has(b.dataset.s)));
+  const tab = curTab(), counts = tabCounts();
+  document.querySelectorAll("#atabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.tab === state.tab); b.querySelector(".ct").textContent = fmt(counts[b.dataset.tab], 0); });
+  // sector chips only when the tab holds more than one sector
+  $("#sectors").innerHTML = tab.s.length > 1 ? tab.s.map(([s, l]) => `<button data-s="${s}" title="${SECT[s]}" aria-pressed="${!state.off.has(s)}">${l}</button>`).join("") : "";
+  $("#sectors").hidden = tab.s.length < 2;
   document.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
   $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm);
   const xs = filtered(), [sk, sd] = state.sort;
@@ -697,11 +736,17 @@ function renderScreener() {
       <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
       <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`).join("");
   $("#scrBody").innerHTML = `<table class="t"><thead><tr>${head}</tr></thead><tbody>${body ||
-    `<tr><td colspan="11" class="empty">No bonds match these filters. Add a sector or turn off the benchmark filter.</td></tr>`}</tbody></table>`;
-  $("#scrCount").textContent = `${fmt(xs.length, 0)} bonds · mid-based analytics`;
+    `<tr><td colspan="11" class="empty">${emptyMsg(tab, counts)}</td></tr>`}</tbody></table>`;
+  $("#scrCount").textContent = `${tab.t} · ${fmt(xs.length, 0)} bonds · mid-based analytics`;
   $("#scrMore").innerHTML = `<span>SHOWING ${fmt(VISIBLE.length, 0)} OF ${fmt(xs.length, 0)} · dotted offer = indicative</span>${xs.length > state.limit ? `<button class="btn" id="moreBtn">SHOW 200 MORE</button>` : ""}`;
   document.querySelectorAll("#scrBody th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["name", "mat", "sector", "isin"].includes(k) ? 1 : -1)]; store("sort", state.sort); renderScreener(); });
   $("#moreBtn")?.addEventListener("click", () => { state.limit += 200; renderScreener(); });
+}
+
+function emptyMsg(tab, counts) {
+  const other = TABS.filter(t => t.k !== tab.k && counts[t.k]).map(t => `${t.l} ${fmt(counts[t.k], 0)}`);
+  if (counts[tab.k]) return "No bonds match: every sector chip in this tab is off.";
+  return `No ${tab.l} bonds match these filters.${other.length ? ` Matches in other tabs: ${other.join(", ")}.` : " Turn off the benchmark filter or widen the maturity range."}`;
 }
 
 function renderFutures() {
@@ -827,6 +872,12 @@ document.addEventListener("keydown", e => {
     i = Math.max(0, Math.min(VISIBLE.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)));
     select("bond", VISIBLE[i].isin);
     $(`#scrBody tr[data-pick="${VISIBLE[i].isin}"]`)?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  if (state.view === "desk" && (e.key === "[" || e.key === "]")) {
+    e.preventDefault();
+    const i = TABS.findIndex(t => t.k === state.tab), n = TABS.length;
+    setTab(TABS[(i + (e.key === "]" ? 1 : n - 1)) % n].k);
     return;
   }
   if (state.view === "desk" && e.key === "Enter" && state.sel) { e.preventDefault(); $("#tkSize")?.focus(); $("#tkSize")?.select(); }
