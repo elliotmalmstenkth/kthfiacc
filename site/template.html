@@ -83,6 +83,11 @@ table.t { border-collapse: collapse; width: 100%; }
 .t tbody tr.sel td.nm { color: #ffc56b; }
 .t td.amb, .t .amb { color: var(--amber); } .t td.dim { color: var(--fg-2); }
 .t td.desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
+.t.vt { table-layout: fixed; min-width: calc(120ch + 150px); }   /* screener: fixed columns */
+.t.vt td { overflow: hidden; text-overflow: ellipsis; }
+.t.vt td.nm { max-width: none; }
+.t tr.sp td { padding: 0; border: 0; }
+.t tbody tr.sp:hover td { background: none; }
 .t tfoot td { border-top: 1px solid var(--line); color: #fff; background: var(--band-2); }
 .muted { color: var(--fg-3); } .dim { color: var(--fg-2); } .amb { color: var(--amber); } .cy { color: var(--blue); }
 .t td.pos, .pos { color: var(--pos); } .t td.neg, .neg { color: var(--neg); }
@@ -330,7 +335,7 @@ function hedgeCalc(bk) {
 const state = {
   view: store("view") || "dash",
   q: "", tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", off: new Set(store("subOff") || []), bench: store("bench") ?? true,
-  firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1], limit: 200,
+  firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   positions: [], dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
@@ -660,7 +665,10 @@ function setHedgePct(v) { state.hedgePct = Math.max(0, Math.min(200, v)); store(
 // ------------------------------------------------------------------ TRADE
 const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
   ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["mdur", "MOD DUR", 2]];
-let VISIBLE = [];
+let VISIBLE = [], ROW_H = 20, DRAWN = "";
+const SCR = {};
+// fixed column widths (characters) so the columns stay put while scrolling; the bond name takes the rest
+const BW = { isin: 12, sector: 14, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ytm: 7, z: 7, mdur: 9 };
 
 const curTab = () => TABS.find(t => t.k === state.tab);
 
@@ -705,22 +713,26 @@ function renderDesk() {
       `<div class="panel" style="grid-area:fut"><div class="ph"><h2>Eurex futures</h2><span class="sub">last on-book trade ${dTerm(DATA.asof)}, not the official settlement price</span></div><div class="pb" id="futBody"></div></div>` +
       `<div class="panel" style="grid-area:tkt"><div class="ph"><h2>Trade ticket</h2><span class="sub" id="tktSub"></span></div><div class="pb" id="tktBody"></div></div>`;
     const qi = $("#q"); qi.value = state.q;
-    qi.oninput = () => { state.q = qi.value; state.limit = 200; renderScreener(); };
+    qi.oninput = () => { state.q = qi.value; renderScreener(true); };
     qi.addEventListener("search", qi.oninput);   // Esc clears a search box without an input event
     $("#atabs").onclick = e => { const k = e.target.closest("button")?.dataset.tab; if (k) setTab(k); };
-    $("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.off.has(s) ? state.off.delete(s) : state.off.add(s); store("subOff", [...state.off]); state.limit = 200; renderScreener(); };
-    $("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); state.limit = 200; renderScreener(); };
-    $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); state.limit = 200; renderScreener(); };
-    $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); state.limit = 200; renderScreener(); };
+    $("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.off.has(s) ? state.off.delete(s) : state.off.add(s); store("subOff", [...state.off]); renderScreener(true); };
+    $("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); renderScreener(true); };
+    $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); renderScreener(true); };
+    $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); renderScreener(true); };
+    let raf = 0;
+    const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawRows(); }); };
+    $("#scrBody").addEventListener("scroll", redraw, { passive: true });
+    window.addEventListener("resize", redraw);
     $("#csvScr").onclick = () => csv(`kthficc-screener-${state.tab}-${DATA.asof}.csv`, BCOLS.map(c => c[0]).concat(["subordinated", "firm", "accrued"]),
       filtered().map(b => BCOLS.map(c => c[0] === "sector" ? SECT[b.sector] : b[c[0]]).concat([b.sub, b.firm, b.acc])));
   }
   renderScreener(); renderFutures(); renderTicket();
 }
 
-function setTab(k) { state.tab = k; store("tab", k); state.limit = 200; renderScreener(); $("#scrBody").scrollTop = 0; }
+function setTab(k) { state.tab = k; store("tab", k); renderScreener(true); }
 
-function renderScreener() {
+function renderScreener(reset = false) {
   const tab = curTab(), counts = tabCounts();
   document.querySelectorAll("#atabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.tab === state.tab); b.querySelector(".ct").textContent = fmt(counts[b.dataset.tab], 0); });
   // sector chips only when the tab holds more than one sector
@@ -728,21 +740,57 @@ function renderScreener() {
   $("#sectors").hidden = tab.s.length < 2;
   document.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
   $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm);
-  const xs = filtered(), [sk, sd] = state.sort;
-  VISIBLE = xs.slice(0, state.limit);
+  const xs = filtered(), [sk, sd] = state.sort, box = $("#scrBody");
+  const top = reset ? 0 : box.scrollTop;
+  VISIBLE = xs; SCR.tab = tab; SCR.counts = counts; DRAWN = "";
   const head = BCOLS.map(([k, l, d]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}">${l}${sk === k ? (sd > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
-  const selIsin = state.sel?.kind === "bond" ? state.sel.id : null;
-  const body = VISIBLE.map(b => `<tr class="click${b.isin === selIsin ? " sel" : ""}" data-pick="${b.isin}" data-kind="bond">
+  const cols = BCOLS.map(([k]) => BW[k] ? `<col style="width:calc(${BW[k]}ch + 13px)">` : "<col>").join("");
+  box.innerHTML = `<table class="t vt"><colgroup>${cols}</colgroup><thead><tr>${head}</tr></thead><tbody id="scrRows"></tbody></table>`;
+  drawRows(top);
+  box.scrollTop = top;
+  $("#scrCount").textContent = `${tab.t} · ${fmt(xs.length, 0)} bonds · mid-based analytics`;
+  document.querySelectorAll("#scrBody th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["name", "mat", "sector", "isin"].includes(k) ? 1 : -1)]; store("sort", state.sort); renderScreener(true); });
+}
+
+const bondRow = (b, selIsin) => `<tr class="click${b.isin === selIsin ? " sel" : ""}" data-pick="${b.isin}" data-kind="bond">
       <td class="nm">${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
       <td class="n">${fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
       <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
-      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`).join("");
-  $("#scrBody").innerHTML = `<table class="t"><thead><tr>${head}</tr></thead><tbody>${body ||
-    `<tr><td colspan="11" class="empty">${emptyMsg(tab, counts)}</td></tr>`}</tbody></table>`;
-  $("#scrCount").textContent = `${tab.t} · ${fmt(xs.length, 0)} bonds · mid-based analytics`;
-  $("#scrMore").innerHTML = `<span>SHOWING ${fmt(VISIBLE.length, 0)} OF ${fmt(xs.length, 0)} · dotted offer = indicative</span>${xs.length > state.limit ? `<button class="btn" id="moreBtn">SHOW 200 MORE</button>` : ""}`;
-  document.querySelectorAll("#scrBody th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["name", "mat", "sector", "isin"].includes(k) ? 1 : -1)]; store("sort", state.sort); renderScreener(); });
-  $("#moreBtn")?.addEventListener("click", () => { state.limit += 200; renderScreener(); });
+      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
+
+// Infinite scroll: the screener holds every matching bond but draws only the rows around the viewport, with
+// spacer rows for the rest, so the scrollbar spans the full list. Rows are one line at a fixed height.
+function drawRows(top) {
+  const box = $("#scrBody"), tb = $("#scrRows");
+  if (!tb) return;
+  if (top === undefined) top = box.scrollTop;
+  // the box may not have its final height yet (on phones it grows with its content), so draw for the window height
+  const n = VISIBLE.length, view = Math.ceil(Math.max(box.clientHeight, innerHeight) / ROW_H);
+  const at = Math.min(n, Math.floor(top / ROW_H));
+  const first = Math.max(0, at - 40), last = Math.min(n, at + view + 40);
+  const selIsin = state.sel?.kind === "bond" ? state.sel.id : null, key = `${n}:${first}:${last}:${selIsin}`;
+  if (key !== DRAWN) {
+    DRAWN = key;
+    const pad = (h) => h > 0 ? `<tr class="sp"><td colspan="11" style="height:${h}px"></td></tr>` : "";
+    tb.innerHTML = n ? pad(first * ROW_H) + VISIBLE.slice(first, last).map(b => bondRow(b, selIsin)).join("") + pad((n - last) * ROW_H)
+      : `<tr><td colspan="11" class="empty">${emptyMsg(SCR.tab, SCR.counts)}</td></tr>`;
+    // the real row pitch, measured between rows (the first row also carries half of the top border)
+    const rs = tb.querySelectorAll("tr.click");
+    if (rs.length > 2) {
+      const h = (rs[rs.length - 1].getBoundingClientRect().top - rs[1].getBoundingClientRect().top) / (rs.length - 2);
+      if (h > 0 && Math.abs(h - ROW_H) > 0.01) { ROW_H = h; DRAWN = ""; return drawRows(top); }
+    }
+  }
+  // Bloomberg-style result counter: rows in view of the total
+  const hh = box.querySelector("thead")?.offsetHeight || 0, shown = Math.max(1, Math.floor((box.clientHeight - hh) / ROW_H));
+  $("#scrMore").innerHTML = `<span>${n ? `${fmt(at + 1, 0)}–${fmt(top + box.clientHeight >= box.scrollHeight - 1 ? n : Math.min(n, at + shown), 0)} OF ${fmt(n, 0)}` : "0 RESULTS"} · dotted offer = indicative</span>`;
+}
+
+// keep row i of the screener in view (used by the arrow keys)
+function showRow(i) {
+  const box = $("#scrBody"), hh = box.querySelector("thead")?.offsetHeight || 0, y = i * ROW_H;
+  if (y < box.scrollTop) box.scrollTop = y;
+  else if (hh + y + ROW_H > box.scrollTop + box.clientHeight) box.scrollTop = hh + y + ROW_H - box.clientHeight;
 }
 
 function emptyMsg(tab, counts) {
@@ -769,7 +817,7 @@ function renderFutures() {
 function select(kind, id) {
   state.sel = { kind, id }; store("sel", state.sel);
   if (kind === "fut") state.lots = state.lots || 1;
-  if (state.view === "desk") { renderScreener(); renderFutures(); renderTicket(); }
+  if (state.view === "desk") { DRAWN = ""; drawRows(); renderFutures(); renderTicket(); }
 }
 
 function renderTicket() {
@@ -872,8 +920,8 @@ document.addEventListener("keydown", e => {
     e.preventDefault();
     let i = state.sel?.kind === "bond" ? VISIBLE.findIndex(b => b.isin === state.sel.id) : -1;
     i = Math.max(0, Math.min(VISIBLE.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)));
+    showRow(i);
     select("bond", VISIBLE[i].isin);
-    $(`#scrBody tr[data-pick="${VISIBLE[i].isin}"]`)?.scrollIntoView({ block: "nearest" });
     return;
   }
   if (state.view === "desk" && (e.key === "[" || e.key === "]")) {
