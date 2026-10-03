@@ -5,12 +5,14 @@ Körs av GitHub Actions (.github/workflows/daily.yml). Kan även köras lokalt m
   python ci.py daily            # alla färdiga handelsdagar på servern som saknar release
   python ci.py daily --dry-run  # bygg filerna i dist/ men skapa ingen release
   python ci.py firds            # veckovis FIRDS-ögonblicksbild (skuld + terminer)
+  python ci.py site             # bygg portföljsidan från senaste data-release -> _site/index.html
 
 Varje handelsdag sparas som en UTKAST-release (draft) med taggen data-<dag>. Utkast syns
 bara för dem med skrivrätt till repot – Deutsche Börse-datan är gratis för icke-kommersiell
 användning och sprids därför inte publikt. Tillgångar per dag:
 
   dfra_quotes-<dag>.csv.gz          bud/sälj per obligation 12:00, 17:25 och close (mfs.py marks)
+  bonds_classified-<dag>.csv.gz     klassning mot FIRDS (classify.py), plus emittentlista
   eurex_futures_daily-<dag>.csv     stats- och kreditindexterminer (eurex.py daily)
   DFRA-pretrade-bonds-<dag>.tar     rå minutfiler, bara obligationsrader (priceNotation 2)
   DFRA-posttrade-<dag>.tar          rå minutfiler
@@ -22,6 +24,8 @@ schemat aktivt – GitHub stänger av scheman i publika repon efter 60 dagar uta
 import argparse, csv, datetime as dt, gzip, json, os, shutil, sqlite3, subprocess, sys, tarfile
 
 import eurex, mfs
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 FEEDS = ["DFRA-pretrade", "DFRA-posttrade", "DEUR-posttrade"]
 SNAPS = ["12:00", "17:25"]
@@ -62,7 +66,7 @@ def _tar(folder, out):
     return out
 
 
-def build_day(day, archive, dist, db):
+def build_day(day, archive, dist, db, firds_db=None):
     """Hämtar och bygger en dag. Returnerar (tillgångar, loggrad) eller None om nedladdningen var ofullständig."""
     _, failed = mfs.sync(FEEDS, archive, workers=4, bonds_only=True, days={day})
     if failed:
@@ -84,6 +88,17 @@ def build_day(day, archive, dist, db):
         w = csv.writer(f); w.writerow([c[0] for c in cur.description]); w.writerows(cur)
 
     assets = [quotes, fut]
+    if firds_db and os.path.exists(firds_db):  # klassning mot FIRDS (sektor, kupong, förfall ...)
+        pre = [p for _, p in mfs.day_files(archive, "DFRA-pretrade", day)]
+        out = os.path.join(dist, "bonds_classified.csv")
+        subprocess.run([sys.executable, os.path.join(HERE, "classify.py"), "--db", firds_db, "--out", out, *pre], check=True)
+        for f in (out, os.path.join(dist, "bonds_classified_issuers.csv")):
+            with open(f, "rb") as src, gzip.open(f"{f[:-4]}-{day}.csv.gz", "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            os.remove(f)
+        assets += [os.path.join(dist, f"bonds_classified-{day}.csv.gz"), os.path.join(dist, f"bonds_classified_issuers-{day}.csv.gz")]
+    else:
+        print(f"{day}: ingen FIRDS-databas ({firds_db}) – hoppar över klassningen", file=sys.stderr)
     n = {}
     for feed in FEEDS:
         folder = os.path.join(archive, feed, day)
@@ -134,7 +149,7 @@ def cmd_daily(a):
     print(f"färdiga dagar på servern: {days}; att bygga: {todo}", file=sys.stderr)
     built = 0
     for day in todo:
-        res = build_day(day, a.archive, os.path.join(a.dist, day), os.path.join(a.dist, f"marks-{day}.sqlite"))
+        res = build_day(day, a.archive, os.path.join(a.dist, day), os.path.join(a.dist, f"marks-{day}.sqlite"), a.firds_db)
         if res is None:
             continue
         assets, row = res
@@ -178,14 +193,57 @@ def cmd_firds(a):
     return 0
 
 
+def latest_data_day():
+    out = gh("release", "list", "--limit", "200", "--json", "tagName")
+    days = sorted(t["tagName"][5:] for t in json.loads(out or "[]") if t["tagName"].startswith("data-"))
+    return days[-1] if days else None
+
+
+def cmd_site(a):
+    """Bygger portföljsidan från senaste data-release (eller --day) till <out>/index.html."""
+    try:
+        day = a.day or latest_data_day()
+    except RuntimeError as e:
+        print(f"kunde inte lista releaser: {e}", file=sys.stderr)
+        day = None
+    if not day:  # ingen release än: senaste dagen som finns sparad i repot
+        local = sorted(d for d in os.listdir(os.path.join(HERE, "data")) if d[:2] == "20")
+        day = local[-1] if local else None
+    if not day:
+        print("ingen data att bygga sidan från", file=sys.stderr)
+        return 1
+    dl = os.path.join(a.dist, "site-input", day)
+    os.makedirs(dl, exist_ok=True)
+    gh("release", "download", f"data-{day}", "-D", dl, "--clobber",
+       "-p", "dfra_quotes-*", "-p", "eurex_futures_daily-*", "-p", "bonds_classified-*", check=False)
+    files = {f.split("-")[0]: os.path.join(dl, f) for f in os.listdir(dl)}
+    bonds = files.get("bonds_classified") or os.path.join(HERE, "data", day, "bonds_classified.csv.gz")
+    quotes = files.get("dfra_quotes") or os.path.join(HERE, "data", day, "dfra_quotes.csv.gz")
+    fut = files.get("eurex_futures_daily") or os.path.join(HERE, "data", day, "eurex_futures_daily.csv")
+    missing = [p for p in (bonds, quotes, fut) if not os.path.exists(p)]
+    if missing:
+        print(f"{day}: saknar {missing}", file=sys.stderr)
+        return 1
+    import ecb_curve
+    ecb_curve.update(a.ecb_db, full=not os.path.exists(a.ecb_db), raw_dir=os.path.join(a.dist, "ecb_raw"))
+    os.makedirs(a.out, exist_ok=True)
+    subprocess.run([sys.executable, os.path.join(HERE, "site", "build.py"), "--day", day, "--ecb-db", a.ecb_db,
+                    "--bonds", bonds, "--quotes", quotes, "--futures", fut,
+                    "--out", os.path.join(a.out, "index.html")], check=True)
+    return 0
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--archive", default="archive")
     ap.add_argument("--dist", default="dist")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--cleanup", action="store_true", help="radera dagens rådata efter publicering (för CI)")
+    ap.add_argument("--firds-db", default="firds.sqlite", help="FIRDS-databas för klassningen (firds.py --cat D)")
     sp = ap.add_subparsers(dest="cmd", required=True)
     d = sp.add_parser("daily"); d.add_argument("--days", nargs="+")
     sp.add_parser("firds")
+    st = sp.add_parser("site"); st.add_argument("--day"); st.add_argument("--out", default="_site")
+    st.add_argument("--ecb-db", default="ecb_curve.sqlite")
     a = ap.parse_args()
-    sys.exit(cmd_daily(a) if a.cmd == "daily" else cmd_firds(a))
+    sys.exit({"daily": cmd_daily, "firds": cmd_firds, "site": cmd_site}[a.cmd](a))

@@ -1,5 +1,5 @@
-# Arkiverar Deutsche Börse-filerna (försvinner vid midnatt nästa bankdag) som utkast-releaser.
-# Se ci.py för innehåll. Utkast syns bara för dem med skrivrätt till repot.
+# Arkiverar Deutsche Börse-filerna (försvinner vid midnatt nästa bankdag) som utkast-releaser
+# och bygger portföljsidan på GitHub Pages. Se ci.py för innehåll.
 name: Marknadsdata
 
 on:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "daily eller firds"
+        description: "daily, site eller firds"
         default: daily
       days:
         description: "handelsdagar att bygga, t.ex. 2026-10-02 (tomt = alla färdiga som saknas)"
@@ -38,11 +38,23 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m pytest -q tests
+      - name: FIRDS-version
+        id: firds
+        run: echo "pub=$(python -c 'import firds; print(firds.list_fulins("D")[0])')" >> "$GITHUB_OUTPUT"
+      - name: FIRDS-cache
+        id: firds-cache
+        uses: actions/cache@v4
+        with:
+          path: firds.sqlite
+          key: firds-D-${{ steps.firds.outputs.pub }}
+      - name: Bygg FIRDS (en gång per vecka)
+        if: steps.firds-cache.outputs.cache-hit != 'true'
+        run: python firds.py --cat D --db firds.sqlite --folder firds_raw && rm -rf firds_raw
       - name: Hämta, bygg och publicera
         env:
           GH_TOKEN: ${{ github.token }}
           DAYS: ${{ inputs.days }}
-        run: python ci.py --cleanup daily ${DAYS:+--days $DAYS}
+        run: python ci.py --cleanup --firds-db firds.sqlite daily ${DAYS:+--days $DAYS}
       - name: Committa data/log.csv
         if: always()
         run: |
@@ -52,6 +64,41 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "data/log.csv: $(tail -n +2 data/log.csv | tail -1 | cut -d, -f1)"
           for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done
+
+  site:
+    needs: daily
+    if: >-
+      always() && (
+        (github.event_name == 'schedule' && github.event.schedule != '23 6 * * 0' && needs.daily.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && (inputs.job == 'site' || (inputs.job == 'daily' && needs.daily.result == 'success'))))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # utkast-releaser kräver skrivrätt att läsa
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Bygg portföljsidan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ci.py site --out _site
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
 
   firds:
     if: >-

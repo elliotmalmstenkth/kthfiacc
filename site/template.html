@@ -33,6 +33,11 @@ header.top h1 { font: 600 22px/1.1 var(--f-display); letter-spacing: .01em; marg
 header.top h1 span { color: var(--accent); }
 .stamp { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-3); min-width: 0; }
 .stamp b { color: var(--ink-2); font-weight: 500; }
+.acct { margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-2); }
+.acct img { width: 20px; height: 20px; border-radius: 50%; }
+.steps { margin: 0; padding-left: 20px; font-size: 13px; color: var(--ink-2); display: grid; gap: 4px; }
+code { font-family: var(--f-mono); font-size: 12px; background: var(--accent-soft); padding: 0 4px; border-radius: 3px; }
+a { color: var(--accent); }
 nav.tabs { display: flex; gap: 2px; margin-block: 14px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
 nav.tabs button { font: 500 14px var(--f-body); color: var(--ink-2); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; white-space: nowrap; }
 nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
@@ -108,6 +113,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
   <header class="top">
     <h1>KTH FICC <span>Portfölj</span></h1>
     <div class="stamp" id="stamp"></div>
+    <div class="acct" id="acct"></div>
   </header>
   <nav class="tabs" role="tablist">
     <button role="tab" id="tab-pf" aria-selected="true" data-tab="pf">Portfölj</button>
@@ -121,6 +127,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 </div>
 
 <dialog id="ticket"><form class="form" id="ticketForm" method="dialog"></form></dialog>
+<dialog id="login"><form class="form" id="loginForm" method="dialog"></form></dialog>
 <div class="toast" id="toast" hidden></div>
 
 <script>
@@ -177,9 +184,51 @@ const state = {
   q: "", sectors: new Set(store("sectors") || ["CORP_NONFIN", "CORP_FIN"]), bench: store("bench") ?? true,
   firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["z", -1], limit: 100,
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
-  positions: [], dbState: "loading", canWrite: null, me: null, profiles: {},
+  positions: [], dbState: "loading", canWrite: false, loadedAt: 0,
 };
-let db = null, user = null;
+
+// ------------------------------------------------------------------ GitHub-lagring
+// Portföljen är filen portfolio/positions.json i repot. Alla kan läsa den; den som har
+// skrivrätt till repot sparar med en personlig GitHub-nyckel (lagras bara i den här webbläsaren).
+const REPO = DATA.repo;
+const API = `https://api.github.com/repos/${REPO.owner}/${REPO.name}`;
+const FILE = `${API}/contents/${REPO.path}`;
+const utf8ToB64 = (str) => { const bytes = new TextEncoder().encode(str); let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+const b64ToUtf8 = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, "")), c => c.charCodeAt(0)));
+const gh = {
+  token: store("ghToken"), login: store("ghLogin"), sha: null,
+  headers(json) { const h = { Accept: "application/vnd.github+json" }; if (this.token) h.Authorization = "Bearer " + this.token; if (json) h["Content-Type"] = "application/json"; return h; },
+  async load() {
+    const r = await fetch(`${FILE}?ref=${encodeURIComponent(REPO.branch)}`, { headers: this.headers(), cache: "no-store" });
+    if (r.status === 404) { this.sha = null; return []; }
+    if (!r.ok) throw Object.assign(new Error("load " + r.status), { status: r.status });
+    const j = await r.json();
+    this.sha = j.sha;
+    return JSON.parse(b64ToUtf8(j.content)).positions || [];
+  },
+  // mutate(nuvarande) -> nya listan. Om någon annan sparat under tiden (409) hämtas filen om och ändringen görs igen.
+  async save(mutate, message) {
+    for (let attempt = 0; ; attempt++) {
+      const next = mutate(await this.load());
+      const body = { message, branch: REPO.branch, content: utf8ToB64(JSON.stringify({ positions: next }, null, 1) + "\n") };
+      if (this.sha) body.sha = this.sha;
+      const r = await fetch(FILE, { method: "PUT", headers: this.headers(true), body: JSON.stringify(body) });
+      if (r.ok) { this.sha = (await r.json()).content.sha; return next; }
+      if ((r.status === 409 || r.status === 422) && attempt < 3) continue;
+      throw Object.assign(new Error("save " + r.status), { status: r.status });
+    }
+  },
+  // Kontrollerar nyckeln: vem den tillhör och om kontot har skrivrätt till repot.
+  async check(token) {
+    const h = { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" };
+    const u = await fetch("https://api.github.com/user", { headers: h });
+    if (!u.ok) return { error: "Nyckeln godtogs inte av GitHub. Kontrollera att du kopierade hela nyckeln." };
+    const login = (await u.json()).login;
+    const rr = await fetch(API, { headers: h });
+    const push = rr.ok ? !!(await rr.json()).permissions?.push : false;
+    return { login, push };
+  },
+};
 
 // ------------------------------------------------------------------ chrome
 document.getElementById("stamp").innerHTML =
@@ -193,6 +242,11 @@ function setTab(t) {
   for (const id of ["pf", "bonds", "hedge"]) document.getElementById(id).hidden = id !== t;
   render();
 }
+document.addEventListener("click", e => {
+  if (e.target.closest("[data-login]")) openLogin();
+  if (e.target.closest("#retry")) loadPositions();
+  if (e.target.closest("#logout")) { gh.token = gh.login = null; store("ghToken", null); store("ghLogin", null); state.canWrite = false; renderAcct(); render(); toast("Du är utloggad"); }
+});
 document.querySelector("nav.tabs").addEventListener("click", e => { const t = e.target.closest("button")?.dataset.tab; if (t) setTab(t); });
 
 let toastTimer;
@@ -224,8 +278,8 @@ function renderPf() {
   const ids = [...new Set(state.positions.map(p => p.by).filter(Boolean))];
 
   let dbNote = "";
-  if (state.dbState === "none") dbNote = `<div class="notice">Den gemensamma portföljen kräver att du är inloggad på claude.ai och har fått sidan delad med dig. Obligationslistan och terminerna fungerar ändå.</div>`;
-  else if (state.canWrite === false) dbNote = `<div class="notice">Du kan se portföljen men inte ändra den. Be ägaren att bjuda in dig som redigerare.</div>`;
+  if (state.dbState === "error") dbNote = `<div class="notice">Det gick inte att hämta portföljen från GitHub${state.loadErr === 403 ? " (för många anrop utan inloggning, försök igen om en stund eller logga in)" : ""}. Obligationslistan och terminerna fungerar ändå. <button class="btn small ghost" id="retry">Försök igen</button></div>`;
+  else if (!state.canWrite) dbNote = `<div class="notice">Du ser klubbens portfölj. För att handla: <button class="btn small ghost" data-login>Logga in med GitHub</button></div>`;
 
   const kpis = `<div class="kpis">
     <div class="kpi"><div class="l">Marknadsvärde</div><div class="v">${fmt(mv / 1e6, 2)} mn</div><div class="s">EUR, inkl. upplupen ränta</div></div>
@@ -240,9 +294,9 @@ function renderPf() {
   if (!state.positions.length) {
     el.innerHTML = dbNote + kpis + `<div class="panel empty">
       <h2>Portföljen är tom</h2>
-      <p>${state.dbState === "loading" ? "Hämtar klubbens positioner…" : "Gå till Obligationer, filtrera fram en obligation och välj Köp. Positionen sparas för alla som har sidan."}</p>
+      <p>${state.dbState === "loading" ? "Hämtar klubbens positioner…" : "Gå till Obligationer, filtrera fram en obligation och välj Köp. Positionen sparas i repot och syns för alla."}</p>
       <p class="muted">Köp sker till säljkurs och försäljning till budkurs, som på riktigt.</p>
-      <p><button class="btn" id="goBonds">Visa obligationer</button></p></div>`;
+      <p><button class="btn" id="goBonds">Visa obligationer</button> <a href="https://github.com/${REPO.owner}/${REPO.name}/commits/${encodeURIComponent(REPO.branch)}/${REPO.path}" target="_blank" rel="noopener">Historik</a></p></div>`;
     document.getElementById("goBonds").onclick = () => setTab("bonds");
     return;
   }
@@ -256,8 +310,7 @@ function renderPf() {
       <th class="n">Marknadsvärde</th><th class="n">Resultat</th><th class="n">Yield %</th><th class="n">Z bp</th>
       <th class="n">Dur</th><th class="n">DV01</th><th>Tillagd av</th><th></th></tr></thead><tbody>` +
     rows.map(({ p, r }) => {
-      const who = p.by ? state.profiles[p.by] : null;
-      const whoHtml = who ? `<span class="who"><img alt="" src="${esc(who.avatarUrl)}"><span>${esc(who.name || "Någon")}</span></span>` : "";
+      const whoHtml = p.by ? `<span class="who"><img alt="" src="https://github.com/${encodeURIComponent(p.by)}.png?size=36"><span>${esc(p.by)}</span></span>` : "";
       const name = p.kind === "bond"
         ? (r.b ? `<div class="t">${esc(r.b.name)}</div><div class="i">${esc(p.isin)} · ${esc(SECT[r.b.sector])}</div>` : `<div class="t">${esc(p.isin)}</div><div class="i">saknar kurs i dagens data</div>`)
         : `<div class="t">${esc(p.code)} ${esc(r.f ? r.f.contract.slice(0, 7) : "")}</div><div class="i">${esc(r.f?.name || "")}</div>`;
@@ -268,7 +321,7 @@ function renderPf() {
         <td class="n ${r.pnl > 0 ? "pos" : r.pnl < 0 ? "neg" : ""}">${fmtS(r.pnl, 0)}</td><td class="n">${fmt(r.y, 2)}</td>
         <td class="n">${fmt(r.z, 0)}</td><td class="n">${fmt(r.dur, 2)}</td><td class="n">${fmtS(r.dv01, 0)}</td>
         <td>${whoHtml}<div class="i muted">${esc((p.at || "").slice(0, 10))}</div></td>
-        <td><button class="btn danger small" data-del="${esc(p.id)}" ${state.canWrite === false ? "disabled" : ""}>Ta bort</button></td></tr>`;
+        <td>${state.canWrite ? `<button class="btn danger small" data-del="${esc(p.id)}">Ta bort</button>` : ""}</td></tr>`;
     }).join("") + `</tbody></table></div>`;
 
   el.innerHTML = dbNote + kpis + tbl + `<div class="grid2">
@@ -281,8 +334,11 @@ function renderPf() {
   el.querySelectorAll("[data-del]").forEach(btn => btn.onclick = async () => {
     if (!btn.classList.contains("armed")) { btn.classList.add("armed"); btn.textContent = "Bekräfta"; setTimeout(() => { btn.classList.remove("armed"); btn.textContent = "Ta bort"; }, 4000); return; }
     btn.disabled = true;
-    try { await db.collection("positions").doc(btn.dataset.del).delete(); toast("Positionen är borttagen"); }
-    catch (e) { btn.disabled = false; writeError(e); }
+    const pos = state.positions.find(x => x.id === btn.dataset.del);
+    try {
+      state.positions = await gh.save(cur => cur.filter(x => x.id !== btn.dataset.del), `Portfölj: ta bort ${describe(pos)} (${gh.login})`);
+      render(); toast("Positionen är borttagen");
+    } catch (e) { btn.disabled = false; writeError(e); }
   });
 }
 
@@ -339,7 +395,7 @@ function renderBondTable() {
       <td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
       <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="chip ind" title="Indikativ: ingen volym på ena sidan">${fmt(b.ask, 3)}</span>`}</td>
       <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.mdur, 2)}</td>
-      <td><button class="btn small ghost" data-buy="${b.isin}" ${state.dbState !== "ready" || state.canWrite === false ? "disabled" : ""}>Köp</button></td></tr>`).join("");
+      <td><button class="btn small ghost" data-buy="${b.isin}">Köp</button></td></tr>`).join("");
   const tb = el.querySelector("#btable");
   tb.innerHTML = `<div class="tablebox"><table><thead><tr>${head}<th></th></tr></thead><tbody>${body ||
     `<tr><td colspan="11" class="empty">Inga obligationer matchar filtren. Lägg till en sektor eller ta bort benchmarkfiltret.</td></tr>`}</tbody></table></div>
@@ -347,7 +403,7 @@ function renderBondTable() {
     ${xs.length > state.limit ? `<button class="btn ghost small" id="moreBtn">Visa 100 till</button>` : ""}</div>`;
   tb.querySelectorAll("th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (k === "name" || k === "mat" || k === "sector" ? 1 : -1)]; store("sort", state.sort); renderBondTable(); });
   tb.querySelector("#moreBtn")?.addEventListener("click", () => { state.limit += 100; renderBondTable(); });
-  tb.querySelectorAll("[data-buy]").forEach(btn => btn.onclick = () => openTicket(btn.dataset.buy));
+  tb.querySelectorAll("[data-buy]").forEach(btn => btn.onclick = () => state.canWrite ? openTicket(btn.dataset.buy) : openLogin());
 }
 
 // ------------------------------------------------------------------ trade ticket
@@ -380,17 +436,57 @@ function openTicket(isin) {
   upd(); dlg.showModal();
 }
 
+function describe(p) {
+  if (!p) return "position";
+  if (p.kind === "bond") return `${p.qty >= 0 ? "köp" : "sälj"} ${fmt(Math.abs(p.qty), 0)} EUR ${BY_ISIN.get(p.isin)?.name || p.isin}`;
+  return `${p.qty >= 0 ? "köp" : "sälj"} ${Math.abs(p.qty)} ${p.code} ${(p.contract || "").slice(0, 7)}`;
+}
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 async function addPositions(list) {
-  if (!db) { toast("Portföljen är inte tillgänglig i den här vyn"); return false; }
+  if (!state.canWrite) { openLogin(); return false; }
+  const rows = list.map(p => ({ id: newId(), ...p, date: DATA.asof, by: gh.login, at: new Date().toISOString() }));
   try {
-    for (const p of list) await db.collection("positions").add({ ...p, date: DATA.asof, by: state.me, at: new Date().toISOString() });
-    return true;
+    state.positions = await gh.save(cur => [...cur, ...rows], `Portfölj: ${rows.map(describe).join(", ")} (${gh.login})`);
+    render(); return true;
   } catch (e) { writeError(e); return false; }
 }
 function writeError(e) {
-  if (e?.code === "invalid_argument") { state.canWrite = false; render(); toast("Du har inte behörighet att ändra portföljen"); }
-  else if (e?.code === "quota_exceeded") toast("Databasen är full. Ta bort gamla positioner.");
+  if (e?.status === 401) { toast("GitHub-nyckeln gäller inte längre. Logga in igen."); gh.token = null; store("ghToken", null); state.canWrite = false; renderAcct(); render(); }
+  else if (e?.status === 403 || e?.status === 404) toast("Ditt GitHub-konto får inte ändra repot. Be Elliot lägga till dig som collaborator.");
   else toast("Det gick inte att spara. Försök igen.");
+}
+
+// ------------------------------------------------------------------ inloggning
+function renderAcct() {
+  const el = document.getElementById("acct");
+  el.innerHTML = gh.login && gh.token
+    ? `<img alt="" src="https://github.com/${encodeURIComponent(gh.login)}.png?size=40"><span>${esc(gh.login)}</span><button class="btn small ghost" id="logout">Logga ut</button>`
+    : `<button class="btn small" data-login>Logga in för att handla</button>`;
+}
+function openLogin() {
+  const dlg = document.getElementById("login"), f = document.getElementById("loginForm");
+  const url = "https://github.com/settings/tokens/new?scopes=public_repo&description=KTH%20FICC%20portf%C3%B6lj";
+  f.innerHTML = `<h2>Logga in med GitHub</h2>
+    <p class="note">Portföljen sparas i repot <a href="https://github.com/${REPO.owner}/${REPO.name}" target="_blank" rel="noopener">${REPO.owner}/${REPO.name}</a>. För att handla behöver ditt GitHub-konto skrivrätt dit (be Elliot lägga till dig som collaborator) och en personlig nyckel:</p>
+    <ol class="steps"><li>Öppna <a href="${url}" target="_blank" rel="noopener">github.com/settings/tokens/new</a> (rutan <code>public_repo</code> är redan ikryssad).</li>
+      <li>Välj giltighetstid och klicka <i>Generate token</i>.</li><li>Kopiera nyckeln (börjar med <code>ghp_</code>) och klistra in den här.</li></ol>
+    <label for="tok">GitHub-nyckel<input id="tok" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_…"></label>
+    <p class="note">Nyckeln sparas bara i den här webbläsaren och skickas bara till api.github.com.</p>
+    <p class="note" id="loginMsg" role="status"></p>
+    <div class="row"><button class="btn" type="button" id="loginOk">Logga in</button><button class="btn ghost" type="button" id="loginCancel">Avbryt</button></div>`;
+  f.querySelector("#loginCancel").onclick = () => dlg.close();
+  f.querySelector("#loginOk").onclick = async () => {
+    const tok = f.querySelector("#tok").value.trim(), msg = f.querySelector("#loginMsg");
+    if (!tok) { msg.textContent = "Klistra in nyckeln först."; return; }
+    msg.textContent = "Kontrollerar nyckeln…";
+    let res;
+    try { res = await gh.check(tok); } catch { msg.textContent = "Kunde inte nå GitHub. Kontrollera nätverket och försök igen."; return; }
+    if (res.error) { msg.textContent = res.error; return; }
+    if (!res.push) { msg.textContent = `Kontot ${res.login} har inte skrivrätt till repot. Be Elliot lägga till dig som collaborator och försök igen.`; return; }
+    gh.token = tok; gh.login = res.login; store("ghToken", tok); store("ghLogin", res.login);
+    state.canWrite = true; dlg.close(); renderAcct(); render(); toast(`Inloggad som ${res.login}`);
+  };
+  dlg.showModal();
 }
 
 // ------------------------------------------------------------------ hedge tab
@@ -435,7 +531,7 @@ function renderHedge() {
         ${rateTrades.map(t => `<tr><td>${t.l} (${t.c})</td><td class="n">${fmtS(t.dv, 0)}</td><td class="n">${fmt(t.f?.dv01, 1)}</td><td class="n ${t.n < 0 ? "neg" : t.n > 0 ? "pos" : ""}">${fmtS(t.n, 0)}</td></tr>`).join("")}
       </tbody></table></div>
       <dl class="kv"><dt>DV01 efter hedge</dt><dd>${fmtS(after, 0)} EUR/bp</dd></dl>
-      <div class="row"><button class="btn" id="addHedge" ${!trades.length || state.dbState !== "ready" || state.canWrite === false ? "disabled" : ""}>Lägg till hedgen i portföljen</button>
+      <div class="row"><button class="btn" id="addHedge" ${!trades.length || state.dbState !== "ready" ? "disabled" : ""}>Lägg till hedgen i portföljen</button>
         <span class="note">${trades.length ? trades.map(t => `${t.n > 0 ? "köp" : "sälj"} ${Math.abs(t.n)} ${t.code}`).join(", ") : "Ingen hedge behövs för nuvarande portfölj."}</span></div>
     </div>
     <div class="panel stack"><h2>Så räknas det</h2>
@@ -462,25 +558,19 @@ function render() {
   if (state.tab === "pf") renderPf(); else if (state.tab === "bonds") renderBonds(); else renderHedge();
 }
 
-async function resolveProfiles() {
-  if (!user) return;
-  const ids = [...new Set(state.positions.map(p => p.by).filter(Boolean))];
-  if (!ids.length) return;
-  state.profiles = await user.profiles(ids);
+async function loadPositions() {
+  try {
+    state.positions = await gh.load(); state.dbState = "ready"; state.loadedAt = Date.now();
+  } catch (e) { state.dbState = "error"; state.loadErr = e.status; }
+  render();
 }
 
 async function init() {
-  setTab(state.tab);
-  if (!window.claude?.use) { state.dbState = "none"; render(); return; }
-  [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
-  if (user) { state.me = await user.id(); state.canWrite = await user.can("data.write"); }
-  if (!db) { state.dbState = "none"; render(); return; }
-  db.collection("positions").orderBy("at").onSnapshot(async snap => {
-    state.positions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    state.dbState = "ready";
-    await resolveProfiles();
-    render();
-  }, () => { state.dbState = "none"; render(); });
+  state.canWrite = !!(gh.token && gh.login);
+  renderAcct(); setTab(state.tab);
+  await loadPositions();
+  // hämta om när fliken blir synlig igen (högst varannan minut, för GitHubs anropsgräns)
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - state.loadedAt > 120000) loadPositions(); });
 }
 init();
 </script>

@@ -32,10 +32,18 @@ python classify.py --db firds.sqlite archive/DFRA-pretrade/2026-10-02/*.json.gz 
 python -m pytest -q tests               # offline-tester med syntetiska data
 ```
 
+### Portföljsidan
+
+**https://elliotmalmstenkth.github.io/kthfiacc/** (GitHub Pages, byggs om efter varje dagskörning).
+Alla med länken ser obligationerna, terminerna och klubbens portfölj. Portföljen är filen
+`portfolio/positions.json` i repot; varje köp/sälj blir en commit. För att handla: bli collaborator i repot,
+skapa en klassisk GitHub-nyckel med `public_repo` och logga in på sidan (nyckeln sparas bara i webbläsaren).
+Bygg lokalt: `python site/build.py --day 2026-10-02 --ecb-db ecb_curve.sqlite`.
+
 ### Automatiskt: GitHub Actions
 
 `.github/workflows/daily.yml` kör `ci.py` varje bankdag kl. 22:37 UTC, med en reservkörning 05:17 UTC tis–lör och
-FIRDS på söndagar. Varje handelsdag blir en **utkast-release** `data-<dag>` (bara synlig för dem med skrivrätt):
+FIRDS på söndagar. Efter dagskörningen byggs portföljsidan och publiceras på GitHub Pages. Varje handelsdag blir en **utkast-release** `data-<dag>` (bara synlig för dem med skrivrätt):
 kurser 12:00/17:25/close, Eurex-terminer och rådata (obligationsrader ur DFRA-pretrade ~340 MB, post-trade ~75 MB).
 `data/log.csv` får en rad per dag. Manuell körning: Actions → Marknadsdata → Run workflow (valfritt `days`).
 

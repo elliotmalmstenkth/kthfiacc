@@ -7,7 +7,7 @@ Bygger portföljsidan (site/portfolio.html) från en dags data.
 Läser data/<dag>/ (bonds_classified, dfra_quotes, eurex_futures_daily) och ECB-kurvan,
 räknar nyckeltal med analytics.py och bäddar in resultatet som JSON i site/template.html.
 """
-import argparse, datetime as dt, json, math, os, sys
+import argparse, datetime as dt, json, math, os, re, sys
 
 import pandas as pd
 
@@ -25,11 +25,11 @@ def r(x, n):
     return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), n)
 
 
-def build(day, ecb_db):
+def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
     ddir = os.path.join(ROOT, "data", day)
-    b = pd.read_csv(os.path.join(ddir, "bonds_classified.csv.gz"), index_col="isin", low_memory=False)
-    q = pd.read_csv(os.path.join(ddir, "dfra_quotes.csv.gz")).query("snap == 'close'").set_index("isin")
-    fut = pd.read_csv(os.path.join(ddir, "eurex_futures_daily.csv"))
+    b = pd.read_csv(bonds_csv or os.path.join(ddir, "bonds_classified.csv.gz"), index_col="isin", low_memory=False)
+    q = pd.read_csv(quotes_csv or os.path.join(ddir, "dfra_quotes.csv.gz")).query("snap == 'close'").set_index("isin")
+    fut = pd.read_csv(futures_csv or os.path.join(ddir, "eurex_futures_daily.csv"))
     curve = ecb_curve.Curve.load(day, "AAA", ecb_db)
     settle = an.add_business_days(dt.date.fromisoformat(day), 2)
 
@@ -86,16 +86,37 @@ def build(day, ecb_db):
                 cols=cols, bonds=rows, futures=futures)
 
 
+def as_document(page):
+    """Mallen är skriven som sidinnehåll (title, style, markup); gör ett fristående dokument för GitHub Pages."""
+    m = re.match(r"\s*(<title>.*?</title>)", page, re.S)
+    title, body = (m.group(1), page[m.end():]) if m else ("", page)
+    return ('<!doctype html><html lang="sv"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
+            f'{title}<style>:root{{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}}'
+            'body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>'
+            f'{body}</body></html>')
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--day", required=True)
     ap.add_argument("--ecb-db", default="ecb_curve.sqlite")
+    ap.add_argument("--bonds", help="bonds_classified.csv(.gz); standard data/<dag>/")
+    ap.add_argument("--quotes", help="dfra_quotes csv; standard data/<dag>/")
+    ap.add_argument("--futures", help="eurex_futures_daily csv; standard data/<dag>/")
+    ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "elliotmalmstenkth/kthfiacc"))
+    ap.add_argument("--branch", default=os.environ.get("PORTFOLIO_BRANCH", "claude/compassionate-edison-wxgg9h"))
+    ap.add_argument("--positions", default="portfolio/positions.json")
     ap.add_argument("--template", default=os.path.join(ROOT, "site", "template.html"))
     ap.add_argument("--out", default=os.path.join(ROOT, "site", "portfolio.html"))
     a = ap.parse_args()
-    data = build(a.day, a.ecb_db)
+    data = build(a.day, a.ecb_db, a.bonds, a.quotes, a.futures)
+    owner, name = a.repo.split("/")
+    data["repo"] = dict(owner=owner, name=name, branch=a.branch, path=a.positions)
     js = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     html = open(a.template, encoding="utf-8").read().replace("/*__DATA__*/null", js)
+    html = as_document(html)
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"{a.out}: {len(data['bonds']):,} obligationer, {len(data['futures'])} terminer, {len(html) / 1e6:.1f} MB",
