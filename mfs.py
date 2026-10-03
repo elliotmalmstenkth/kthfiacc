@@ -36,7 +36,7 @@ API (offentligt, ingen nyckel):
 Flöden: DFRA (Börse Frankfurt), DETR (Xetra), DEUR (Eurex), DETG, DGAT; -pretrade/-posttrade.
 Vissa flöden har även en '-daily-<datum>'-fil (DEUR-posttrade ja, DFRA-pretrade nej/404).
 """
-import argparse, datetime as dt, gzip, json, os, re, shutil, sqlite3, sys, time, urllib.error, urllib.request
+import argparse, datetime as dt, gzip, json, os, re, shutil, sqlite3, sys, threading, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from zoneinfo import ZoneInfo
 
@@ -51,18 +51,46 @@ UA = {"User-Agent": "kth-fic-club/1.0 (non-commercial, academic)"}
 
 
 # ---------------------------------------------------------------- nätverk
-def _open(url, timeout=120, tries=4):
+_gate = threading.Lock()
+_cooldown_until = 0.0  # delas av alla trådar: vid 429 pausar alla
+
+
+def _wait_gate():
+    while True:
+        with _gate:
+            left = _cooldown_until - time.monotonic()
+        if left <= 0:
+            return
+        time.sleep(min(left, 5))
+
+
+def _cool_down(seconds):
+    global _cooldown_until
+    with _gate:
+        _cooldown_until = max(_cooldown_until, time.monotonic() + seconds)
+
+
+def _open(url, timeout=120, tries=8):
+    """GET med omförsök. 429 (Too Many Requests) respekterar Retry-After och pausar alla trådar."""
     err = None
     for attempt in range(tries):
+        _wait_gate()
         try:
             return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout)
         except urllib.error.HTTPError as e:
             if e.code in (403, 404):  # varken nätverksfel eller tillfälligt: ge upp direkt
                 raise
             err = e
+            if e.code == 429:
+                try:
+                    wait = float(e.headers.get("Retry-After", ""))
+                except (TypeError, ValueError):
+                    wait = 5 * 2 ** min(attempt, 4)
+                _cool_down(wait)
+                continue
         except Exception as e:
             err = e
-        time.sleep(2 ** attempt)
+        time.sleep(2 ** min(attempt, 5))
     raise RuntimeError(f"misslyckades: {url}: {err}")
 
 

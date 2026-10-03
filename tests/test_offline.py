@@ -281,3 +281,18 @@ def test_prune_only_built_days(tmp_path):
     removed = mfs.prune("DFRA-pretrade", arch, db, keep_days=14, today=dt.date(2026, 10, 3))
     assert removed == ["2026-09-01"]  # 09-02 saknar marks, 10-01 för ny
     assert sorted(os.listdir(os.path.join(arch, "DFRA-pretrade"))) == ["2026-09-02", "2026-10-01"]
+
+
+def test_open_backs_off_on_429(monkeypatch):
+    calls, sleeps = [], []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(1)
+        if len(calls) < 3:
+            raise mfs.urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {"Retry-After": "0"}, None)
+        return Resp(b"ok")
+
+    monkeypatch.setattr(mfs.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(mfs.time, "sleep", sleeps.append)
+    assert mfs._open("https://x/y").read() == b"ok"
+    assert len(calls) == 3 and sleeps == []  # 429 -> Retry-After (0 s), ingen extra backoff
