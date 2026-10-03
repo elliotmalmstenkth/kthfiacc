@@ -5,7 +5,7 @@ from collections import namedtuple
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import classify, ecb_curve, eurex, firds, mfs  # noqa: E402
+import ci, classify, ecb_curve, eurex, firds, mfs  # noqa: E402
 
 # ECB AAA-liknande parametrar (ungefärliga, rimlig kurvform)
 P = dict(b0=0.9, b1=1.1, b2=6.0, b3=-4.5, t1=3.5, t2=6.0)
@@ -330,3 +330,33 @@ def test_eurex_daily(tmp_path):
     assert b[7:11] == (121.0, 121.5, 121.0, 121.5)                # open, high, low, last
     assert b[12] == pytest.approx((121.0 * 10 + 121.5 * 30) / 40)
     assert rows["FEHY"][2] == "2026-12-18" and rows["FEHY"][10] == 309.0
+
+
+# ---------------------------------------------------------------- ci
+def test_complete_days_frankfurt_time():
+    days = {"2026-10-01", "2026-10-02"}
+    at = lambda s: dt.datetime.fromisoformat(s).replace(tzinfo=UTC)
+    assert ci.complete_days(days, at("2026-10-02T21:00")) == ["2026-10-01"]           # 23:00 CEST: inte klar
+    assert ci.complete_days(days, at("2026-10-02T21:20")) == ["2026-10-01", "2026-10-02"]
+    assert ci.complete_days({"2026-12-01"}, at("2026-12-01T22:10")) == []              # 23:10 CET
+    assert ci.complete_days({"2026-12-01"}, at("2026-12-01T22:20")) == ["2026-12-01"]
+
+
+def test_build_day_and_log(tmp_path, monkeypatch):
+    arch, dist = str(tmp_path / "a"), str(tmp_path / "dist")
+    _write_minute(arch, "DFRA-pretrade", "08:00", [q("A", "08:00:00", 99, 100), q("B", "08:00:01", 50, 51)])
+    os.makedirs(os.path.join(arch, "DEUR-posttrade", "2026-10-02"))
+    _write_gz(os.path.join(arch, "DEUR-posttrade", "2026-10-02", "DEUR-posttrade-daily-2026-10-02.json.gz"),
+              [_pt(eurex.PRODUCTS["FEHY"][0], "12:00:00", 309.0, 5, contract="2026-12-18")])
+    monkeypatch.setattr(ci.mfs, "sync", lambda *a, **k: (0, 0))
+    assets, row = ci.build_day("2026-10-02", arch, dist, str(tmp_path / "m.sqlite"))
+    names = sorted(os.path.basename(x) for x in assets)
+    assert names == ["DEUR-posttrade-2026-10-02.tar", "DFRA-pretrade-bonds-2026-10-02.tar",
+                     "dfra_quotes-2026-10-02.csv.gz", "eurex_futures_daily-2026-10-02.csv"]
+    assert (row["isin_close"], row["two_sided_firm_close"], row["FEHY"], row["FGBL"]) == (2, 2, 309.0, None)
+    log = str(tmp_path / "log.csv")
+    ci.append_log(row, log); ci.append_log(row, log)  # samma dag skrivs över
+    assert len(open(log).read().strip().splitlines()) == 2
+    assert "309.0" in ci.notes(row, assets)
+    monkeypatch.setattr(ci.mfs, "sync", lambda *a, **k: (0, 3))
+    assert ci.build_day("2026-10-02", arch, dist, str(tmp_path / "m2.sqlite")) is None  # ofullständig -> ingen release

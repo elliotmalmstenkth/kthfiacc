@@ -8,6 +8,7 @@ Verktyg för gratis eurodata till en ränte-/kreditportfölj med hedgning. Kräv
 | `eurex.py` | Eurex post-trade (DEUR-posttrade via `mfs.py`) | Dagliga priser (OHLC, VWAP, volym, block) för stats- och kreditindexterminer, identifierade via produkt-ISIN |
 | `firds.py` | ESMA FIRDS (FULINS) | Referensdata per ISIN → SQLite (`--cat D` obligationer, `--cat F` terminer) |
 | `classify.py` | FIRDS + DFRA-pretrade | Sektorklassning (stat, säkerställd, företag finans/icke-finans …) och sammanfattning av hur många EUR-företagsobligationer som har kurser |
+| `ci.py` | allt ovan | Daglig körning i GitHub Actions: hämtar, bygger och sparar varje handelsdag som utkast-release |
 | `ecb_curve.py` | ECB YC (data-api.ecb.europa.eu) | Arkiverar ECB:s Svensson-parametrar (AAA + alla euroländer) sedan 2004 och räknar spot/termin/par/DF |
 
 ```bash
@@ -29,7 +30,16 @@ python classify.py --db firds.sqlite archive/DFRA-pretrade/2026-10-02/*.json.gz 
 python -m pytest -q tests               # offline-tester med syntetiska data
 ```
 
-Exempel på cron (Stockholmstid), t.ex. på en dator som alltid är på:
+### Automatiskt: GitHub Actions
+
+`.github/workflows/daily.yml` kör `ci.py` varje bankdag kl. 22:37 UTC, med en reservkörning 05:17 UTC tis–lör och
+FIRDS på söndagar. Varje handelsdag blir en **utkast-release** `data-<dag>` (bara synlig för dem med skrivrätt):
+kurser 12:00/17:25/close, Eurex-terminer och rådata (obligationsrader ur DFRA-pretrade ~340 MB, post-trade ~75 MB).
+`data/log.csv` får en rad per dag. Manuell körning: Actions → Marknadsdata → Run workflow (valfritt `days`).
+
+Hämta en dag lokalt: `gh release download data-2026-10-02 -D dl/` (kräver skrivrätt eftersom det är ett utkast).
+
+Exempel på cron (Stockholmstid) om ni hellre kör på en egen dator:
 
 ```
 15 22 * * 1-5  cd ~/kthfiacc && python mfs.py sync --bonds-only && python mfs.py marks $(date +\%F) && python ecb_curve.py update

@@ -1,0 +1,72 @@
+# Arkiverar Deutsche Börse-filerna (försvinner vid midnatt nästa bankdag) som utkast-releaser.
+# Se ci.py för innehåll. Utkast syns bara för dem med skrivrätt till repot.
+name: Marknadsdata
+
+on:
+  schedule:
+    - cron: "37 22 * * 1-5"   # efter handelsdagens sista fil (23:00 Frankfurt)
+    - cron: "17 5 * * 1-6"    # reserv: hämtar gårdagen om kvällskörningen missades
+    - cron: "23 6 * * 0"      # söndag: FIRDS-ögonblicksbild (ESMA publicerar på lördagar)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "daily eller firds"
+        default: daily
+      days:
+        description: "handelsdagar att bygga, t.ex. 2026-10-02 (tomt = alla färdiga som saknas)"
+        default: ""
+
+permissions:
+  contents: write   # releaser + data/log.csv
+
+concurrency:
+  group: marknadsdata
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule != '23 6 * * 0') ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'daily')
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q tests
+      - name: Hämta, bygg och publicera
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAYS: ${{ inputs.days }}
+        run: python ci.py daily ${DAYS:+--days $DAYS}
+      - name: Committa data/log.csv
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/log.csv 2>/dev/null || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -m "data/log.csv: $(tail -n +2 data/log.csv | tail -1 | cut -d, -f1)"
+          for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done
+
+  firds:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '23 6 * * 0') ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'firds')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: FIRDS-ögonblicksbild
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ci.py firds

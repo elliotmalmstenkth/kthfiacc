@@ -151,8 +151,8 @@ def download(fname, path, notation=None):
     os.replace(tmp, path)
 
 
-def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, workers=4, bonds_only=False):
-    """Hämtar alla filer som servern har och som inte redan finns i arkivet.
+def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, workers=4, bonds_only=False, days=None):
+    """Hämtar alla filer som servern har och som inte redan finns i arkivet (days: bara dessa handelsdagar).
     Returnerar (nya, misslyckade). 404 räknas som saknad fil, inte som fel."""
     total_new = failed = 0
     for feed in feeds:
@@ -168,6 +168,8 @@ def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, workers=4, bonds_only=Fal
             p = parse_name(fn)
             if notation is not None and p and p[2] is None:
                 continue  # dagsfil = dubblett av minutfilerna; hoppa över i filtrerat läge
+            if days is not None and (not p or p[1] not in days):
+                continue
             path = os.path.join(archive, feed, p[1] if p else "okänt-datum", fn)
             if os.path.exists(path):
                 skipped += 1
@@ -194,8 +196,8 @@ def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, workers=4, bonds_only=Fal
         missing = sum(r == "404" for r, _ in res)
         failed += sum(r == "fel" for r, _ in res)
         mb = sum(b for _, b in res) / 1e6
-        days = sorted({p[1] for f in files if (p := parse_name(f))})
-        rng = f"{days[0]}..{days[-1]}" if days else "-"
+        on_server = sorted({p[1] for f in files if (p := parse_name(f))})
+        rng = f"{on_server[0]}..{on_server[-1]}" if on_server else "-"
         print(f"{feed}: {len(files)} filer på servern ({rng}), {new} nya ({mb:,.0f} MB), "
               f"{skipped} fanns redan, {missing} saknas (404)" + (" [bara obligationer]" if notation else ""),
               file=sys.stderr)
@@ -339,6 +341,7 @@ if __name__ == "__main__":
     s = sp.add_parser("sync"); s.add_argument("--feeds", nargs="+", default=FEEDS_DEFAULT)
     s.add_argument("--bonds-only", action="store_true", help="pre-trade: spara bara priceNotation 2-rader")
     s.add_argument("--workers", type=int, default=4, help="parallella nedladdningar")
+    s.add_argument("--days", nargs="+", help="bara dessa handelsdagar (YYYY-MM-DD)")
     m = sp.add_parser("marks"); m.add_argument("dates", nargs="+")
     m.add_argument("--feed", default="DFRA-pretrade")
     m.add_argument("--snap", nargs="*", default=[], help="ögonblicksbilder HH:MM (Frankfurttid) utöver 'close'")
@@ -350,7 +353,7 @@ if __name__ == "__main__":
         print("\n".join(fs[:5] + (["..."] if len(fs) > 10 else []) + fs[-5:] if len(fs) > 10 else fs))
         print(f"{len(fs)} filer", file=sys.stderr)
     elif a.cmd == "sync":
-        _, failed = sync(a.feeds, a.archive, a.workers, a.bonds_only)
+        _, failed = sync(a.feeds, a.archive, a.workers, a.bonds_only, set(a.days) if a.days else None)
         sys.exit(1 if failed else 0)
     elif a.cmd == "marks":
         for d in a.dates:

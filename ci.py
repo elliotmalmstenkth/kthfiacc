@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""
+Körs av GitHub Actions (.github/workflows/daily.yml). Kan även köras lokalt med gh inloggat.
+
+  python ci.py daily            # alla färdiga handelsdagar på servern som saknar release
+  python ci.py daily --dry-run  # bygg filerna i dist/ men skapa ingen release
+  python ci.py firds            # veckovis FIRDS-ögonblicksbild (skuld + terminer)
+
+Varje handelsdag sparas som en UTKAST-release (draft) med taggen data-<dag>. Utkast syns
+bara för dem med skrivrätt till repot – Deutsche Börse-datan är gratis för icke-kommersiell
+användning och sprids därför inte publikt. Tillgångar per dag:
+
+  dfra_quotes-<dag>.csv.gz          bud/sälj per obligation 12:00, 17:25 och close (mfs.py marks)
+  eurex_futures_daily-<dag>.csv     stats- och kreditindexterminer (eurex.py daily)
+  DFRA-pretrade-bonds-<dag>.tar     rå minutfiler, bara obligationsrader (priceNotation 2)
+  DFRA-posttrade-<dag>.tar          rå minutfiler
+  DEUR-posttrade-<dag>.tar          rå minut- och dagsfiler
+
+En rad per dag läggs i data/log.csv (committas av arbetsflödet, vilket också håller
+schemat aktivt – GitHub stänger av scheman i publika repon efter 60 dagar utan aktivitet).
+"""
+import argparse, csv, datetime as dt, gzip, json, os, shutil, sqlite3, subprocess, sys, tarfile
+
+import eurex, mfs
+
+FEEDS = ["DFRA-pretrade", "DFRA-posttrade", "DEUR-posttrade"]
+SNAPS = ["12:00", "17:25"]
+DAY_END = dt.time(23, 15)  # handelsdagen (Frankfurttid) är slut efter sista filen 23:00
+LOG = "data/log.csv"
+LOG_COLS = ["date", "pretrade_files", "posttrade_files", "eurex_files", "isin_close", "two_sided_firm_close",
+            "eur_quotes_close", "FGBL", "FECX", "FEHY", "FGBC", "built_at"]
+
+
+def gh(*args, check=True):
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if check and r.returncode:
+        raise RuntimeError(f"gh {' '.join(args[:3])}: {r.stderr.strip()}")
+    return r.stdout
+
+
+def existing_tags():
+    out = gh("release", "list", "--limit", "1000", "--json", "tagName")
+    return {r["tagName"] for r in json.loads(out or "[]")}
+
+
+def complete_days(server_days, now=None):
+    """Handelsdagar som är slut (efter 23:15 Frankfurttid samma dag)."""
+    now = (now or dt.datetime.now(dt.timezone.utc)).astimezone(mfs.TZ)
+    return [d for d in sorted(server_days)
+            if now >= dt.datetime.combine(dt.date.fromisoformat(d), DAY_END, tzinfo=mfs.TZ)]
+
+
+def server_days(feed="DFRA-pretrade"):
+    return {p[1] for f in mfs.list_files(feed) if (p := mfs.parse_name(f))}
+
+
+def _tar(folder, out):
+    with tarfile.open(out, "w") as t:  # filerna är redan gzip
+        for f in sorted(os.listdir(folder)):
+            if not f.endswith(".part"):
+                t.add(os.path.join(folder, f), arcname=f)
+    return out
+
+
+def build_day(day, archive, dist, db):
+    """Hämtar och bygger en dag. Returnerar (tillgångar, loggrad) eller None om nedladdningen var ofullständig."""
+    _, failed = mfs.sync(FEEDS, archive, workers=4, bonds_only=True, days={day})
+    if failed:
+        print(f"{day}: {failed} filer misslyckades – publicerar inte, nästa körning försöker igen", file=sys.stderr)
+        return None
+    os.makedirs(dist, exist_ok=True)
+    if os.path.exists(db):
+        os.remove(db)
+    con = mfs.build_marks(day, archive, db, snaps=SNAPS)
+    eurex.build_daily(day, archive, db)
+
+    quotes = os.path.join(dist, f"dfra_quotes-{day}.csv.gz")
+    fut = os.path.join(dist, f"eurex_futures_daily-{day}.csv")
+    cur = con.execute("SELECT * FROM quotes ORDER BY snap, isin")
+    with gzip.open(quotes, "wt", newline="") as f:
+        w = csv.writer(f); w.writerow([c[0] for c in cur.description]); w.writerows(cur)
+    cur = con.execute("SELECT * FROM futures_daily ORDER BY code, contract")
+    with open(fut, "w", newline="") as f:
+        w = csv.writer(f); w.writerow([c[0] for c in cur.description]); w.writerows(cur)
+
+    assets = [quotes, fut]
+    n = {}
+    for feed in FEEDS:
+        folder = os.path.join(archive, feed, day)
+        n[feed] = len(os.listdir(folder)) if os.path.isdir(folder) else 0
+        if n[feed]:
+            name = "DFRA-pretrade-bonds" if feed == "DFRA-pretrade" else feed
+            assets.append(_tar(folder, os.path.join(dist, f"{name}-{day}.tar")))
+
+    close = con.execute("""SELECT count(*), sum(bid_qty > 0 AND ask_qty > 0), sum(ccy = 'EUR')
+                           FROM quotes WHERE snap = 'close'""").fetchone()
+    last = dict(con.execute("""SELECT code, last FROM futures_daily f WHERE contract =
+        (SELECT min(contract) FROM futures_daily g WHERE g.code = f.code AND g.last IS NOT NULL)"""))
+    row = dict(date=day, pretrade_files=n["DFRA-pretrade"], posttrade_files=n["DFRA-posttrade"],
+               eurex_files=n["DEUR-posttrade"], isin_close=close[0], two_sided_firm_close=close[1] or 0,
+               eur_quotes_close=close[2] or 0, **{k: last.get(k) for k in ("FGBL", "FECX", "FEHY", "FGBC")},
+               built_at=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
+    con.close()
+    return assets, row
+
+
+def append_log(row, path=LOG):
+    rows = []
+    if os.path.exists(path):
+        with open(path, newline="") as f:
+            rows = [r for r in csv.DictReader(f) if r["date"] != row["date"]]
+    rows.append({k: row.get(k) for k in LOG_COLS})
+    rows.sort(key=lambda r: r["date"])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, LOG_COLS); w.writeheader(); w.writerows(rows)
+
+
+def notes(row, assets):
+    sizes = "\n".join(f"- `{os.path.basename(a)}` ({os.path.getsize(a) / 1e6:,.1f} MB)" for a in assets)
+    return (f"Börse Frankfurt + Eurex, handelsdag {row['date']} (Frankfurttid).\n\n"
+            f"- Obligationer med slutkurs: {row['isin_close']:,} (fasta tvåsidiga: {row['two_sided_firm_close']:,}, "
+            f"EUR: {row['eur_quotes_close']:,})\n"
+            f"- Filer: DFRA-pretrade {row['pretrade_files']}, DFRA-posttrade {row['posttrade_files']}, "
+            f"DEUR-posttrade {row['eurex_files']}\n"
+            f"- Senast (närmaste förfall): FGBL {row['FGBL']}, FECX {row['FECX']}, FEHY {row['FEHY']}, FGBC {row['FGBC']}\n\n"
+            f"{sizes}\n\nDeutsche Börse-data: endast icke-kommersiell användning. Sprid inte vidare.")
+
+
+def cmd_daily(a):
+    tags = set() if a.dry_run else existing_tags()
+    days = a.days or complete_days(server_days())
+    todo = [d for d in days if f"data-{d}" not in tags]
+    print(f"färdiga dagar på servern: {days}; att bygga: {todo}", file=sys.stderr)
+    built = 0
+    for day in todo:
+        res = build_day(day, a.archive, os.path.join(a.dist, day), os.path.join(a.dist, f"marks-{day}.sqlite"))
+        if res is None:
+            continue
+        assets, row = res
+        append_log(row)
+        if not a.dry_run:
+            gh("release", "create", f"data-{day}", "--draft", "--title", f"Marknadsdata {day}",
+               "--notes", notes(row, assets), *assets)
+            print(f"{day}: utkast-release data-{day} skapad ({len(assets)} filer)", file=sys.stderr)
+        shutil.rmtree(os.path.join(a.archive), ignore_errors=True)  # spara diskutrymme på löparen
+        built += 1
+    print(f"klart: {built} dagar", file=sys.stderr)
+    return 1 if built < len(todo) else 0
+
+
+def cmd_firds(a):
+    import firds
+    today = dt.date.today().isoformat()
+    os.makedirs(a.dist, exist_ok=True)
+    db = os.path.join(a.dist, "firds.sqlite")
+    pub, _ = firds.list_fulins("D", today)
+    tag = f"firds-{pub}"
+    if not a.dry_run and tag in existing_tags():
+        print(f"{tag} finns redan", file=sys.stderr)
+        return 0
+    assets = []
+    for cat in ("D", "F"):
+        firds.build(cat, today, db, os.path.join(a.dist, "firds_raw"))
+        out = os.path.join(a.dist, f"firds_{cat.lower()}-{pub}.csv.gz")
+        con = sqlite3.connect(db)
+        cur = con.execute(f"SELECT * FROM firds_{cat.lower()}")
+        with gzip.open(out, "wt", newline="") as f:
+            w = csv.writer(f); w.writerow([c[0] for c in cur.description]); w.writerows(cur)
+        con.close()
+        assets.append(out)
+    if not a.dry_run:
+        gh("release", "create", tag, "--draft", "--title", f"FIRDS {pub}",
+           "--notes", "ESMA FIRDS FULINS (skuldinstrument D, terminer F), en rad per ISIN (firds.py).", *assets)
+    print(f"{tag}: {[os.path.basename(x) for x in assets]}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--archive", default="archive")
+    ap.add_argument("--dist", default="dist")
+    ap.add_argument("--dry-run", action="store_true")
+    sp = ap.add_subparsers(dest="cmd", required=True)
+    d = sp.add_parser("daily"); d.add_argument("--days", nargs="+")
+    sp.add_parser("firds")
+    a = ap.parse_args()
+    sys.exit(cmd_daily(a) if a.cmd == "daily" else cmd_firds(a))
