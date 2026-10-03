@@ -202,7 +202,10 @@ def main():
     df["sector"] = [s for s, _ in res]
     df["rule"] = [w for _, w in res]
     df["issuer"] = df.fisn.str.split("/").str[0].str.strip()
-    sub = df.seniority.isin(["SBOD", "JUND", "MZZD"]) | df.fisn.str.contains(r"\b(?:SUB|JR|PERP|T2|AT1)\b", na=False)
+    sub = (df.seniority.isin(["SBOD", "JUND", "MZZD"])
+           | df.fisn.str.contains(r"\b(?:SUB|JR|PERP|T2|AT1)\b", na=False)
+           | df.full_name.fillna("").str.contains(r"\bPERP\b|Und\.\)|Hybrid", case=False)  # hybrider rapporteras ofta som senior
+           | (df.cfi.str[:1] == "D") & df.maturity.isna())                                # evig = efterställd i praktiken
     df["subordinated"] = sub
     df["coupon_type"] = df.cfi.str[2].map({"F": "fixed", "Z": "zero", "V": "floating", "C": "cash", "K": "payment-in-kind"}).fillna("other")
     df["benchmark_500m"] = df.issued_amt >= 5e8

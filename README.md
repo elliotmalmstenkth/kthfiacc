@@ -60,6 +60,29 @@ Datafiler (`archive/`, `*.sqlite`, `raw/`, `firds_raw/`) är undantagna från gi
   orderbok, 5 = off-book/block, O/K = auktioner; `mmtModificationInd` C = makulering.
 - Obligationer på Börse Frankfurt handlas på venue `FRAB` (de flesta) och `FRAA`.
 
+## Resultat 2 okt 2026 (Börse Frankfurt + FIRDS 3 okt)
+
+35 790 obligations-ISIN med kurser (priceNotation 2), varav 35 777 i FIRDS och 18 858 EUR-denominerade.
+
+| EUR, sektor | antal | tvåsidig | fast tvåsidig |
+|---|---:|---:|---:|
+| Företag, finans (CORP_FIN) | 8 623 | 8 622 | 3 311 |
+| Företag, icke-finans (CORP_NONFIN) | 4 961 | 4 957 | 4 662 |
+| Stat (SOV) | 1 196 | 1 196 | 1 013 |
+| Strukturerade/CLN | 1 007 | 1 007 | 208 |
+| Säkerställda (COVERED) | 886 | 886 | 683 |
+| Agency | 860 | 860 | 459 |
+| Delstat/kommun | 763 | 763 | 350 |
+| Supra | 330 | 330 | 263 |
+| ABS/MBS, konvertibler | 232 | 229 | 189 |
+
+**EUR-företagsobligationer: 13 584**, men ~6 000 av finansbolagen är tyska Landesbank-/DZ-privatkundsobligationer
+(Helaba 2 322, DZ Bank 1 759, NordLB 608, LBBW 564, Deka 390). Det investerbara universumet:
+
+- emission ≥ 500 mn EUR, fast/nollkupong, senior (hybrider/eviga exkl.): **5 058**, varav 4 911 med fasta tvåsidiga kurser
+- varav icke-finansiella: **3 520** (3 483 fasta)
+- slutkurser för dessa: median-spread 0,50 per 100 nominellt (10–90 %: 0,20–1,01), 90 % uppdaterade sista timmen före 17:30
+
 ## Status och öppna frågor
 
 - ECB-kurvan: `ecb_curve.py check` återskapar ECB:s publicerade spot/termin/par med 0,0000 bp avvikelse.
