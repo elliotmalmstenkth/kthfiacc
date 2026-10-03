@@ -4,6 +4,7 @@ raw/
 firds_raw/
 *.sqlite
 *.csv
+!data/**/*.csv
 !overrides.csv
 __pycache__/
 .pytest_cache/
