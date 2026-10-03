@@ -167,80 +167,115 @@ def test_load_quotes(tmp_path):
 
 
 # ---------------------------------------------------------------- mfs
-def test_parse_name():
-    feed, day, t = mfs.parse_name("DFRA-pretrade-2026-10-02T08_15.json.gz")
-    assert (feed, day, t) == ("DFRA-pretrade", "2026-10-02", dt.datetime(2026, 10, 2, 8, 15))
+UTC = dt.timezone.utc
+
+
+def test_parse_name_uses_frankfurt_trading_day():
+    assert mfs.parse_name("DFRA-pretrade-2026-10-02T08_15.json.gz") == (
+        "DFRA-pretrade", "2026-10-02", dt.datetime(2026, 10, 2, 8, 15, tzinfo=UTC))
+    # 23:00 UTC = 01:00 CEST nästa dag
+    assert mfs.parse_name("DFRA-pretrade-2026-10-01T23_00.json.gz")[1] == "2026-10-02"
+    # vintertid: 23:00 UTC = 00:00 CET nästa dag
+    assert mfs.parse_name("DFRA-pretrade-2026-12-01T23_00.json.gz")[1] == "2026-12-02"
+    assert mfs.parse_name("DEUR-posttrade-daily-2026-10-02.json.gz") == ("DEUR-posttrade", "2026-10-02", None)
     assert mfs.parse_name("README.txt") is None
 
 
-def _make_day(archive, feed, day, minutes):
-    folder = os.path.join(archive, feed, day)
+def _write_minute(archive, feed, utc_hhmm, msgs, day="2026-10-02"):
+    fn = f"{feed}-{day}T{utc_hhmm.replace(':', '_')}.json.gz"
+    folder = os.path.join(archive, feed, mfs.parse_name(fn)[1])
     os.makedirs(folder, exist_ok=True)
-    for hhmm, msgs in minutes.items():
-        _write_gz(os.path.join(folder, f"{feed}-{day}T{hhmm.replace(':', '_')}.json.gz"), msgs)
+    _write_gz(os.path.join(folder, fn), msgs)
 
 
-def q(isin, bid=None, ask=None, notation=2):
-    m = {"instrumentIdentificationCode": isin, "priceNotation": notation, "priceCurrency": "EUR"}
-    if bid is not None: m["bestBid"] = bid
-    if ask is not None: m["bestAsk"] = ask
+def q(isin, t, bid=None, ask=None, notation=2):
+    """Pre-trade-delta; t = UTC HH:MM:SS 2026-10-02."""
+    m = {"messageId": "pretrade", "instrumentIdentificationCode": isin, "priceNotation": notation,
+         "priceCurrency": "EUR", "venueOfExecution": "FRAB", "updateDateAndTime": f"2026-10-02T{t}.123456789Z"}
+    if bid is not None: m.update(bestBid=bid, bestBidQty=100000.0)
+    if ask is not None: m.update(bestAsk=ask, bestAskQty=50000.0)
     return m
 
 
-def test_build_marks_snapshots(tmp_path):
+def test_build_marks_merges_deltas_and_snapshots(tmp_path):
     arch, db, day = str(tmp_path / "a"), str(tmp_path / "m.sqlite"), "2026-10-02"
-    _make_day(arch, "DFRA-pretrade", day, {
-        "08:00": [q("A", 99.0, 99.4), q("B", 50, 51), q("STOCK", 10, 11, notation=1)],
-        "08:01": [q("A", 99.1, 99.5)],
-        "15:00": [q("B", bid=50.5)],  # B blir ensidig
-        "15:45": [q("A", 98.0, 98.6), q("C", 101, 102)],
-    })
-    con = mfs.build_marks(day, arch, db, snaps=["15:30"])
-    rows = {(s, i): (b, a, t) for s, i, b, a, t in con.execute("SELECT snap, isin, bid, ask, quote_time FROM quotes")}
-    assert rows[("15:30", "A")] == (99.1, 99.5, "2026-10-02T08:01")
-    assert rows[("15:30", "B")] == (50.5, None, "2026-10-02T15:00")
-    assert ("15:30", "C") not in rows
+    W = lambda hhmm, msgs: _write_minute(arch, "DFRA-pretrade", hhmm, msgs)
+    W("06:00", [q("A", "06:00:01", 99.0, 99.4), q("B", "06:00:02", 50, 51), q("STOCK", "06:00:03", 10, 11, notation=1)])
+    W("06:01", [q("A", "06:01:05", ask=99.5)])        # bara säljsidan ändras
+    W("15:29", [q("A", "15:29:59", bid=99.2), q("B", "15:30:00", bid=50.5)])  # 17:30 CEST = 15:30 UTC
+    W("15:45", [q("A", "15:45:00", 98.0, 98.6), q("C", "15:45:10", ask=102)])
+    con = mfs.build_marks(day, arch, db, snaps=["17:30"])
+    rows = {(s, i): tuple(r) for s, i, *r in con.execute(
+        "SELECT snap, isin, bid, ask, bid_time, ask_time, bid_qty, venue FROM quotes")}
+    a = rows[("17:30", "A")]
+    assert a[:4] == (99.2, 99.5, "2026-10-02T15:29:59.123", "2026-10-02T06:01:05.123")  # tvåsidig trots deltor
+    assert a[4:] == (100000.0, "FRAB")
+    assert rows[("17:30", "B")][:2] == (50, 51)  # B:s ändring 15:30:00 kommer efter ögonblicksbilden
+    assert ("17:30", "C") not in rows
     assert rows[("close", "A")][:2] == (98.0, 98.6)
+    assert rows[("close", "B")][:2] == (50.5, 51)
+    assert rows[("close", "C")][:2] == (None, 102)
     assert ("close", "STOCK") not in rows
     n, gap = con.execute("SELECT n_files, max_gap_min FROM days").fetchone()
-    assert (n, gap) == (4, 419)
+    assert (n, gap) == (4, 568)
     mfs.build_marks(day, arch, db)  # ombyggnad ersätter dagen
     assert con.execute("SELECT count(*) FROM quotes").fetchone()[0] == 3
 
 
-def test_sync_downloads_only_new(tmp_path, monkeypatch):
-    files = ["DFRA-pretrade-2026-10-02T08_00.json.gz", "DFRA-pretrade-2026-10-02T08_01.json.gz"]
-    payload = gzip.compress(b'{"instrumentIdentificationCode":"A"}\n')
-    calls = []
+class Resp(io.BytesIO):
+    def __enter__(self): return self
+    def __exit__(self, *a): self.close()
 
-    class Resp(io.BytesIO):
-        def __enter__(self): return self
-        def __exit__(self, *a): self.close()
+
+def _fake_server(monkeypatch, feed, files, bodies):
+    calls = []
 
     def fake_open(url, timeout=120, tries=4):
         calls.append(url)
-        if url.endswith("/DFRA-pretrade"):
-            return Resp(json.dumps({"SourcePrefix": "DFRA-pretrade", "CurrentFiles": files}).encode())
-        if url.endswith("T08_01.json.gz"):
-            return Resp(b"not gzip")
-        return Resp(payload)
+        if url.endswith("/" + feed):
+            return Resp(json.dumps({"SourcePrefix": feed, "CurrentFiles": files}).encode())
+        name = url.rsplit("/", 1)[1]
+        if name not in bodies:
+            raise mfs.urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return Resp(bodies[name])
 
     monkeypatch.setattr(mfs, "_open", fake_open)
+    return calls
+
+
+def test_sync_downloads_only_new(tmp_path, monkeypatch):
+    f = ["DFRA-pretrade-2026-10-01T23_00.json.gz", "DFRA-pretrade-2026-10-02T08_00.json.gz",
+         "DFRA-pretrade-2026-10-02T08_01.json.gz", "DFRA-pretrade-daily-2026-10-02.json.gz"]
+    bodies = {f[0]: gzip.compress(b""), f[1]: gzip.compress(b'{"instrumentIdentificationCode":"A"}\n'),
+              f[2]: b"not gzip"}  # f[3] -> 404
+    calls = _fake_server(monkeypatch, "DFRA-pretrade", f, bodies)
     arch = str(tmp_path / "a")
-    new, failed = mfs.sync(["DFRA-pretrade"], arch, pause=0)
-    assert (new, failed) == (1, 1)  # trasig fil sparas inte
+    assert mfs.sync(["DFRA-pretrade"], arch, workers=1) == (2, 1)  # trasig fil sparas inte, 404 är inget fel
     folder = os.path.join(arch, "DFRA-pretrade", "2026-10-02")
-    assert os.listdir(folder) == [files[0]]
+    assert sorted(os.listdir(folder)) == f[:2]  # 23:00 UTC 1 okt hamnar på handelsdag 2 okt
     calls.clear()
-    files.pop()
-    assert mfs.sync(["DFRA-pretrade"], arch, pause=0) == (0, 0)
-    assert len(calls) == 1  # bara listningen, inga nya nedladdningar
+    del f[2]
+    assert mfs.sync(["DFRA-pretrade"], arch, workers=1) == (0, 0)
+    assert len(calls) == 2  # listning + ny 404-kontroll av dagsfilen
+
+
+def test_sync_bonds_only_filters_pretrade(tmp_path, monkeypatch):
+    fn = "DFRA-pretrade-2026-10-02T08_00.json.gz"
+    lines = [json.dumps(q("A", "08:00:00", 99, 100)), json.dumps(q("S", "08:00:01", 1, 2, notation=1)),
+             '{"instrumentIdentificationCode":"Z","priceNotation":2}']
+    _fake_server(monkeypatch, "DFRA-pretrade", [fn, "DFRA-pretrade-daily-2026-10-02.json.gz"],
+                 {fn: gzip.compress("\n".join(lines).encode() + b"\n")})
+    arch = str(tmp_path / "a")
+    assert mfs.sync(["DFRA-pretrade"], arch, workers=1, bonds_only=True) == (1, 0)  # dagsfilen hoppas över
+    kept = [json.loads(x)["instrumentIdentificationCode"]
+            for x in gzip.open(os.path.join(arch, "DFRA-pretrade", "2026-10-02", fn), "rt")]
+    assert kept == ["A", "Z"]
 
 
 def test_prune_only_built_days(tmp_path):
     arch, db = str(tmp_path / "a"), str(tmp_path / "m.sqlite")
     for d in ("2026-09-01", "2026-09-02", "2026-10-01"):
-        _make_day(arch, "DFRA-pretrade", d, {"08:00": [q("A", 1, 2)]})
+        _write_minute(arch, "DFRA-pretrade", "08:00", [q("A", "08:00:00", 1, 2)], day=d)
     mfs.build_marks("2026-09-01", arch, db)
     mfs.build_marks("2026-10-01", arch, db)
     removed = mfs.prune("DFRA-pretrade", arch, db, keep_days=14, today=dt.date(2026, 10, 3))

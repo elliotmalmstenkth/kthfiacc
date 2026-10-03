@@ -155,10 +155,11 @@ def sector_of(row, overrides):
 def load_quotes(paths):
     """Per ISIN: sett bud, sett sälj, priskurrency och venue över alla meddelanden."""
     q = {}
+    bond = re.compile(r'"priceNotation"\s*:\s*2\s*[,}]')  # snabbfilter före json.loads
     for p in paths:
         with gzip.open(p, "rt") as fh:
             for line in fh:
-                if not line.strip():
+                if not bond.search(line):
                     continue
                 r = json.loads(line)
                 if r.get("priceNotation") != 2:

@@ -13,8 +13,8 @@ Verktyg för gratis eurodata till en ränte-/kreditportfölj med hedgning. Kräv
 pip install -r requirements.txt
 
 # varje bankdag, kväll (filerna raderas vid midnatt nästa bankdag)
-python mfs.py sync                      # DFRA-pretrade, DFRA-posttrade, DEUR-posttrade
-python mfs.py marks 2026-10-02 --snap 15:30
+python mfs.py sync --bonds-only         # DFRA-pretrade (bara obligationer), DFRA-posttrade, DEUR-posttrade
+python mfs.py marks 2026-10-02 --snap 17:30     # Frankfurttid
 python ecb_curve.py update
 
 # varje vecka (FULINS publiceras på lördagar)
@@ -30,17 +30,32 @@ python -m pytest -q tests               # offline-tester med syntetiska data
 Exempel på cron (Stockholmstid), t.ex. på en dator som alltid är på:
 
 ```
-15 22 * * 1-5  cd ~/kthfiacc && python mfs.py sync && python mfs.py marks $(date +\%F) && python ecb_curve.py update
-15 07 * * 1-6  cd ~/kthfiacc && python mfs.py sync    # fångar gårdagens sena filer
+15 22 * * 1-5  cd ~/kthfiacc && python mfs.py sync --bonds-only && python mfs.py marks $(date +\%F) && python ecb_curve.py update
+15 07 * * 1-6  cd ~/kthfiacc && python mfs.py sync --bonds-only    # fångar gårdagens sena filer
 ```
 
 Datafiler (`archive/`, `*.sqlite`, `raw/`, `firds_raw/`) är undantagna från git.
 `overrides.csv` (`lei,sector,kommentar`) används för att rätta felklassade emittenter.
 
+## Vad vi vet om Deutsche Börse-filerna (verifierat 3 okt 2026)
+
+- API: `GET /api/<flöde>` → `{"CurrentFiles": [...]}`; nedladdning `GET /api/download/<fil>` ger 301 till en
+  Google Storage-länk som gäller i 2 sekunder (urllib följer den automatiskt).
+- Flöden som finns: `DFRA-`, `DETR-`, `DEUR-`, `DETG-`, `DGAT-` × `pretrade`/`posttrade`. `DEUR-pretrade` listas
+  men minutfilerna ger 404.
+- Filnamnens tid är **UTC** och anger minutens början. En handelsdag (Frankfurttid) går från
+  `<dag-1>T23_00` till `<dag>T21_00` UTC. Arkivet sorterar på handelsdag.
+- Servern håller ~1 handelsdag (`DaysToKeepOnWebpage: 1`). En lördag finns alltså bara fredagens filer.
+- Vissa flöden har en dagsfil `<flöde>-daily-<datum>.json.gz` (DEUR-posttrade: 28 MB). DFRA-pretrade: 404.
+- **DFRA-pretrade är stort:** ~2,5 MB/minut komprimerat, ~90 000 meddelanden/minut dagtid, varav ~26 % obligationer
+  (`priceNotation` 2). Det blir ~2 GB/dag rått; `sync --bonds-only` sparar bara obligationsraderna.
+- **Pre-trade-meddelanden är deltor**: varje meddelande innehåller bara de sidor som ändrats (`bestBid`/`bestBidQty`
+  och/eller `bestAsk`/`bestAskQty`) plus `updateDateAndTime`. `mfs.py marks` slår ihop sidorna.
+- Obligationer på Börse Frankfurt handlas på venue `FRAB` (de flesta) och `FRAA`.
+
 ## Status och öppna frågor
 
-- **Testat:** logiken är testad offline med syntetiska data. API-anropen mot ECB, ESMA och Deutsche Börse har inte körts från den här miljön.
-- **`mfs.py`** antar API:t `GET /api/<flöde>` → `{"CurrentFiles": [...]}` och `GET /api/download/<fil>`. Flödesnamnet för Eurex (`DEUR-posttrade`) är inte bekräftat – kontrollera med `python mfs.py list DEUR-posttrade`.
-- **Tidszon:** tiderna i filnamnen behandlas som UTC. Kontrollera det mot handelstiderna.
+- ECB-kurvan: `ecb_curve.py check` återskapar ECB:s publicerade spot/termin/par med 0,0000 bp avvikelse.
+- Arkivet behöver köras på en dator som alltid är på – molnsessionerna är tillfälliga.
 - **Kreditindexterminer** (Euro IG/HY, GBP Corporate) är inte bekräftade i Eurex-filerna. Leta upp deras ISIN med `firds.py --cat F` och sök sedan i arkivet.
 - Licens: Deutsche Börse-filerna är gratis för icke-kommersiell användning.

@@ -9,32 +9,44 @@ bankdag, så 'sync' måste köras minst en gång per bankdag (helst kväll + mor
   python mfs.py sync                               # hämta allt nytt för standardflödena
   python mfs.py sync --feeds DFRA-pretrade DFRA-posttrade DEUR-posttrade
   python mfs.py marks 2026-10-02                   # bygg kurstabell för en dag ur arkivet
-  python mfs.py marks 2026-10-02 --snap 15:30 16:00
+  python mfs.py marks 2026-10-02 --snap 17:30          # Frankfurttid
+  python mfs.py sync --bonds-only                  # pre-trade: bara obligationsrader
   python mfs.py prune --feed DFRA-pretrade --keep-days 14   # radera rådata för dagar som redan har marks
 
-Arkivstruktur:  archive/<flöde>/<YYYY-MM-DD>/<filnamn>.json.gz   (filerna sparas oförändrade)
+Arkivstruktur:  archive/<flöde>/<handelsdag>/<filnamn>.json.gz
+  Filnamnens tid är UTC och anger minutens början. Handelsdagen räknas i
+  Frankfurttid, så t.ex. DFRA-pretrade-2026-10-01T23_00 hör till 2026-10-02.
+  Filerna sparas oförändrade, utom med 'sync --bonds-only' där pre-trade-filer
+  bara behåller rader med priceNotation 2 (ca 1/4 av raderna, ~0,5 i st.f. ~2 GB/dag).
 
-'marks' går igenom pre-trade-filerna i tidsordning och håller senaste meddelandet
-per ISIN (sista meddelandet vinner; saknas bestBid/bestAsk i det meddelandet räknas
-sidan som tom). Vid varje ögonblicksbild (--snap, UTC, samma tidszon som filnamnen)
-och vid dagens slut ('close') sparas läget i SQLite:
+Pre-trade-meddelandena är DELTOR: ett meddelande med bara bestAsk betyder att
+säljkursen ändrats, inte att budet försvunnit. 'marks' slår därför ihop sidorna
+per ISIN (varje sida behåller sitt senaste värde och sin tidsstämpel) och sparar
+läget vid varje --snap (Frankfurttid, HH:MM) och vid dagens slut ('close'):
 
-  quotes(date, snap, isin, bid, ask, ccy, notation, quote_time, msg)
+  quotes(date, snap, isin, venue, ccy, bid, bid_qty, bid_time, ask, ask_qty, ask_time)
   days(date, feed, n_files, first_file, last_file, max_gap_min, built_at)
 
-msg är hela senaste JSON-meddelandet, så inga fält går förlorade.
+Obs: om en sida dras tillbaka utan att det syns i flödet blir den kvar som
+gammal kurs; bid_time/ask_time visar hur färsk varje sida är.
 
 API (offentligt, ingen nyckel):
   GET https://mfs.deutsche-boerse.com/api/<flöde>            -> {"CurrentFiles": [...]}
-  GET https://mfs.deutsche-boerse.com/api/download/<filnamn>
+  GET https://mfs.deutsche-boerse.com/api/download/<filnamn>  (301 -> kortlivad Google Storage-länk)
+Flöden: DFRA (Börse Frankfurt), DETR (Xetra), DEUR (Eurex), DETG, DGAT; -pretrade/-posttrade.
+Vissa flöden har även en '-daily-<datum>'-fil (DEUR-posttrade ja, DFRA-pretrade nej/404).
 """
 import argparse, datetime as dt, gzip, json, os, re, shutil, sqlite3, sys, time, urllib.error, urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from zoneinfo import ZoneInfo
 
 BASE = "https://mfs.deutsche-boerse.com/api"
 FEEDS_DEFAULT = ["DFRA-pretrade", "DFRA-posttrade", "DEUR-posttrade"]
 ARCHIVE_DEFAULT = os.environ.get("MFS_ARCHIVE", "archive")
 DB_DEFAULT = os.environ.get("MFS_MARKS_DB", "marks.sqlite")
 FNAME_RE = re.compile(r"^(?P<feed>.+)-(?P<date>\d{4}-\d{2}-\d{2})T(?P<hh>\d{2})_(?P<mm>\d{2})\.json\.gz$")
+DAILY_RE = re.compile(r"^(?P<feed>.+)-daily-(?P<date>\d{4}-\d{2}-\d{2})\.json\.gz$")
+TZ = ZoneInfo("Europe/Berlin")
 UA = {"User-Agent": "kth-fic-club/1.0 (non-commercial, academic)"}
 
 
@@ -65,12 +77,17 @@ def list_files(feed):
 
 
 def parse_name(fname):
-    """'DFRA-pretrade-2026-10-02T08_15.json.gz' -> ('DFRA-pretrade', '2026-10-02', datetime UTC)"""
-    m = FNAME_RE.match(os.path.basename(fname))
+    """'DFRA-pretrade-2026-10-01T23_00.json.gz' -> ('DFRA-pretrade', '2026-10-02', datetime 23:00 UTC)
+    Handelsdagen räknas i Frankfurttid. Dagsfiler ('-daily-<datum>') ger tid None."""
+    base = os.path.basename(fname)
+    m = DAILY_RE.match(base)
+    if m:
+        return m["feed"], m["date"], None
+    m = FNAME_RE.match(base)
     if not m:
         return None
-    t = dt.datetime.fromisoformat(f"{m['date']}T{m['hh']}:{m['mm']}")
-    return m["feed"], m["date"], t
+    t = dt.datetime.fromisoformat(f"{m['date']}T{m['hh']}:{m['mm']}").replace(tzinfo=dt.timezone.utc)
+    return m["feed"], t.astimezone(TZ).date().isoformat(), t
 
 
 def _gzip_ok(path):
@@ -83,18 +100,27 @@ def _gzip_ok(path):
         return False
 
 
-def download(fname, path):
-    tmp = path + ".part"
+def download(fname, path, notation=None):
+    """Hämtar en fil. notation=2 behåller bara obligationsrader (priceNotation 2)."""
+    tmp = f"{path}.{os.getpid()}.part"  # unikt per process: två samtidiga sync krockar inte
     with _open(f"{BASE}/download/{fname}", timeout=300) as r, open(tmp, "wb") as f:
         shutil.copyfileobj(r, f, 1 << 20)
     if not _gzip_ok(tmp):
         os.remove(tmp)
         raise RuntimeError(f"trasig gzip: {fname}")
+    if notation is not None:
+        tag = re.compile(rb'"priceNotation"\s*:\s*%d\s*[,}]' % notation)
+        with gzip.open(tmp, "rb") as src, gzip.open(tmp + "2", "wb", compresslevel=6) as dst:
+            for line in src:
+                if tag.search(line):
+                    dst.write(line)
+        os.replace(tmp + "2", tmp)
     os.replace(tmp, path)
 
 
-def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, pause=0.05):
-    """Hämtar alla filer som servern har och som inte redan finns i arkivet."""
+def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, workers=4, bonds_only=False):
+    """Hämtar alla filer som servern har och som inte redan finns i arkivet.
+    Returnerar (nya, misslyckade). 404 räknas som saknad fil, inte som fel."""
     total_new = failed = 0
     for feed in feeds:
         try:
@@ -103,26 +129,43 @@ def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, pause=0.05):
             print(f"{feed}: kunde inte lista filer: {e}", file=sys.stderr)
             failed += 1
             continue
-        new = skipped = 0
+        notation = 2 if (bonds_only and feed.endswith("-pretrade")) else None
+        todo, skipped = [], 0
         for fn in files:
             p = parse_name(fn)
-            day = p[1] if p else "okänt-datum"
-            folder = os.path.join(archive, feed, day)
-            path = os.path.join(folder, fn)
+            if notation is not None and p and p[2] is None:
+                continue  # dagsfil = dubblett av minutfilerna; hoppa över i filtrerat läge
+            path = os.path.join(archive, feed, p[1] if p else "okänt-datum", fn)
             if os.path.exists(path):
                 skipped += 1
-                continue
-            os.makedirs(folder, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                todo.append((fn, path))
+
+        def fetch(job):
+            fn, path = job
             try:
-                download(fn, path)
-                new += 1
+                download(fn, path, notation)
+                return "ok", os.path.getsize(path)
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return "404", 0
+                print(f"  {fn}: {e}", file=sys.stderr)
             except Exception as e:
                 print(f"  {fn}: {e}", file=sys.stderr)
-                failed += 1
-            time.sleep(pause)
-        days = sorted({parse_name(f)[1] for f in files if parse_name(f)})
+            return "fel", 0
+
+        with ThreadPoolExecutor(max(1, workers)) as ex:
+            res = list(ex.map(fetch, todo))
+        new = sum(r == "ok" for r, _ in res)
+        missing = sum(r == "404" for r, _ in res)
+        failed += sum(r == "fel" for r, _ in res)
+        mb = sum(b for _, b in res) / 1e6
+        days = sorted({p[1] for f in files if (p := parse_name(f))})
         rng = f"{days[0]}..{days[-1]}" if days else "-"
-        print(f"{feed}: {len(files)} filer på servern ({rng}), {new} nya, {skipped} fanns redan", file=sys.stderr)
+        print(f"{feed}: {len(files)} filer på servern ({rng}), {new} nya ({mb:,.0f} MB), "
+              f"{skipped} fanns redan, {missing} saknas (404)" + (" [bara obligationer]" if notation else ""),
+              file=sys.stderr)
         total_new += new
     return total_new, failed
 
@@ -131,8 +174,9 @@ def sync(feeds=FEEDS_DEFAULT, archive=ARCHIVE_DEFAULT, pause=0.05):
 def connect(db=DB_DEFAULT):
     con = sqlite3.connect(db)
     con.executescript("""
-    CREATE TABLE IF NOT EXISTS quotes(date TEXT, snap TEXT, isin TEXT, bid REAL, ask REAL, ccy TEXT,
-        notation INT, quote_time TEXT, msg TEXT, PRIMARY KEY(date, snap, isin));
+    CREATE TABLE IF NOT EXISTS quotes(date TEXT, snap TEXT, isin TEXT, venue TEXT, ccy TEXT,
+        bid REAL, bid_qty REAL, bid_time TEXT, ask REAL, ask_qty REAL, ask_time TEXT,
+        PRIMARY KEY(date, snap, isin));
     CREATE TABLE IF NOT EXISTS days(date TEXT, feed TEXT, n_files INT, first_file TEXT, last_file TEXT,
         max_gap_min REAL, built_at TEXT, PRIMARY KEY(date, feed));
     """)
@@ -140,10 +184,11 @@ def connect(db=DB_DEFAULT):
 
 
 def day_files(archive, feed, date):
+    """Minutfilerna för en handelsdag i tidsordning (dagsfiler utelämnas)."""
     folder = os.path.join(archive, feed, date)
     if not os.path.isdir(folder):
         return []
-    fs = [(parse_name(f)[2], os.path.join(folder, f)) for f in os.listdir(folder) if parse_name(f)]
+    fs = [(p[2], os.path.join(folder, f)) for f in os.listdir(folder) if (p := parse_name(f)) and p[2]]
     return sorted(fs)
 
 
@@ -165,42 +210,56 @@ def iter_messages(path):
                     continue
 
 
+def _snap_utc(date, hhmm):
+    """'17:30' Frankfurttid på handelsdagen -> ISO-sträng i UTC jämförbar med updateDateAndTime."""
+    t = dt.datetime.fromisoformat(f"{date}T{hhmm}").replace(tzinfo=TZ).astimezone(dt.timezone.utc)
+    return t.strftime("%Y-%m-%dT%H:%M:%S")
+
+
 def build_marks(date, archive=ARCHIVE_DEFAULT, db=DB_DEFAULT, feed="DFRA-pretrade", snaps=(), notation=2):
-    """Ögonblicksbilder av senaste bud/sälj per ISIN. notation=None tar med alla instrument."""
+    """Ögonblicksbilder av bud/sälj per ISIN (deltor ihopslagna). notation=None tar med alla instrument."""
     files = day_files(archive, feed, date)
     if not files:
         raise SystemExit(f"inga {feed}-filer för {date} i {archive}/")
-    snap_times = sorted((dt.datetime.fromisoformat(f"{date}T{s}"), s) for s in snaps)
+    pending = sorted((_snap_utc(date, s), s) for s in snaps)
     state, out = {}, []
 
     def take(label):
-        for isin, (t, m) in state.items():
-            out.append((date, label, isin, _num(m.get("bestBid")), _num(m.get("bestAsk")), m.get("priceCurrency"),
-                        m.get("priceNotation"), t.isoformat(timespec="minutes"), json.dumps(m, separators=(",", ":"))))
+        for isin, q in state.items():
+            out.append((date, label, isin, q["venue"], q["ccy"], q["bid"], q["bid_qty"], q["bid_time"],
+                        q["ask"], q["ask_qty"], q["ask_time"]))
 
-    for t, path in files:
-        while snap_times and t > snap_times[0][0]:
-            take(snap_times.pop(0)[1])
+    for _, path in files:
         for m in iter_messages(path):
             if notation is not None and m.get("priceNotation") != notation:
                 continue
             isin = m.get("instrumentIdentificationCode")
-            if isin:
-                state[isin] = (t, m)
-    for _, label in snap_times:  # ögonblicksbilder efter sista filen
+            if not isin:
+                continue
+            ts = m.get("updateDateAndTime") or m.get("publicationDateAndTime") or ""
+            while pending and ts[:19] >= pending[0][0]:
+                take(pending.pop(0)[1])
+            q = state.get(isin)
+            if q is None:
+                q = state[isin] = dict(bid=None, bid_qty=None, bid_time=None, ask=None, ask_qty=None, ask_time=None)
+            q["venue"], q["ccy"] = m.get("venueOfExecution"), m.get("priceCurrency")
+            for side, key in (("bid", "bestBid"), ("ask", "bestAsk")):
+                if key in m:
+                    q[side], q[side + "_qty"], q[side + "_time"] = _num(m[key]), _num(m.get(key + "Qty")), ts[:23]
+    for _, label in pending:  # ögonblicksbilder efter sista meddelandet
         take(label)
     take("close")
 
     gaps = [(b[0] - a[0]).total_seconds() / 60 for a, b in zip(files, files[1:])]
     con = connect(db)
     con.execute("DELETE FROM quotes WHERE date=?", (date,))
-    con.executemany("INSERT INTO quotes VALUES (?,?,?,?,?,?,?,?,?)", out)
+    con.executemany("INSERT INTO quotes VALUES (?,?,?,?,?,?,?,?,?,?,?)", out)
     con.execute("INSERT OR REPLACE INTO days VALUES (?,?,?,?,?,?,?)",
                 (date, feed, len(files), os.path.basename(files[0][1]), os.path.basename(files[-1][1]),
                  max(gaps, default=0), dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")))
     con.commit()
     close = [r for r in out if r[1] == "close"]
-    two = sum(1 for r in close if r[3] is not None and r[4] is not None)
+    two = sum(1 for r in close if r[5] is not None and r[8] is not None)
     print(f"{date}: {len(files)} filer ({os.path.basename(files[0][1])} .. {os.path.basename(files[-1][1])}, "
           f"största lucka {max(gaps, default=0):.0f} min), {len(close):,} ISIN vid stängning, {two:,} tvåsidiga "
           f"-> {db}", file=sys.stderr)
@@ -234,9 +293,11 @@ if __name__ == "__main__":
     sp = ap.add_subparsers(dest="cmd", required=True)
     l = sp.add_parser("list"); l.add_argument("feed")
     s = sp.add_parser("sync"); s.add_argument("--feeds", nargs="+", default=FEEDS_DEFAULT)
+    s.add_argument("--bonds-only", action="store_true", help="pre-trade: spara bara priceNotation 2-rader")
+    s.add_argument("--workers", type=int, default=4, help="parallella nedladdningar")
     m = sp.add_parser("marks"); m.add_argument("dates", nargs="+")
     m.add_argument("--feed", default="DFRA-pretrade")
-    m.add_argument("--snap", nargs="*", default=[], help="ögonblicksbilder HH:MM (UTC) utöver 'close'")
+    m.add_argument("--snap", nargs="*", default=[], help="ögonblicksbilder HH:MM (Frankfurttid) utöver 'close'")
     m.add_argument("--all", action="store_true", help="alla instrument, inte bara priceNotation 2")
     p = sp.add_parser("prune"); p.add_argument("--feed", required=True); p.add_argument("--keep-days", type=int, default=14)
     a = ap.parse_args()
@@ -245,7 +306,7 @@ if __name__ == "__main__":
         print("\n".join(fs[:5] + (["..."] if len(fs) > 10 else []) + fs[-5:] if len(fs) > 10 else fs))
         print(f"{len(fs)} filer", file=sys.stderr)
     elif a.cmd == "sync":
-        _, failed = sync(a.feeds, a.archive)
+        _, failed = sync(a.feeds, a.archive, a.workers, a.bonds_only)
         sys.exit(1 if failed else 0)
     elif a.cmd == "marks":
         for d in a.dates:
