@@ -7,7 +7,7 @@ Builds the portfolio site (site/portfolio.html) from one day of data.
 Reads data/<date>/ (bonds_classified, dfra_quotes, eurex_futures_daily) and the ECB curve,
 computes analytics with analytics.py and embeds the result as JSON in site/template.html.
 """
-import argparse, csv, datetime as dt, glob, gzip, json, math, os, re, sys
+import argparse, csv, datetime as dt, glob, gzip, io, json, math, os, re, sys
 
 import pandas as pd
 
@@ -165,7 +165,9 @@ def write_history(data, hist_dir):
     os.makedirs(hist_dir, exist_ok=True)
     c = {k: i for i, k in enumerate(data["cols"])}
     path = os.path.join(hist_dir, f"{data['asof']}.csv.gz")
-    with gzip.open(path, "wt", newline="", encoding="utf-8") as f:
+    # mtime=0: the same day's data gives the same bytes, so rebuilding the site commits nothing new
+    with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz, \
+            io.TextIOWrapper(gz, encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["id"] + HIST_BOND_COLS[1:])
         for b in data["bonds"]:
