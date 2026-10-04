@@ -551,3 +551,19 @@ def test_live_merges_quotes_and_futures(tmp_path):
     resumed = live.Live("2026-10-05", {"DE0001"}, json.loads(json.dumps(out)))
     assert resumed.bonds == out["bonds"] and resumed.done == out["cursor"]
     assert live.Live("2026-10-06", None, out).bonds == {}                                    # a new day starts empty
+
+
+def test_ecb_collateral_credit_quality_from_haircuts():
+    import ecb_collateral as ec
+    hdr = ["ISIN_CODE", "HAIRCUT_CATEGORY", "COUPON_DEFINITION", "DENOMINATION", "MATURITY_DATE", "HAIRCUT", "TYPE"]
+    rows = [dict(zip(hdr, r)) for r in [
+        *[[f"A{i}", "L1D", "CD4", "EUR", "15/03/2029 00:00:00", "12", "AT02"] for i in range(5)],   # usual level, 3-5y
+        ["BBB1", "L1D", "CD4", "EUR", "15/03/2029 00:00:00", "23", "AT02"],                          # markedly higher
+        ["EDGE", "L1D", "CD4", "EUR", "10/10/2028 00:00:00", "10", "AT02"],                          # 1-3y level, near the cut-off
+        ["ABS1", "L1E", "CD4", "EUR", "15/03/2040 00:00:00", "9", "AT11"],
+        ["USD1", "L1D", "CD4", "USD", "15/03/2029 00:00:00", "30", "AT02"]]]
+    rows += [dict(zip(hdr, [f"E{i}", "L1D", "CD4", "EUR", "15/03/2028 00:00:00", "10", "AT02"])) for i in range(3)]
+    raw = ("\t".join(hdr) + "\n" + "\n".join("\t".join(r[h] for h in hdr) for r in rows) + "\n").encode("utf-16")
+    q = ec.classify(ec.parse(gzip.compress(raw)), "2026-10-02")
+    assert q["A0"]["cqs"] == "1-2" and q["BBB1"]["cqs"] == "3" and q["EDGE"]["cqs"] == "1-2"
+    assert q["ABS1"]["cqs"] is None and "USD1" not in q

@@ -83,7 +83,7 @@ table.t { border-collapse: collapse; width: 100%; }
 .t tbody tr.sel td.nm { color: #ffc56b; }
 .t td.amb, .t .amb { color: var(--amber); } .t td.dim { color: var(--fg-2); }
 .t td.desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
-.t.vt { table-layout: fixed; min-width: calc(127ch + 163px); }   /* screener: fixed columns */
+.t.vt { table-layout: fixed; min-width: calc(116ch + 176px); }   /* screener: fixed columns */
 .t.vt td { overflow: hidden; text-overflow: ellipsis; }
 .t.vt td.nm { max-width: none; }
 .t tr.sp td { padding: 0; border: 0; }
@@ -581,7 +581,7 @@ function hedgeCalc(bk) {
 const state = {
   view: store("view") || "dash",
   q: "", tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", off: new Set(store("subOff") || []), bench: store("bench") ?? true,
-  firm: store("firm") ?? false, mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
+  firm: store("firm") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
@@ -1119,11 +1119,15 @@ function renderMkt() {
 
 // ------------------------------------------------------------------ TRADE
 const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
-  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"], ["mdur", "MOD DUR", 2]];
+  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"],
+  ["ecb", "ECB", undefined, "Eurosystem credit quality from the ECB list of eligible collateral: ≥A− (steps 1–2), BBB (step 3), – not on the list"], ["mdur", "MOD DUR", 2]];
+// ECB credit quality: the class of a bond for the filter chips and its label
+const ECB_CLS = (b) => b.ecb === "1-2" ? "a" : b.ecb === "3" ? "bbb" : "ne";
+const ECB_LBL = { "1-2": "≥A−", "3": "BBB", "?": "ELIG" };
 let VISIBLE = [], ROW_H = 20, DRAWN = "";
 const SCR = {};
 // fixed column widths (characters) so the columns stay put while scrolling; the bond name takes the rest
-const BW = { isin: 12, sector: 14, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ytm: 7, z: 7, rv: 7, mdur: 9 };
+const BW = { isin: 12, sector: 11, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ytm: 7, z: 7, rv: 7, ecb: 5, mdur: 9 };
 
 const curTab = () => TABS.find(t => t.k === state.tab);
 
@@ -1131,7 +1135,7 @@ const curTab = () => TABS.find(t => t.k === state.tab);
 function matcher() {
   const q = state.q.trim().toLowerCase();
   const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat];
-  return b => (!state.bench || b.bench) && (!state.firm || b.firm) && b.yrs >= mlo && b.yrs < mhi
+  return b => (!state.bench || b.bench) && (!state.firm || b.firm) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi
     && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q));
 }
 
@@ -1162,6 +1166,7 @@ function renderDesk() {
           <div class="chips" id="mat" aria-label="Maturity">${[["all", "ALL"], ["0-3", "0-3Y"], ["3-7", "3-7Y"], ["7-15", "7-15Y"], ["15+", "15Y+"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
           <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">BENCHMARK ≥€500M SENIOR</button>
           <button class="tog" id="firm" title="Bid and offer both with size">FIRM TWO-WAY</button>
+          <div class="chips" id="ecbf" aria-label="ECB credit quality" title="Eurosystem collateral list: credit quality step 1–2 (A− or better), step 3 (BBB), or not on the list (high yield, or an issuer the ECB does not accept)">${[["a", "≥A−"], ["bbb", "BBB"], ["ne", "NOT ON ECB LIST"]].map(([k, l]) => `<button data-q="${k}">${l}</button>`).join("")}</div>
         </div>
         <div class="pb" id="scrBody" tabindex="0" aria-label="Bond list, use arrow keys to select"></div>
         <div class="more" id="scrMore"></div></div>` +
@@ -1175,6 +1180,7 @@ function renderDesk() {
     $("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); renderScreener(true); };
     $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); renderScreener(true); };
     $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); renderScreener(true); };
+    $("#ecbf").onclick = e => { const k = e.target.dataset.q; if (!k) return; state.ecbOff.has(k) ? state.ecbOff.delete(k) : state.ecbOff.add(k); store("ecbOff", [...state.ecbOff]); renderScreener(true); };
     let raf = 0;
     const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawRows(); }); };
     $("#scrBody").addEventListener("scroll", redraw, { passive: true });
@@ -1195,6 +1201,7 @@ function renderScreener(reset = false) {
   $("#sectors").hidden = tab.s.length < 2;
   document.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
   $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm);
+  document.querySelectorAll("#ecbf button").forEach(b => b.setAttribute("aria-pressed", !state.ecbOff.has(b.dataset.q)));
   const xs = filtered(), [sk, sd] = state.sort, box = $("#scrBody");
   const top = reset ? 0 : box.scrollTop;
   VISIBLE = xs; SCR.tab = tab; SCR.counts = counts; DRAWN = "";
@@ -1211,7 +1218,7 @@ const bondRow = (b, selIsin) => `<tr class="click${b.isin === selIsin ? " sel" :
       <td class="nm">${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
       <td class="n">${fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
       <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
-      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
+      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="${b.ecb === "3" ? "amb" : b.ecb ? "" : "muted"}">${ECB_LBL[b.ecb] || "–"}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
 
 // Infinite scroll: the screener holds every matching bond but draws only the rows around the viewport, with
 // spacer rows for the rest, so the scrollbar spans the full list. Rows are one line at a fixed height.
@@ -1226,9 +1233,9 @@ function drawRows(top) {
   const selIsin = state.sel?.kind === "bond" ? state.sel.id : null, key = `${n}:${first}:${last}:${selIsin}`;
   if (key !== DRAWN) {
     DRAWN = key;
-    const pad = (h) => h > 0 ? `<tr class="sp"><td colspan="12" style="height:${h}px"></td></tr>` : "";
+    const pad = (h) => h > 0 ? `<tr class="sp"><td colspan="13" style="height:${h}px"></td></tr>` : "";
     tb.innerHTML = n ? pad(first * ROW_H) + VISIBLE.slice(first, last).map(b => bondRow(b, selIsin)).join("") + pad((n - last) * ROW_H)
-      : `<tr><td colspan="12" class="empty">${emptyMsg(SCR.tab, SCR.counts)}</td></tr>`;
+      : `<tr><td colspan="13" class="empty">${emptyMsg(SCR.tab, SCR.counts)}</td></tr>`;
     // the real row pitch, measured between rows (the first row also carries half of the top border)
     const rs = tb.querySelectorAll("tr.click");
     if (rs.length > 2) {
@@ -1323,6 +1330,7 @@ function renderTicket() {
         <dt>Bid / Offer</dt><dd class="big">${fmt(b.bid, 3)} / ${fmt(b.ask, 3)}${b.firm ? "" : ` <span class="ind" title="indicative">IND</span>`}</dd><dt>Bid-offer</dt><dd>${fmt((b.ask - b.bid) * 100, 1)} cents</dd>
         <dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp</dd><dt title="Z-spread minus the issuer's fitted spread curve">Rich / cheap</dt><dd>${b.rv == null ? "– (no issuer curve)" : `${fmtS(b.rv, 1)} bp ${b.rv > 0 ? "cheap" : "rich"}`}</dd>
         <dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd><dt>Roll-down 3M</dt><dd>${b.roll == null ? "–" : fmtS(b.roll, 1) + " bp"}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
+        <dt title="Eurosystem collateral list ${DATA.ecb ? dTerm(DATA.ecb.date) : ""}">ECB credit quality</dt><dd>${b.ecb === "1-2" ? "step 1–2 (A− or better)" : b.ecb === "3" ? "step 3 (BBB+ to BBB−)" : b.ecb ? "eligible, step not shown" : "not on the ECB list"}</dd>
         <dt>Min denomination</dt><dd>${fmt(b.unit, 0)}</dd><dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) : "–"}</dd></dl></div>
       <div class="sect"><div class="lbl">Z-SPREAD HISTORY, BP</div><div class="hist" id="tkHist"></div></div>`;
     sizeField = `<label class="lbl" for="tkSize">NOMINAL (EUR)</label><input id="tkSize" class="num" style="width:100%" inputmode="numeric" value="${fmt(state.nominal, 0)}">

@@ -17,6 +17,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `site/build.py` | data + ECB curve + €STR | Builds the portfolio site (`site/template.html` → `index.html`) with the day's data embedded; writes `data/history/<date>.csv.gz` and the `hist/` time series |
 | `market.py` | ECB (curves, €STR, EUR/USD), NY Fed (SOFR), FRED (ICE BofA OAS, VIX) | End-of-day market monitor and the risk-factor history for VaR |
 | `live.py` | Deutsche Börse minute files (DFRA-pretrade, DEUR-posttrade) | Intraday quotes for the site: a GitHub Actions job streams each minute file and pushes `live.json` to the branch `live` every minute |
+| `ecb_collateral.py` | ECB list of eligible marketable assets (daily) | Credit quality per bond: Eurosystem credit quality step 1–2 (A− or better) or 3 (BBB), read from the haircut; not on the list = high yield or an issuer the ECB does not accept |
 | `ci.py` | all of the above | Daily GitHub Actions job: fetch, build, archive each business day as a draft release, publish the site |
 
 ```bash
@@ -70,6 +71,11 @@ Relative value:
 - **Markets** (key 5): government yields (ECB AAA and all-govt curves, Bund benchmarks), credit (Euro HY / US IG /
   US HY OAS as proxies for iTraxx Crossover / CDX, Eurex credit index futures), €STR and SOFR, Eurex rates futures,
   VIX and EUR/USD, with 1D/1W/1M changes. End of day: tick data, iTraxx/CDX, swap rates and Euribor are licensed.
+- **Credit quality** (ECB column and filter): the Eurosystem accepts bonds rated BBB− or better. Its daily list of
+  eligible assets has no ratings, but the haircut gives the credit quality step: within a haircut category, coupon
+  type and maturity bucket, steps 1–2 (AAA to A−) share one haircut and step 3 (BBB) has a markedly higher one.
+  On 2 Oct 2026 the 9,259 benchmark bonds split into 5,299 ≥A−, 789 BBB and 3,170 not on the list (mostly bank
+  MREL/holding-company bonds and issuers outside the EEA, which are ineligible whatever their rating).
 - **History**: each site build stores the day's mid, YTM, Z-spread and rich/cheap per bond (and futures with the CTD
   yield) in `data/history/`, and publishes them as time series (Z-spread per bond, level per strategy).
 

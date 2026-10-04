@@ -13,7 +13,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import analytics as an, ecb_curve, eurex, market  # noqa: E402
+import analytics as an, ecb_collateral, ecb_curve, eurex, market  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
@@ -72,6 +72,22 @@ def add_relative_value(rows, cols, keys, curve):
     cols += ["rv", "roll"]
 
 
+def add_ecb_quality(rows, cols):
+    """Appends 'ecb': the Eurosystem credit quality step from the ECB list of eligible assets ("1-2" = A- or
+    better, "3" = BBB+ to BBB-, "?" = on the list but not classifiable, None = not on the list).
+    Returns {date, n} or None if the list could not be downloaded."""
+    try:
+        q, day = ecb_collateral.load()
+    except Exception as e:  # the site still builds without the column's data
+        print(f"ECB eligible assets unavailable: {e}", file=sys.stderr)
+        q, day = None, None
+    for row in rows:
+        v = (q or {}).get(row[0])
+        row.append((v["cqs"] or "?") if v else None)
+    cols.append("ecb")
+    return dict(date=day, n=sum(1 for row in rows if row[-1])) if q else None
+
+
 def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
     ddir = os.path.join(ROOT, "data", day)
     b = pd.read_csv(bonds_csv or os.path.join(ddir, "bonds_classified.csv.gz"), index_col="isin", low_memory=False)
@@ -110,6 +126,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
     cols = ["isin", "issuer", "name", "sector", "sub", "cpn", "mat", "amt", "bid", "ask", "firm", "ytm", "z",
             "mdur", "acc", "bench", "freq", "unit"]
     add_relative_value(rows, cols, keys, curve)
+    ecb = add_ecb_quality(rows, cols)
 
     # futures: front contract with on-book trades
     bunds = [(i, x.coupon_fixed, x.mat, (x.bid_px + x.ask_px) / 2) for i, x in u.iterrows()
@@ -144,7 +161,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
 
     mkt = market.build(day, ecb_db)
 
-    return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
+    return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
                 cols=cols, bonds=rows, futures=futures)
 
