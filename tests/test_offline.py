@@ -839,7 +839,18 @@ def test_pnl_history_marks_open_and_realized(tmp_path):
     pos.write_text(json.dumps({"positions": [{"kind": "bond", "isin": "B1", "qty": 1000000, "price": 100.0, "date": "2026-10-01"},
                                              {"kind": "bond", "isin": "U1", "qty": 1000000, "price": 100.0, "date": "2026-10-02"}],
                                "closed": [{"kind": "bond", "isin": "B1", "qty": 1, "price": 100.0, "date": "2026-10-01", "closed": "2026-10-02", "tot": -500}]}))
-    out = build.pnl_history(str(h), str(pos), {"EURUSD": {"d": ["2026-10-01", "2026-10-02"], "v": [1.1, 1.25]}}, {"U1"})
+    out = build.pnl_history(str(h), str(pos), {"EURUSD": {"d": ["2026-10-01", "2026-10-02"], "v": [1.1, 1.25]}}, {"U1": "USD"})
     assert out["d"] == ["2026-10-01", "2026-10-02"] and out["pnl"][0] == 0
     assert out["pnl"][1] == pytest.approx(10000 + 8000 - 500, abs=1)        # B1 +1 pt, U1 +1 pt in USD at 1.25, realized
     assert out["bench"][1] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_nelson_siegel_fit_and_points_curve():
+    import govt_curves as gc
+    true = (0.6, -0.5, 0.8, 3.0)
+    pts = [(t, gc.nelson_siegel(t, *true)) for t in (0.8, 1.5, 2.7, 4, 6, 8, 10, 13, 17, 22, 30)]
+    c = gc.fit(pts, "2026-10-02", "test")
+    assert c.rmse_bp < 0.5 and c.spot(10) == pytest.approx(math.log(1 + gc.nelson_siegel(10, *true) / 100) * 100, abs=0.01)
+    assert gc.fit(pts[:4], "2026-10-02", "test") is None                     # too few bonds
+    p = gc.Points("d", [1, 2], [4.0, 5.0], "x")
+    assert p.spot(1.5) == pytest.approx(4.5) and p.spot(0.1) == 4.0 and p.spot(9) == 5.0

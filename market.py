@@ -75,6 +75,25 @@ def ecb_meetings():
     return sorted(out)
 
 
+def boe_series(code, day, start="01/Jan/2023"):
+    """Daily series from the Bank of England's database (IADB): SONIA (IUDSOIA), nominal par gilt yields 5/10/20Y
+    (IUDSNPY, IUDMNPY, IUDLNPY)."""
+    url = ("https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp?csv.x=yes"
+           f"&Datefrom={start}&Dateto=now&SeriesCodes={code}&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N")
+    rows = list(csv.reader(io.StringIO(_get(url, timeout=60))))[1:]
+    out = [(dt.datetime.strptime(r[0], "%d %b %Y").date().isoformat(), float(r[1])) for r in rows if len(r) > 1 and r[1] not in ("", ".")]
+    out = [x for x in out if x[0] <= day]
+    return [d for d, _ in out], [v for _, v in out]
+
+
+def saron(day):
+    """SARON, monthly average from the SNB data portal (the daily fixing is published by SIX, not as open data)."""
+    rows = [r for r in csv.reader(io.StringIO(_get("https://data.snb.ch/api/cube/zimoma/data/csv/en")), delimiter=";")
+            if len(r) == 3 and r[1] == "SARON" and r[2]]
+    out = [(r[0] + "-15", float(r[2])) for r in rows if r[0] + "-15" <= day]   # mid-month date for the monthly value
+    return [d for d, _ in out], [v for _, v in out]
+
+
 def sofr(n=300):
     j = json.loads(_get(f"https://markets.newyorkfed.org/api/rates/secured/sofr/last/{n}.json"))["refRates"][::-1]
     return [x["effectiveDate"] for x in j], [float(x["percentRate"]) for x in j]
@@ -109,6 +128,12 @@ def build(day, ecb_db):
     add("DFR", "ECB deposit facility rate", "money", "%", "ECB", lambda: ecb_series("FM/D.U2.EUR.4F.KR.DFR.LEV", end=day))
     add("SOFR", "SOFR", "money", "%", "NY Fed", sofr)
     add("EURUSD", "EUR/USD", "macro", "", "ECB", lambda: ecb_series("EXR/D.USD.EUR.SP00.A", end=day))
+    add("EURGBP", "EUR/GBP", "macro", "", "ECB", lambda: ecb_series("EXR/D.GBP.EUR.SP00.A", end=day))
+    add("EURCHF", "EUR/CHF", "macro", "", "ECB", lambda: ecb_series("EXR/D.CHF.EUR.SP00.A", end=day))
+    add("SONIA", "SONIA", "money", "%", "BoE", lambda: boe_series("IUDSOIA", day))
+    for code, key, name in (("IUDSNPY", "GB5", "UK gilt 5Y"), ("IUDMNPY", "GB10", "UK gilt 10Y"), ("IUDLNPY", "GB20", "UK gilt 20Y")):
+        add(key, f"{name} (par)", "rates", "%", "BoE", lambda code=code: boe_series(code, day))
+    add("SARON", "SARON (monthly average)", "money", "%", "SNB", lambda: saron(day))
     for sid, (name, group, unit) in FRED.items():
         add(sid, name, group, unit, "FRED", lambda sid=sid: fred(sid, day))
     return S

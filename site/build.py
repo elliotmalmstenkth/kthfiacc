@@ -13,7 +13,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import analytics as an, classify, country, ecb_collateral, ecb_curve, eurex, eurex_options, frn, green, market, stir, ust_curve  # noqa: E402
+import analytics as an, classify, country, ecb_collateral, ecb_curve, eurex, eurex_options, frn, govt_curves, green, market, stir, ust_curve  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b|^TII\b|\bTIPS\b"
@@ -211,10 +211,16 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
         print(f"US Treasury curve unavailable: {e}; no dollar bonds", file=sys.stderr)
         ust = None
     fw = frn.Forwards(stirs["euribor"]) if stirs and stirs.get("euribor") else None
-    curves = {"EUR": curve, "USD": ust}
+    try:
+        gbp = govt_curves.boe(day)
+    except Exception as e:
+        print(f"Bank of England curve unavailable: {e}; no sterling bonds", file=sys.stderr)
+        gbp = None
+    chf = swiss_curve(b, q, day, settle)
+    curves = {"EUR": curve, "USD": ust, "GBP": gbp, "CHF": chf}
     leis = country.load_cache()
     try:   # GLEIF for issuers not seen before (a handful a day); the cache is committed with data/history
-        new = b[b.ccy.isin(["EUR", "USD"])]
+        new = b[b.ccy.isin(list(CCYS))]
         before = len(leis)
         country.update_cache(set(new.issuer_lei.dropna()), set(new[new.issuer.fillna("").str.contains(country.VEHICLE)].issuer_lei.dropna()), leis, max_parent_calls=200)
         if len(leis) > before:
@@ -245,8 +251,8 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
             cpn = 0.0 if x.coupon_type == "zero" else clean_coupon(x.coupon_fixed, x.full_name)
             if cpn is None or pd.isna(cpn):
                 continue
-            # dollar bonds and BTPs pay semi-annually; other euro bonds annually
-            freq = 2 if ccy == "USD" or (isin.startswith("IT") and x.sector == "SOV") else 1
+            # dollar and sterling bonds and BTPs pay semi-annually; euro and Swiss franc bonds annually
+            freq = 2 if ccy in ("USD", "GBP") or (isin.startswith("IT") and x.sector == "SOV") else 1
             a = an.analyse(mid, cpn, x.mat, settle, curves[ccy], freq)
             if not a or a.get("ytm") is None:
                 continue
@@ -333,12 +339,38 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
     return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, esg=esg, dq=dq, log=read_log(), built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
                 ust=dict(date=ust.date, par={str(k): v for k, v in ust.par.items()}) if ust else None,
+                curves={k: dict(date=c.date, src=getattr(c, "src", None), spot={t: r(c.spot(t), 4) for t in (1, 2, 5, 10, 20, 30)},
+                                rmse=r(getattr(c, "rmse_bp", None), 1), n=getattr(c, "n", None)) for k, c in curves.items() if c is not None},
                 fxh=fxh, idx=idx, cols=cols, bonds=rows, futures=futures, vol=vol, stir=stirs)
 
 
 # repo haircuts (% of market value) for the book's capital use: the ECB's own haircut for bonds on its list,
 # otherwise a conservative bilateral-repo level by type (assumptions, shown as such on the site)
-DEFAULT_HAIRCUT = {"UST": 2.0, "USD_PUBLIC": 8.0, "USD_CORP": 15.0, "EUR_PUBLIC": 10.0, "EUR_CORP": 20.0}
+DEFAULT_HAIRCUT = {"HOME_SOV": 2.0, "FX_PUBLIC": 8.0, "FX_CORP": 15.0, "EUR_PUBLIC": 10.0, "EUR_CORP": 20.0}
+# the currencies on the site and the home country of each (its government bonds carry no credit risk here)
+CCYS = {"EUR": None, "USD": "US", "GBP": "GB", "CHF": "CH"}
+
+
+def swiss_curve(b, q, day, settle):
+    """Swiss Confederation curve fitted to its bonds' yields (govt_curves.fit), from firm closing quotes."""
+    x = b[(b.ccy == "CHF") & (b.sector == "SOV") & b.issuer.fillna("").str.contains("SCHWEIZ|SWISS", case=False)]
+    x = x.join(q[["bid", "ask", "bid_qty", "ask_qty"]], rsuffix="_px", how="inner")
+    pts = []
+    for _, y in x[(x.bid_qty > 0) & (x.ask_qty > 0)].iterrows():
+        cpn = clean_coupon(y.coupon_fixed, y.full_name)
+        try:
+            mat = dt.date.fromisoformat(str(y.maturity)[:10])
+        except ValueError:
+            continue
+        a = an.analyse((y.bid_px + y.ask_px) / 2, cpn or 0.0, mat, settle, None, 1) if cpn is not None else None
+        if a and a.get("ytm") is not None:
+            pts.append((a["years"], a["ytm"] * 100))
+    c = govt_curves.fit(pts, day, "fitted to Swiss Confederation bonds")
+    if c is None:
+        print("Swiss curve: too few Confederation quotes; no Swiss franc bonds", file=sys.stderr)
+    else:
+        c.n = len(pts)
+    return c
 
 
 def add_haircuts(rows, cols, ecbq):
@@ -349,9 +381,9 @@ def add_haircuts(rows, cols, ecbq):
         if v and v.get("eur") and v.get("haircut") is not None:
             row += [r(v["haircut"], 1), "ECB"]
             continue
-        usd, corp = row[c["ccy"]] == "USD", row[c["sector"]].startswith("CORP")
-        k = ("UST" if usd and row[c["sector"]] == "SOV" and row[c["cty"]] == "US" else
-             ("USD" if usd else "EUR") + ("_CORP" if corp else "_PUBLIC"))
+        ccy, corp = row[c["ccy"]], row[c["sector"]].startswith("CORP")
+        k = ("HOME_SOV" if ccy != "EUR" and row[c["sector"]] == "SOV" and row[c["cty"]] == CCYS[ccy] else
+             ("EUR" if ccy == "EUR" else "FX") + ("_CORP" if corp else "_PUBLIC"))
         row += [DEFAULT_HAIRCUT[k], "assumed"]
     cols += ["hc", "hcs"]
 
@@ -411,7 +443,7 @@ def hist_changes(data, hist_dir):
             f[key] = r(f["last"] - old, 5) if old is not None and f.get("last") is not None else None
 
 
-def pnl_history(hist_dir, positions_path, mkt, usd_isins=()):
+def pnl_history(hist_dir, positions_path, mkt, ccy_of=None):
     """The club book's P&L per history day (clean price P&L of the positions open that day, marked at the day's
     mid, plus the realized P&L of trades closed by then; carry left out), with the FECX index as benchmark.
     {d, pnl, gross, bench} or None without trades or history."""
@@ -425,16 +457,21 @@ def pnl_history(hist_dir, positions_path, mkt, usd_isins=()):
     files = sorted(p for p in glob.glob(os.path.join(hist_dir, "*.csv.gz")) if os.path.basename(p)[:10] >= start)
     if not files:
         return None
-    e = mkt.get("EURUSD")
-    fxs = dict(zip(e["d"], e["v"])) if e else {}
+    ccy_of = ccy_of or {}
+    fxs = {c: dict(zip(mkt[f"EUR{c}"]["d"], mkt[f"EUR{c}"]["v"])) for c in ("USD", "GBP", "CHF") if mkt.get(f"EUR{c}")}
     mult = {k: v[4] for k, v in eurex.PRODUCTS.items()}
-    last_mark, last_fx = {}, None
+    last_mark, last_fx = {}, {}
     out = dict(d=[], pnl=[], gross=[], bench=[])
     fecx0 = None
     for p in files:
         d = os.path.basename(p)[:10]
         h = read_history(p)
-        last_fx = fxs.get(d, last_fx) or last_fx or (list(fxs.values())[-1] if fxs else None)
+        for c, ser in fxs.items():   # the day's rate, else the last known one before it
+            if d in ser:
+                last_fx[c] = ser[d]
+            elif c not in last_fx:
+                prior = [v for k, v in sorted(ser.items()) if k <= d]
+                last_fx[c] = prior[-1] if prior else list(ser.values())[-1]
         pnl = gross = 0.0
         for t in trades:
             opened = t.get("date") or t.get("at", "")[:10]
@@ -451,14 +488,14 @@ def pnl_history(hist_dir, positions_path, mkt, usd_isins=()):
             if m is None:
                 continue
             if t["kind"] == "bond":
-                usd = t["isin"] in usd_isins
-                fx = last_fx if usd else 1
+                c = ccy_of.get(t["isin"], "EUR")
+                fx = 1 if c == "EUR" else last_fx.get(c)
                 if not fx:
                     continue
                 pnl += t["qty"] * (m - t["price"]) / 100 / fx
                 gross += abs(t["qty"]) * m / 100 / fx
             else:
-                fx = last_fx if t["code"] == "FCEU" else 1
+                fx = last_fx.get(eurex.PRODUCTS.get(t["code"], ("", "", "", "EUR"))[3], 1)
                 pnl += t["qty"] * (m - t["price"]) * mult.get(t["code"], 1) / (fx or 1)
         fe = (h.get("FUT:FECX") or {}).get("mid")
         fecx0 = fecx0 or fe
@@ -700,7 +737,7 @@ if __name__ == "__main__":
         stir_changes(data, a.history)
         hist_changes(data, a.history)
         ic = data["cols"].index("ccy")
-        data["pnlh"] = pnl_history(a.history, os.path.join(ROOT, a.positions), data["mkt"], {b[0] for b in data["bonds"] if b[ic] == "USD"})
+        data["pnlh"] = pnl_history(a.history, os.path.join(ROOT, a.positions), data["mkt"], {b[0]: b[ic] for b in data["bonds"]})
         data["hist"] = build_shards(a.history, os.path.join(os.path.dirname(os.path.abspath(a.out)), "hist"))
         print(f"history: {len(data['hist'])} days", file=sys.stderr)
     owner, name = a.repo.split("/")

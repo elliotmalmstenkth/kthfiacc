@@ -16,6 +16,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `frn.py` | Euribor forwards from `stir.py` | Floating-rate notes on 3M Euribor: discount margin, rates duration (to the next reset) and spread duration |
 | `country.py` | ECB eligible list, GLEIF LEI register | Country of risk per bond (guarantor, parent of a financing vehicle, issuer); GLEIF answers cached in `data/history/lei_country.csv` |
 | `orders.py` | Deutsche Börse minute files (archive) | Limit orders in `portfolio/positions.json`: matched each evening (bonds: a firm quote through the limit; futures: a trade through it), filled into positions or expired |
+| `govt_curves.py` | Bank of England yield curve files; Börse Frankfurt quotes | Sterling zero curve (BoE nominal spot curve) and a Swiss franc curve fitted (Nelson-Siegel) to the Confederation bonds, as the SNB's daily curve is no longer published |
 | `firds.py` | ESMA FIRDS (FULINS) | Reference data per ISIN → SQLite (`--cat D` debt, `--cat F` futures) |
 | `classify.py` | FIRDS + DFRA pre-trade | Sector classification (sovereign, covered, financial/non-financial corporate …) and coverage summary |
 | `ecb_curve.py` | ECB YC (data-api.ecb.europa.eu) | Archives the ECB Svensson parameters (AAA and all euro area) since 2004; spot, forward, par and discount factors |
@@ -52,10 +53,12 @@ python -m pytest -q tests                       # offline tests on synthetic dat
 ## Portfolio site
 
 The site has eight workspaces (keys 1–8): Dashboard, Holdings & P&L, Risk, Trade, Rates, Credit, This week, Guide.
-The screener covers euro and dollar bonds (EUR / USD switch; Z-spreads over the ECB AAA or the US Treasury curve)
-and euro FRNs on Euribor (FIXED / FRN chips; Z BP = discount margin). Dollar positions are valued in EUR at the ECB
-reference rate and funded in dollars at SOFR; their rates risk sits in US Treasury buckets and their credit risk is a
-VaR factor through the ICE BofA US HY OAS.
+The screener covers euro, dollar, sterling and Swiss franc bonds (EUR / USD / GBP / CHF switch; Z-spreads over the ECB AAA,
+US Treasury, Bank of England gilt or fitted Swiss Confederation curve)
+and euro FRNs on Euribor (FIXED / FRN chips; Z BP = discount margin). Positions in other currencies are valued in EUR at the
+ECB reference rates and funded in their own currency (SOFR, SONIA, SARON); their rates risk sits in their own buckets
+(VaR: US Treasury and BoE gilt yields; Swiss rates proxied by the euro AAA 10Y) and dollar credit is a VaR factor
+through the ICE BofA US HY OAS.
 
 Trading desk tools: the ticket shows the trade's impact on the book (DV01, CS01, VaR, capital, largest country)
 before booking, takes limit orders (DAY or one week) and sets alerts (kept in the viewer's browser). Risk has stress
