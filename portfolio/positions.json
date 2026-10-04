@@ -21,7 +21,9 @@
    "date": "2026-10-02",
    "by": "elliotmalmstenkth",
    "at": "2026-10-04T20:21:12.485Z"
-  },
+  }
+ ],
+ "closed": [
   {
    "id": "muu9ra6byqaru",
    "kind": "future",
@@ -31,9 +33,15 @@
    "price": 169.17,
    "date": "2026-10-02",
    "by": "elliotmalmstenkth",
-   "at": "2026-10-04T20:24:14.915Z"
+   "at": "2026-10-04T20:24:14.915Z",
+   "closed": "2026-10-02",
+   "closedAt": "2026-10-04T21:27:37.503Z",
+   "closedBy": "elliotmalmstenkth",
+   "exit": 169.17,
+   "pnl": 0,
+   "carry": 0,
+   "tot": 0
   }
  ],
- "closed": [],
  "orders": []
 }
