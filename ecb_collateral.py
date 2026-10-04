@@ -83,7 +83,7 @@ def classify(rows, asof):
             issued = dt.datetime.strptime(x.get("ISSUANCE_DATE", "")[:10], "%d/%m/%Y").date().isoformat()
         except ValueError:
             issued = None
-        out[x["ISIN_CODE"]] = dict(cqs=cqs, haircut=h, category=x["HAIRCUT_CATEGORY"], type=x.get("TYPE"), issued=issued)
+        out[x["ISIN_CODE"]] = dict(cqs=cqs, haircut=h, category=x["HAIRCUT_CATEGORY"], type=x.get("TYPE"), issued=issued, group=x.get("ISSUER_GROUP"))
     return out
 
 

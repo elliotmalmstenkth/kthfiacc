@@ -86,6 +86,13 @@ Relative value:
   and per issuer, ECB credit quality changes (including bonds leaving the list), rich/cheap flips, and the club's
   coupons, maturities and futures deliveries next week. Sections that compare with last week fill once the history
   has a day before Monday.
+- **Data quality**: each build re-applies the current `classify.py` rules (so older files get today's fixes) and
+  then the ECB's issuer groups where they disagree (central government, regional, supranational, agency, bank). Closing
+  quotes are flagged ⚠ when the bid-offer is very wide, the price implausible, the Z-spread extreme or the bond far off
+  its issuer's curve; flagged quotes are left out of the issuer curves and the weekly movers. The Guide page (key 7)
+  shows the collection log, the sources' latest dates, the quote checks and every reclassification.
+- **Guide** (key 7): workspaces, how to trade, glossary, data sources, data status and known limitations, for new
+  members.
 - **History**: each site build stores the day's mid, YTM, Z-spread and rich/cheap per bond (and futures with the CTD
   yield) in `data/history/`, and publishes them as time series (Z-spread per bond, level per strategy).
 

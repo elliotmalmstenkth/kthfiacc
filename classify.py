@@ -69,6 +69,19 @@ AGENCY = [r"^KFW", r"^KREDITANST", r"^LANDWIRT", r"^RENTENBANK", r"^NRW\.?BANK",
           r"^OEKB", r"^EXPORT DEV", r"^SVENSK EXPORT", r"^KOMMUNALKREDIT AUSTRIA", r"^EXPORTFINANS",
           r"^JAPAN BANK FOR", r"^JAPAN FIN", r"^KOREA DEV", r"^EXPORT-IMPORT", r"^ERSTE ABWICKL",
           r"^FMS WERTMANAG", r"^CDP\b", r"^KOREA HOUSING", r"^EXPORT DEVELOPM", r"^BAY\.? ?LDESBODEN", r"^LKB BW", r"^OEST\.?KONTROLL", r"^AB SVENSK EXP", r"^FINNVERA", r"^CDC\b", r"^SOCIETE DU GRAN", r"^ACTION LOGEMENT", r"^AFD\b", r"^ASFINAG", r"^OEBB", r"^RATP\b", r"^REGIE AUTONOME", r"^UNION NATIONALE", r"^SAGESS", r"^KOMMUNALKR", r"^EFA\b", r"^SOCIETE NATIONA", r"^SNCF", r"^ADIF", r"^FADE\b", r"^HEIMSTADEN BOSTAD NEVER"]
+# Issuers caught by a broader rule above (e.g. ^CHINA, ^KOREA, ^ICELAND are sovereign patterns), checked first.
+# FISN issuer names are cut at 15 characters, so patterns match the cut name.
+EXCEPTIONS = [
+    (r"^CHINA CON(STR)?\.? ?BK|^BANK OF CHINA|^ICBC|^AGRICULTURAL BK", "CORP_FIN"),
+    (r"^CHINA THREE GOR|^CHINA SOUTHERN|^STATE GRID|^SINOPEC|^CNOOC|^PETROCHINA", "CORP_NONFIN"),
+    (r"^ICELAND BONDCO", "CORP_NONFIN"),                               # Iceland Foods (UK supermarket), not the state
+    (r"^CHINA DEV|^KOREA (HOUSING|HSG|LAND|DEV|EXIM|EXPRESSWAY)|^JAPAN (BANK FOR|BK FOR|FINANCE|FIN\.)|^DEVELOPMENT BK OF JAPAN|"
+     r"^THE EXPORT-IMPO|^MAGYAR EXPORT|^HUNGARIAN DEV|^SAECHS\.? ?AUFB|^SAECHSISCHE AUF|^HAMB\.? ?INV|^HAMBURGISCHE IN|"
+     r"^SID - SLOVENSKA|^SID SLOVENSKA", "AGENCY"),
+    (r"^COMPAGNIE DE FI|^FINANCEMENT FON|^CIE DE FINANCEM|^ARKEA PUBLIC SE", "COVERED"),  # SCF issuers (obligations foncières)
+    (r"^UTD\.? ?MEXICAN|^PERUSAHAAN PENE|^PERUSAHAAN PERS", "SOV"),        # Mexico; Indonesia's sukuk issuer
+]
+
 # LEI-based cases where the FISN name is ambiguous
 LEI_SECTOR = {
     "ZTMSNXROF84AHWJNKQ93": "SUPRA",   # IBRD (World Bank)
@@ -125,13 +138,16 @@ def sector_of(row, overrides):
     if cfi[:2] in ("DS", "DE", "DW", "DD", "DM"):
         return "STRUCTURED", f"CFI {cfi[:2]}"
     if lei in LEI_SECTOR:
-        return LEI_SECTOR[lei], "LEI-lista"
+        return LEI_SECTOR[lei], "LEI list"
+    for pat, sec in EXCEPTIONS:
+        if re.search(pat, iss):
+            return sec, "issuer name (exception)"
     if first_match(SUPRA, iss):
         return "SUPRA", "issuer name"
+    if first_match(AGENCY, iss):            # before SOV: ^KOREA / ^JAPAN would otherwise catch the agencies
+        return "AGENCY", "issuer name"
     if first_match(SOV, iss):
         return "SOV", "issuer name"
-    if first_match(AGENCY, iss):
-        return "AGENCY", "issuer name"
     if re.search(r"\b(GOVT|BTP|OAT|BONOS)\b", desc) and cfi[3:4] == "T" and not re.search(FIN, iss):
         return "SOV", "FISN-beskrivning + CFI statsgaranti"
     if first_match(SUBSOV, iss) or cfi[:2] == "DN":

@@ -601,3 +601,32 @@ def test_weekly_summary(tmp_path):
     assert w["iss_wide"][0] == dict(issuer="ACME", n=2, dz=32.5, up=2)
     assert {(x["isin"], x["ecb0"], x["ecb"], x["dir"]) for x in w["ratings"]} == {("A1", "1-2", "3", "down"), ("B1", "3", None, "down")}
     assert [x["isin"] for x in w["rv"]] == ["A1"]
+
+
+@pytest.mark.parametrize("fisn,want", [
+    ("KOREA HOUSING F/4.0 BD 20300101", "AGENCY"),          # was caught by the sovereign rule ^KOREA
+    ("JAPAN FINANCE O/3.0 MTN 20310101", "AGENCY"),
+    ("CHINA CON BK CO/3.5 MTN 20300101", "CORP_FIN"),
+    ("ICELAND BONDCO/10.875 NT 20300101", "CORP_NONFIN"),   # Iceland Foods, not the Republic
+    ("UTD MEXICAN STS/4.5 NT 20330101", "SOV"),
+    ("SAECHS.AUFB/2.0 ANL 20300101", "AGENCY"),
+    ("COMPAGNIE DE FI/3.0 BD 20300101", "COVERED"),
+    ("KOREA, REPUBLIC/3.0 BD 20300101", "SOV"),
+])
+def test_sector_exceptions(fisn, want):
+    assert classify.sector_of(R2("DBFTFB", fisn, "", ""), {})[0] == want
+
+
+def test_build_reclassify_and_quote_flags():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build, pandas as pd
+    b = pd.DataFrame(dict(cfi=["DBFTFB"] * 4, fisn=["KOREA HOUSING F/4 BD", "BIG CORP/3 MTN", "SOME BANK/2 MTN", "CNCL.EU DEV.BK/2 MTN"],
+                          issuer_lei=[None] * 4, full_name=[None] * 4, issuer=["KHF", "BIG", "SB", "CEB"],
+                          sector=["SOV", "SOV", "CORP_NONFIN", "CORP_FIN"]), index=["I1", "I2", "I3", "I4"])
+    ecb = {"I2": {"group": "IG3"}, "I3": {"group": "IG4"}, "I4": {"group": "IG6"}}
+    ch = build.reclassify(b, ecb, overrides_csv="/nonexistent")
+    assert list(b.sector) == ["AGENCY", "CORP_NONFIN", "CORP_FIN", "SUPRA"]
+    assert {(c["issuer"], c["to"]) for c in ch} == {("KHF", "AGENCY"), ("BIG", "CORP_NONFIN"), ("SB", "CORP_FIN"), ("CEB", "SUPRA")}
+    assert build.quote_flags(99.0, 98.9, 99.1, 80) == []
+    assert build.quote_flags(60.0, 55.0, 65.0, 900) == ["wide"]
+    assert build.quote_flags(8.0, 7.9, 8.1, None) == ["price", "spread"]

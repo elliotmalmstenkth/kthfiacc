@@ -13,7 +13,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import analytics as an, ecb_collateral, ecb_curve, eurex, green, market  # noqa: E402
+import analytics as an, classify, ecb_collateral, ecb_curve, eurex, green, market  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
@@ -72,15 +72,64 @@ def add_relative_value(rows, cols, keys, curve):
     cols += ["rv", "roll"]
 
 
-def add_ecb_quality(rows, cols):
-    """Appends 'ecb': the Eurosystem credit quality step from the ECB list of eligible assets ("1-2" = A- or
-    better, "3" = BBB+ to BBB-, "?" = on the list but not classifiable, None = not on the list).
-    Returns {date, n} or None if the list could not be downloaded."""
+def load_ecb():
+    """The ECB list of eligible assets ({isin: ...}, date), or (None, None) if it cannot be downloaded."""
     try:
-        q, day = ecb_collateral.load()
-    except Exception as e:  # the site still builds without the column's data
+        return ecb_collateral.load()
+    except Exception as e:  # the site still builds without it
         print(f"ECB eligible assets unavailable: {e}", file=sys.stderr)
-        q, day = None, None
+        return None, None
+
+
+# ECB issuer groups (list of eligible assets) that settle the sector when our name rules disagree
+ECB_GROUP_SECTOR = {"IG2": "SOV", "IG5": "SUBSOV", "IG6": "SUPRA", "IG7": "AGENCY", "IG8": "AGENCY"}
+
+
+def reclassify(b, ecbq, overrides_csv=os.path.join(ROOT, "overrides.csv")):
+    """Applies the current classify.py rules to the day's bonds (the file may have been classified with older
+    rules), then the ECB issuer group where it is unambiguous: central government, regional/local government,
+    supranational, agency; a bank (IG4) is a financial, not a non-financial corporate; a corporate (IG3/IG9) is
+    not a sovereign. Returns the changes per issuer for the data status page."""
+    overrides = {}
+    if os.path.exists(overrides_csv):
+        with open(overrides_csv) as f:
+            overrides = {r["lei"]: r["sector"] for r in csv.DictReader(f)}
+    R = collections.namedtuple("R", "cfi fisn issuer_lei full_name")
+    clean = lambda v: None if v is None or (isinstance(v, float) and math.isnan(v)) else str(v)
+    new, why = [], []
+    for cfi, fisn, lei, name, old, isin in zip(b.cfi, b.fisn, b.issuer_lei, b.full_name, b.sector, b.index):
+        sec, rule = classify.sector_of(R(clean(cfi), clean(fisn), clean(lei), clean(name)), overrides)
+        g = ((ecbq or {}).get(isin) or {}).get("group")
+        if rule != "manual override" and sec in SECTORS:
+            if g in ECB_GROUP_SECTOR and sec != ECB_GROUP_SECTOR[g] and not (g == "IG8" and sec == "COVERED"):
+                sec, rule = ECB_GROUP_SECTOR[g], f"ECB issuer group {g}"
+            elif g == "IG4" and sec == "CORP_NONFIN":
+                sec, rule = "CORP_FIN", "ECB issuer group IG4 (credit institution)"
+            elif g in ("IG3", "IG9") and sec == "SOV":
+                sec, rule = "CORP_NONFIN", f"ECB issuer group {g} (corporate)"
+        new.append(sec)
+        why.append(rule if sec != old else None)
+    changes = collections.Counter((str(i), o, n, w) for i, o, n, w in zip(b.issuer, b.sector, new, why) if w and n != o)
+    b["sector"] = new
+    return [dict(issuer=i, frm=o, to=n, why=w, n=c) for (i, o, n, w), c in changes.most_common()]
+
+
+def quote_flags(mid, bid, ask, z):
+    """Reasons a closing quote looks unreliable: wide bid-offer, implausible price, extreme or missing Z-spread."""
+    f = []
+    if ask - bid > max(2.0, 0.03 * mid):
+        f.append("wide")
+    if mid < 20 or mid > 250:
+        f.append("price")
+    if z is None or z < -200 or z > 2500:
+        f.append("spread")
+    return f
+
+
+def add_ecb_quality(rows, cols, q, day):
+    """Appends 'ecb': the Eurosystem credit quality step from the ECB list of eligible assets ("1-2" = A- or
+    better, "3" = BBB+ to BBB-, "?" = on the list but not classifiable, None = not on the list) and 'iss'
+    (issue date). Returns {date, n} or None without the list."""
     for row in rows:
         v = (q or {}).get(row[0])
         row += [(v["cqs"] or "?") if v else None, v.get("issued") if v else None]
@@ -104,6 +153,8 @@ def add_green(rows, cols):
 def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
     ddir = os.path.join(ROOT, "data", day)
     b = pd.read_csv(bonds_csv or os.path.join(ddir, "bonds_classified.csv.gz"), index_col="isin", low_memory=False)
+    ecbq, ecbday = load_ecb()
+    reclass = reclassify(b, ecbq)
     q = pd.read_csv(quotes_csv or os.path.join(ddir, "dfra_quotes.csv.gz")).query("snap == 'close'").set_index("isin")
     fut = pd.read_csv(futures_csv or os.path.join(ddir, "eurex_futures_daily.csv"))
     curve = ecb_curve.Curve.load(day, "AAA", ecb_db)
@@ -115,7 +166,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
     u["mat"] = pd.to_datetime(u.maturity, errors="coerce").dt.date
     u = u[u.mat.notna() & (u.mat > settle + dt.timedelta(30))]
 
-    rows, keys = [], []
+    rows, keys, flags = [], [], []
     for isin, x in u.iterrows():
         cpn = 0.0 if x.coupon_type == "zero" else clean_coupon(x.coupon_fixed, x.full_name)
         if cpn is None or pd.isna(cpn):
@@ -135,11 +186,20 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
                      r(x.bid_px, 3), r(x.ask_px, 3), int(firm), r(a["ytm"] * 100, 3),
                      r(a["zspread"] * 1e4, 1) if a.get("zspread") is not None else None,
                      r(a["mdur"], 3), r(a["accrued"], 4), int(bench), freq, int(unit)])
-        keys.append((f"{x.issuer_lei if pd.notna(x.issuer_lei) else x.issuer}|{int(bool(x.subordinated))}", a["years"], firm))
+        flags.append(quote_flags(mid, x.bid_px, x.ask_px, rows[-1][12]))
+        # issuer curves are fitted on firm quotes without quality flags
+        keys.append((f"{x.issuer_lei if pd.notna(x.issuer_lei) else x.issuer}|{int(bool(x.subordinated))}", a["years"], firm and not flags[-1]))
     cols = ["isin", "issuer", "name", "sector", "sub", "cpn", "mat", "amt", "bid", "ask", "firm", "ytm", "z",
             "mdur", "acc", "bench", "freq", "unit"]
     add_relative_value(rows, cols, keys, curve)
-    ecb = add_ecb_quality(rows, cols)
+    irv = cols.index("rv")
+    for row, f in zip(rows, flags):         # far off the issuer's own curve: more likely a bad quote than value
+        if row[irv] is not None and abs(row[irv]) > 150:
+            f.append("curve")
+        row.append(",".join(f) or None)
+    cols.append("dq")
+    dq = dict(reclass=reclass, n=sum(1 for f in flags if f), reasons=dict(collections.Counter(x for f in flags for x in f)))
+    ecb = add_ecb_quality(rows, cols, ecbq, ecbday)
     esg = add_green(rows, cols)
 
     # futures: front contract with on-book trades
@@ -175,9 +235,19 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
 
     mkt = market.build(day, ecb_db)
 
-    return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, esg=esg, built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
+    return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, esg=esg, dq=dq, log=read_log(), built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
                 cols=cols, bonds=rows, futures=futures)
+
+
+def read_log(path=os.path.join(ROOT, "data", "log.csv"), n=15):
+    """The last n days of the collection log (files per feed, ISINs and two-way quotes at the close)."""
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        rows = list(csv.DictReader(f))
+    keep = ["date", "pretrade_files", "posttrade_files", "eurex_files", "isin_close", "two_sided_firm_close", "built_at"]
+    return [{k: x.get(k) for k in keep} for x in rows[-n:]]
 
 
 # ---------------------------------------------------------------- history
@@ -285,7 +355,7 @@ def weekly(data, hist_dir, top=15):
     moves = []
     for b in B:
         o = base.get(b["isin"])
-        if not o or o["z"] is None or b["z"] is None or not b["firm"] or b["yrs"] < 1:
+        if not o or o["z"] is None or b["z"] is None or not b["firm"] or b["yrs"] < 1 or b.get("dq"):
             continue
         dz = b["z"] - o["z"]
         if abs(dz) < 500:

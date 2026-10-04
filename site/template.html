@@ -216,6 +216,18 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
   grid-template-areas: "kpi kpi kpi" "blot blot blot" "strat attr sum"; }
 #v-risk { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, .9fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas: "kpi kpi kpi" "krd hedge var" "cs hedge meth"; }
+#v-guide { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-areas: "start gloss data" "status status limits"; }
+#v-guide .pb { padding: 0; }
+#v-guide h3 { font: inherit; color: #fff; letter-spacing: .05em; margin: 10px 0 4px; }
+#v-guide ol, #v-guide ul { margin: 0; padding-left: 18px; color: var(--fg); display: grid; gap: 3px; }
+.gl { display: grid; grid-template-columns: 10em minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+#v-guide .t td { white-space: normal; }
+#v-guide .gcols { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+#v-guide .gcols > div { min-width: 0; overflow-x: auto; }
+@media (max-width: 1000px) { #v-guide .gcols { grid-template-columns: minmax(0, 1fr); } }
+.gl dt { color: var(--amber); } .gl dd { margin: 0; color: var(--fg); }
+.dqf { color: var(--amber); margin-right: 4px; cursor: help; }
 #v-week { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 270px repeat(3, 300px); overflow: auto;
   grid-template-areas: "sum sum club" "new new next" "wide tight iss" "rat rv rv"; }
 #v-mkt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr);
@@ -230,6 +242,7 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
   #v-hold { grid-template-areas: "kpi" "blot" "strat" "attr" "sum"; }
   #v-risk { grid-template-areas: "kpi" "krd" "cs" "var" "hedge" "meth"; }
   #v-mkt { grid-template-areas: "rates" "credit" "money" "fut" "macro"; }
+  #v-guide { grid-template-areas: "start" "gloss" "data" "status" "limits"; }
   #v-week { grid-template-areas: "sum" "club" "new" "next" "wide" "tight" "iss" "rat" "rv"; }
   #v-desk { grid-template-areas: "tkt" "scr" "fut"; }
   .panel .pb { max-height: 460px; }
@@ -250,6 +263,7 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
     <button role="tab" data-view="desk" aria-selected="false" title="Key 4">TRADE</button>
     <button role="tab" data-view="mkt" aria-selected="false" title="Key 5">MARKETS</button>
     <button role="tab" data-view="week" aria-selected="false" title="Key 6">THIS WEEK</button>
+    <button role="tab" data-view="guide" aria-selected="false" title="Key 7">GUIDE</button>
   </nav>
   <main class="views">
     <section class="view" id="v-dash"></section>
@@ -258,6 +272,7 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
     <section class="view" id="v-desk" hidden></section>
     <section class="view" id="v-mkt" hidden></section>
     <section class="view" id="v-week" hidden></section>
+    <section class="view" id="v-guide" hidden></section>
   </main>
   <footer class="status" id="status"></footer>
 </div>
@@ -590,7 +605,7 @@ function hedgeCalc(bk) {
 const state = {
   view: store("view") || "dash",
   q: "", tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", off: new Set(store("subOff") || []), bench: store("bench") ?? true,
-  firm: store("firm") ?? false, esgOnly: store("esgOnly") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
+  firm: store("firm") ?? false, esgOnly: store("esgOnly") ?? false, hideDq: store("hideDq") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
@@ -770,7 +785,7 @@ function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = fal
 function setView(v) {
   state.view = v; store("view", v);
   document.querySelectorAll(".fkeys button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === v));
-  for (const id of ["dash", "hold", "risk", "desk", "mkt", "week"]) $("#v-" + id).hidden = id !== v;
+  for (const id of ["dash", "hold", "risk", "desk", "mkt", "week", "guide"]) $("#v-" + id).hidden = id !== v;
   render();
 }
 $(".fkeys").addEventListener("click", e => { const v = e.target.closest("button")?.dataset.view; if (v) setView(v); });
@@ -796,7 +811,7 @@ function renderStatus() {
     <a href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>
     <span>UNIVERSE <b>${fmt(BONDS.length, 0)}</b> EUR BONDS · ${DATA.futures.length} FUTURES</span>
     <button class="tog" id="cvd" aria-pressed="${state.cvd}" title="Colour-vision-deficiency scheme: blue up / red down (as on the Bloomberg Terminal)">CVD</button>
-    <span class="keys"><kbd>1-6</kbd> VIEW · <kbd>/</kbd> SEARCH · <kbd>[ ]</kbd> TAB · <kbd>↑↓</kbd> SELECT · <kbd>ENTER</kbd> TICKET · <kbd>ESC</kbd> CLOSE</span>`;
+    <span class="keys"><kbd>1-7</kbd> VIEW · <kbd>/</kbd> SEARCH · <kbd>[ ]</kbd> TAB · <kbd>↑↓</kbd> SELECT · <kbd>ENTER</kbd> TICKET · <kbd>ESC</kbd> CLOSE</span>`;
 }
 
 document.addEventListener("click", e => {
@@ -1225,6 +1240,88 @@ async function weekClub() {
     ${trades.length ? `<table class="t"><tbody>${trades.slice(-8).reverse().map(p => `<tr><td class="dim">${esc((p.at || "").slice(5, 10))}</td><td>${esc(describe(p))}</td><td class="who">${esc(p.by || "")}</td></tr>`).join("")}</tbody></table>` : ""}`;
 }
 
+// ------------------------------------------------------------------ GUIDE
+const GLOSSARY = [
+  ["DV01", "EUR P&L for a 1 bp fall in yield. Long bonds have positive DV01. Bonds: dirty value × modified duration × 0.0001."],
+  ["CS01", "EUR P&L for a 1 bp tighter credit spread. For a fixed-coupon corporate bond it equals its DV01; sovereigns carry none here."],
+  ["YTM", "Yield to maturity at the mid price (annual; Italian BTPs semi-annual)."],
+  ["Mod duration", "Percentage price change for a 1 percentage point change in yield."],
+  ["Z-spread", "Spread over the ECB AAA zero curve that reprices the bond. Credit risk plus liquidity."],
+  ["RV BP", "Rich/cheap: Z-spread minus a curve fitted to the same issuer's other bonds. + cheap, − rich."],
+  ["Carry", "Coupon income minus funding at the repo rate. Shorts pay the coupon and earn repo less the specialness."],
+  ["Roll-down", "Price gain from the bond ageing along an unchanged curve (3 months shown)."],
+  ["Firm two-way", "Bid and offer both with size: you could have traded. Otherwise the quote is indicative (dotted)."],
+  ["Benchmark", "Issue size at least EUR 500m and senior: the institutional, index-eligible universe."],
+  ["CTD", "Cheapest-to-deliver: the bond a futures seller delivers (lowest gross basis). Futures DV01 = DV01(CTD) / CF."],
+  ["CF", "Conversion factor: the deliverable bond's price at a 6% yield (Buxl 4%), per unit of par."],
+  ["Pair / fly", "Relative-value trades. Pair: long one bond, short another for zero DV01. Fly: body against two wings (50/50 DV01)."],
+  ["Level", "Strategy level in bp of yield: pair = long − short; fly = 2 × body − wings."],
+  ["VaR / ES", "Value at risk: the loss not exceeded on 99% of the last 500 days. Expected shortfall (CVaR): the average loss beyond it."],
+  ["DTS", "Duration times spread: spreads move in proportion to their level, so a 300 bp bond moves more than a 60 bp one."],
+  ["ECB ≥A− / BBB", "Eurosystem credit quality step from the ECB collateral list: steps 1–2 (A− or better) or 3 (BBB). Not on the list ≠ high yield."],
+  ["GRN / SOC / SUS / SLB", "Green, social, sustainability, sustainability-linked bond (Euronext ESG list)."],
+  ["⚠", "Closing quote failed a check: very wide bid-offer, implausible price, extreme spread or far off the issuer curve."],
+  ["€STR", "Euro short-term rate: overnight unsecured rate, the euro risk-free rate. Default repo rate here."],
+  ["OAS", "Option-adjusted spread of a bond index over government bonds (ICE BofA indices via FRED)."],
+  ["T+2", "Settlement two TARGET business days after the trade."],
+];
+function renderGuide() {
+  const D = DATA, M = D.mkt || {}, last = (k) => M[k] ? dTerm(M[k].d.at(-1)) : "unavailable";
+  const start = `<div class="sect">
+    <p class="note">The club's paper rates-and-credit portfolio on free euro market data. Prices are Börse Frankfurt's closing quotes (intraday when the feed runs); every trade is a commit in the repo, so the commit history is the blotter.</p>
+    <h3>WORKSPACES</h3><ol>
+      <li><b>Dashboard</b>: book KPIs, holdings, market monitor, DV01 by bucket, curve.</li>
+      <li><b>Holdings &amp; P&amp;L</b>: blotter, strategies, attribution, sector summary, funding assumptions.</li>
+      <li><b>Risk analytics</b>: key-rate DV01, credit spread risk, hedge proposal, VaR / expected shortfall.</li>
+      <li><b>Trade</b>: bond screener (CORP / GOVT / SSA / COVERED), Eurex futures, ticket for outright, pair and fly trades.</li>
+      <li><b>Markets</b>: yields, credit spreads, money markets, futures, VIX and EUR/USD.</li>
+      <li><b>This week</b>: new issues, spread movers, ECB credit quality changes, rich/cheap flips, next week.</li>
+      <li><b>Guide</b>: this page.</li></ol>
+    <h3>HOW TO TRADE</h3><ol>
+      <li>Ask Elliot to add your GitHub account as a collaborator on the repo.</li>
+      <li>Create a classic personal access token with the <code>public_repo</code> scope; click <b>SIGN IN TO TRADE</b> and paste it (it stays in your browser).</li>
+      <li>Trade: pick a bond or future, choose BUY or SELL / SHORT and the size, then <b>BOOK TRADE</b>. Buys fill at the offer, sells at the bid, futures at the last price.</li>
+      <li>Pairs and flies: switch the ticket to PAIR or FLY, click each leg, then a bond or future. Sizes are DV01-neutral.</li>
+      <li>Close: Holdings → CLOSE on the position (strategies close all legs together).</li></ol>
+    <h3>KEYS</h3><p class="note"><kbd>1</kbd>–<kbd>7</kbd> workspace · <kbd>/</kbd> search · <kbd>[</kbd> <kbd>]</kbd> screener tab · <kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Enter</kbd> ticket size · <kbd>Esc</kbd> close</p></div>`;
+  const gloss = `<div class="sect"><dl class="gl">${GLOSSARY.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`;
+  const src = [["Bond quotes", "Börse Frankfurt MiFID II pre-trade files", "every minute; closing marks each evening"],
+    ["Bond trades / futures", "Deutsche Börse post-trade (DFRA, Eurex DEUR)", "every minute; daily summary each evening"],
+    ["Reference data", "ESMA FIRDS", "weekly (Saturday)"],
+    ["Curves", "ECB AAA and all-govt Svensson curves", "daily, published at noon the next business day"],
+    ["€STR, EUR/USD", "ECB data portal", "daily"], ["SOFR", "New York Fed", "daily"],
+    ["Credit indices, VIX", "FRED (ICE BofA OAS, CBOE)", "daily"],
+    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"]];
+  const data = `<table class="t"><thead><tr><th>DATA</th><th>SOURCE</th><th>UPDATED</th></tr></thead><tbody>${src.map(r => `<tr><td>${r[0]}</td><td class="dim">${r[1]}</td><td class="dim">${r[2]}</td></tr>`).join("")}</tbody></table>
+    <p class="note pad">GitHub Actions collects the files every business day (22:37 UTC, retry 05:17 UTC), builds the analytics and publishes this site. The Deutsche Börse files are free for non-commercial use.</p>`;
+  const L = D.log || [], ok = (x, lo) => +x >= lo ? "" : "neg";
+  const log = L.length ? `<table class="t"><thead><tr><th>DAY</th><th class="n">PRE-TRADE</th><th class="n">POST-TRADE</th><th class="n">EUREX</th><th class="n">ISINS AT CLOSE</th><th class="n">FIRM TWO-WAY</th></tr></thead><tbody>` +
+    L.slice().reverse().map(x => `<tr><td>${dTerm(x.date)}</td><td class="n ${ok(x.pretrade_files, 1200)}">${fmt(+x.pretrade_files, 0)}</td><td class="n ${ok(x.posttrade_files, 1200)}">${fmt(+x.posttrade_files, 0)}</td><td class="n">${fmt(+x.eurex_files, 0)}</td><td class="n">${fmt(+x.isin_close, 0)}</td><td class="n">${fmt(+x.two_sided_firm_close, 0)}</td></tr>`).join("") + `</tbody></table>` : `<div class="empty">No collection log in this build.</div>`;
+  const srcStat = [["Prices (close)", dTerm(D.asof)], ["ECB AAA curve", dTerm(D.curve.date)], ["€STR", D.estr ? dTerm(D.estr.date) : "unavailable"],
+    ["ECB collateral list", D.ecb ? `${dTerm(D.ecb.date)} · ${fmt(D.ecb.n, 0)} bonds matched` : "unavailable"], ["ESG labels", D.esg ? `${fmt(D.esg.n, 0)} bonds` : "unavailable"],
+    ["Euro HY OAS", last("BAMLHE00EHYIOAS")], ["VIX", last("VIXCLS")], ["SOFR", last("SOFR")], ["History", D.hist ? `${D.hist.length} day${D.hist.length === 1 ? "" : "s"} since ${dTerm(D.hist[0])}` : "not in this build"],
+    ["Intraday feed", LIVE.raw ? `latest quote ${dTerm(LIVE.raw.day)} ${utcToCet(LIVE.raw.msg)} CET` : "no intraday data"]];
+  const q = D.dq || {}, R = q.reasons || {};
+  const status = `<div class="gcols">
+    <div><div class="sect"><div class="lbl">COLLECTION LOG (expected ~1,320 files per minute feed and day)</div></div>${log}
+      <div class="sect"><div class="lbl">QUOTE CHECKS · ${fmt(q.n || 0, 0)} of ${fmt(BONDS.length, 0)} bonds flagged ⚠</div>
+      <dl class="kv"><dt>Very wide bid-offer</dt><dd>${fmt(R.wide || 0, 0)}</dd><dt>Extreme / missing Z-spread</dt><dd>${fmt(R.spread || 0, 0)}</dd><dt>Far off the issuer curve (&gt;150 bp)</dt><dd>${fmt(R.curve || 0, 0)}</dd><dt>Implausible price</dt><dd>${fmt(R.price || 0, 0)}</dd></dl>
+      <p class="note">Flagged quotes are left out of the issuer curves and the weekly spread movers; HIDE FLAGGED QUOTES on the Trade screen removes them from the screener.</p></div></div>
+    <div><table class="t"><thead><tr><th>SOURCE</th><th>LATEST</th></tr></thead><tbody>${srcStat.map(r => `<tr><td>${r[0]}</td><td class="dim">${esc(r[1])}</td></tr>`).join("")}</tbody></table>
+      <table class="t"><thead><tr><th>RECLASSIFIED ISSUER</th><th>FROM → TO</th><th class="n">BONDS</th></tr></thead><tbody>${(q.reclass || []).slice(0, 40).map(x => `<tr title="${esc(x.why)}"><td>${esc(x.issuer)}</td><td class="dim">${SECT[x.frm] || x.frm} → ${SECT[x.to] || x.to}</td><td class="n">${x.n}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">none</td></tr>`}</tbody></table>
+      <p class="note pad">Sectors come from name rules on ESMA's register, corrected with the ECB's issuer groups where they disagree. Hover a row for the reason.</p></div></div>`;
+  const limits = `<div class="sect"><ul>
+    <li>Prices are Börse Frankfurt quotes, a largely retail venue; institutional prices can differ, especially for size.</li>
+    <li>Free data: no credit ratings (ECB steps instead), no iTraxx/CDX, swap rates or Euribor, no tick data.</li>
+    <li>Analytics are mid-based; intraday yields and spreads are first-order estimates until the evening rebuild.</li>
+    <li>VaR is linear (no convexity) and uses the ECB curve and Euro HY OAS as risk factors.</li>
+    <li>Rich/cheap needs at least four bonds of the same issuer and is not shown under one year or outside the fitted maturities.</li>
+    <li>ESG labels cover bonds listed on Euronext only.</li>
+    <li>Paper trading: no real money, but repo costs, bid-offer and carry are charged as they would be.</li></ul></div>`;
+  $("#v-guide").innerHTML = panel("start", "Getting started", start) + panel("gloss", "Glossary", gloss) + panel("data", "Data sources", data) +
+    panel("status", "Data status", status, { sub: `built ${esc((D.built || "").slice(0, 16).replace("T", " "))} UTC` }) + panel("limits", "Known limitations", limits);
+}
+
 // ------------------------------------------------------------------ TRADE
 const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
   ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"],
@@ -1232,6 +1329,9 @@ const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn",
 // ECB credit quality: the class of a bond for the filter chips and its label
 const ECB_CLS = (b) => b.ecb === "1-2" ? "a" : b.ecb === "3" ? "bbb" : "ne";
 const ECB_LBL = { "1-2": "≥A−", "3": "BBB", "?": "ELIG" };
+const DQ_TEXT = { wide: "very wide bid-offer", price: "implausible price", spread: "extreme or missing Z-spread", curve: "far off the issuer curve" };
+const dqText = (s) => String(s).split(",").map(x => DQ_TEXT[x] || x).join(", ");
+const dqTag = (b) => b.dq ? `<span class="dqf" title="Quote check: ${dqText(b.dq)}">⚠</span>` : "";
 const ESG_TAG = { GREEN: "GRN", SOCIAL: "SOC", SUST: "SUS", SLB: "SLB" };
 const ESG_NAME = { GREEN: "Green bond", SOCIAL: "Social bond", SUST: "Sustainability bond", SLB: "Sustainability-linked bond" };
 const esgTag = (b) => b.esg ? `<span class="esg${b.esg === "SLB" ? " slb" : ""}" title="${ESG_NAME[b.esg]} (Euronext ESG bond list)">${ESG_TAG[b.esg]}</span>` : "";
@@ -1246,7 +1346,7 @@ const curTab = () => TABS.find(t => t.k === state.tab);
 function matcher() {
   const q = state.q.trim().toLowerCase();
   const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat];
-  return b => (!state.bench || b.bench) && (!state.firm || b.firm) && (!state.esgOnly || b.esg) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi
+  return b => (!state.bench || b.bench) && (!state.firm || b.firm) && (!state.esgOnly || b.esg) && (!state.hideDq || !b.dq) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi
     && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q));
 }
 
@@ -1278,6 +1378,7 @@ function renderDesk() {
           <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">BENCHMARK ≥€500M SENIOR</button>
           <button class="tog" id="firm" title="Bid and offer both with size">FIRM TWO-WAY</button>
           <button class="tog" id="esgf" title="Green, social, sustainability and sustainability-linked bonds (Euronext ESG bond list)">ESG LABELLED</button>
+          <button class="tog" id="dqf" title="Hide bonds whose closing quote fails a quality check (very wide bid-offer, implausible price, extreme spread, far off the issuer curve)">HIDE FLAGGED QUOTES</button>
           <div class="chips" id="ecbf" aria-label="ECB credit quality" title="Eurosystem collateral list: credit quality step 1–2 (A− or better), step 3 (BBB), or not on the list (high yield, or an issuer the ECB does not accept)">${[["a", "≥A−"], ["bbb", "BBB"], ["ne", "NOT ON ECB LIST"]].map(([k, l]) => `<button data-q="${k}">${l}</button>`).join("")}</div>
         </div>
         <div class="pb" id="scrBody" tabindex="0" aria-label="Bond list, use arrow keys to select"></div>
@@ -1293,6 +1394,7 @@ function renderDesk() {
     $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); renderScreener(true); };
     $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); renderScreener(true); };
     $("#esgf").onclick = () => { state.esgOnly = !state.esgOnly; store("esgOnly", state.esgOnly); renderScreener(true); };
+    $("#dqf").onclick = () => { state.hideDq = !state.hideDq; store("hideDq", state.hideDq); renderScreener(true); };
     $("#ecbf").onclick = e => { const k = e.target.dataset.q; if (!k) return; state.ecbOff.has(k) ? state.ecbOff.delete(k) : state.ecbOff.add(k); store("ecbOff", [...state.ecbOff]); renderScreener(true); };
     let raf = 0;
     const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawRows(); }); };
@@ -1313,7 +1415,7 @@ function renderScreener(reset = false) {
   $("#sectors").innerHTML = tab.s.length > 1 ? tab.s.map(([s, l]) => `<button data-s="${s}" title="${SECT[s]}" aria-pressed="${!state.off.has(s)}">${l}</button>`).join("") : "";
   $("#sectors").hidden = tab.s.length < 2;
   document.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
-  $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm); $("#esgf").setAttribute("aria-pressed", state.esgOnly);
+  $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm); $("#esgf").setAttribute("aria-pressed", state.esgOnly); $("#dqf").setAttribute("aria-pressed", state.hideDq);
   document.querySelectorAll("#ecbf button").forEach(b => b.setAttribute("aria-pressed", !state.ecbOff.has(b.dataset.q)));
   const xs = filtered(), [sk, sd] = state.sort, box = $("#scrBody");
   const top = reset ? 0 : box.scrollTop;
@@ -1328,7 +1430,7 @@ function renderScreener(reset = false) {
 }
 
 const bondRow = (b, selIsin) => `<tr class="click${b.isin === selIsin ? " sel" : ""}" data-pick="${b.isin}" data-kind="bond">
-      <td class="nm">${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}${esgTag(b)}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
+      <td class="nm">${dqTag(b)}${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}${esgTag(b)}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
       <td class="n">${fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
       <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
       <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="${b.ecb === "3" ? "amb" : b.ecb ? "" : "muted"}">${ECB_LBL[b.ecb] || "–"}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
@@ -1443,6 +1545,7 @@ function renderTicket() {
         <dt>Bid / Offer</dt><dd class="big">${fmt(b.bid, 3)} / ${fmt(b.ask, 3)}${b.firm ? "" : ` <span class="ind" title="indicative">IND</span>`}</dd><dt>Bid-offer</dt><dd>${fmt((b.ask - b.bid) * 100, 1)} cents</dd>
         <dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp</dd><dt title="Z-spread minus the issuer's fitted spread curve">Rich / cheap</dt><dd>${b.rv == null ? "– (no issuer curve)" : `${fmtS(b.rv, 1)} bp ${b.rv > 0 ? "cheap" : "rich"}`}</dd>
         <dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd><dt>Roll-down 3M</dt><dd>${b.roll == null ? "–" : fmtS(b.roll, 1) + " bp"}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
+        ${b.dq ? `<dt>Quote check</dt><dd class="amb">${dqText(b.dq)}</dd>` : ""}
         <dt title="Euronext ESG bond list">ESG label</dt><dd>${b.esg ? ESG_NAME[b.esg] : "–"}</dd>
         <dt title="Eurosystem collateral list ${DATA.ecb ? dTerm(DATA.ecb.date) : ""}">ECB credit quality</dt><dd>${b.ecb === "1-2" ? "step 1–2 (A− or better)" : b.ecb === "3" ? "step 3 (BBB+ to BBB−)" : b.ecb ? "eligible, step not shown" : "not on the ECB list"}</dd>
         <dt>Min denomination</dt><dd>${fmt(b.unit, 0)}</dd><dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) : "–"}</dd></dl></div>
@@ -1592,7 +1695,7 @@ document.addEventListener("keydown", e => {
   const typing = e.target.closest("input, select, textarea");
   if (e.key === "Escape") { if (typing) e.target.blur(); else if (state.sel && state.view === "desk") { state.sel = null; store("sel", null); renderDesk(); } return; }
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $("#login").open) return;
-  const views = { 1: "dash", 2: "hold", 3: "risk", 4: "desk", 5: "mkt", 6: "week" };
+  const views = { 1: "dash", 2: "hold", 3: "risk", 4: "desk", 5: "mkt", 6: "week", 7: "guide" };
   if (views[e.key]) { e.preventDefault(); setView(views[e.key]); return; }
   if (e.key === "/") { e.preventDefault(); setView("desk"); $("#q").focus(); return; }
   if (state.view === "desk" && (e.key === "ArrowDown" || e.key === "ArrowUp") && VISIBLE.length) {
@@ -1615,7 +1718,7 @@ document.addEventListener("keydown", e => {
 // ------------------------------------------------------------------ render + storage
 function render() {
   renderAcct(); renderStatus();
-  ({ dash: renderDash, hold: renderHold, risk: renderRisk, desk: renderDesk, mkt: renderMkt, week: renderWeek })[state.view]();
+  ({ dash: renderDash, hold: renderHold, risk: renderRisk, desk: renderDesk, mkt: renderMkt, week: renderWeek, guide: renderGuide })[state.view]();
 }
 
 async function loadPositions() {
