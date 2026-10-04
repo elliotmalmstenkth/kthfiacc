@@ -1,3 +1,17 @@
 {
- "positions": []
+ "positions": [
+  {
+   "id": "muu9ksstktyzx",
+   "kind": "bond",
+   "isin": "XS2743711298",
+   "qty": 2000000,
+   "price": 98.62,
+   "settle": "2026-10-06",
+   "date": "2026-10-02",
+   "by": "elliotmalmstenkth",
+   "at": "2026-10-04T20:19:12.461Z"
+  }
+ ],
+ "closed": [],
+ "orders": []
 }
