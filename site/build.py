@@ -17,7 +17,8 @@ import analytics as an, classify, ecb_collateral, ecb_curve, eurex, eurex_option
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
-# assumed spread duration of the credit index futures (editable on the site)
+# assumed spread duration of the credit index futures (editable on the site); FECX is estimated from the
+# screener when enough bonds qualify (index_durations)
 INDEX_DURATION = {"FECX": 4.5, "FEHY": 3.0, "FGBC": 6.0, "FUIG": 6.5, "FUHY": 3.2, "FUEM": 6.5, "FGGI": 6.5}
 
 
@@ -70,6 +71,26 @@ def add_relative_value(rows, cols, keys, curve):
                 roll += an.spread_curve_value(coefs[g], t) - an.spread_curve_value(coefs[g], t - 0.25)
         row += [r(v, 1), r(roll, 2)]
     cols += ["rv", "roll"]
+
+
+def index_durations(rows, cols, settle, min_n=200):
+    """Modified duration of the credit futures' indices, estimated by applying the index rules to the screener:
+    {code: {dur, n}}. Only where our data covers the index: FECX (Bloomberg MSCI Euro Corporate Screened) =
+    euro corporates (financial and non-financial, senior and subordinated), investment grade, fixed or zero
+    coupon, at least EUR 300m outstanding, at least a year to maturity, weighted by market value. Investment
+    grade = on the ECB list of eligible collateral (steps 1-3): that leaves out IG issuers from outside the EEA,
+    and the index's ESG exclusions are not applied, so this is an estimate. Flagged quotes are left out.
+    The euro high-yield (FEHY), sterling, US dollar and EM indices are not estimated: we have no ratings to
+    pick high yield, and no bonds in those currencies."""
+    c = {k: i for i, k in enumerate(cols)}
+    one_year = (settle + dt.timedelta(days=365)).isoformat()
+    tot = n = dsum = 0.0
+    for b in rows:
+        if (b[c["sector"]] in ("CORP_FIN", "CORP_NONFIN") and b[c["ecb"]] in ("1-2", "3") and (b[c["amt"]] or 0) >= 300
+                and b[c["mat"]] >= one_year and not b[c["dq"]] and b[c["mdur"]] and b[c["bid"]] and b[c["ask"]]):
+            mv = b[c["amt"]] * ((b[c["bid"]] + b[c["ask"]]) / 2 + (b[c["acc"]] or 0))
+            tot += mv; dsum += mv * b[c["mdur"]]; n += 1
+    return {"FECX": dict(dur=round(dsum / tot, 2), n=int(n))} if n >= min_n else {}
 
 
 def load_ecb():
@@ -202,6 +223,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
     ecb = add_ecb_quality(rows, cols, ecbq, ecbday)
     esg = add_green(rows, cols)
 
+    idur = index_durations(rows, cols, settle)
     # futures: front contract with on-book trades
     bunds = [(i, x.coupon_fixed, x.mat, (x.bid_px + x.ask_px) / 2) for i, x in u.iterrows()
              if x.sector == "SOV" and i.startswith("DE000") and x.coupon_type == "fixed"]
@@ -223,7 +245,9 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
                             cpn=r(c["coupon"], 3), mat=c["maturity"], cf=r(c["cf"], 6), basis=r(c["basis"], 4),
                             ytm=r(c["ytm"] * 100, 3)))
         if typ == "credit":
-            item["dur"] = INDEX_DURATION.get(code)
+            e = idur.get(code)
+            item["dur"] = e["dur"] if e else INDEX_DURATION.get(code)
+            item["dur_src"] = f"estimated from {e['n']:,} bonds" if e else "assumed"
         futures.append(item)
 
     estr = None

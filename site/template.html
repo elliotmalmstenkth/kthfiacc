@@ -392,6 +392,8 @@ function carryRoll3m(b, qty) {
 const BUCKETS = [["FGBS", "Schatz", 0, 3.3], ["FGBM", "Bobl", 3.3, 6.2], ["FGBL", "Bund", 6.2, 13], ["FGBX", "Buxl", 13, 1e9]];
 const bucketOf = (dur) => BUCKETS.find(([, , lo, hi]) => dur >= lo && dur < hi)[0];
 const indexDur = (code) => (state.dur[code] ?? FUT.get(code)?.dur ?? null);
+// where an index duration comes from: the user's input, the screener estimate (site/build.py) or an assumption
+const durSrc = (code) => state.dur[code] != null ? "your input" : FUT.get(code)?.dur_src || "assumed";
 
 function risk(p) {
   if (p.kind === "bond") {
@@ -1074,7 +1076,7 @@ function renderRisk() {
       <div class="row"><label class="lbl" for="hPct">HEDGE RATIO (CS01)</label><input id="hPct" class="num" style="width:6em" value="${state.hedgePct}"><span class="muted">%</span>
         <span class="chips">${[0, 50, 100].map(v => `<button data-hp="${v}" aria-pressed="${state.hedgePct == v}">${v}%</button>`).join("")}</span></div>
       <dl class="kv"><dt>Corporate CS01</dt><dd>${fmtS(h.corpCs, 0)} EUR/bp</dd><dt>CS01 per ${state.hedgeIdx} contract</dt><dd>${fmt(h.csPer, 1)} EUR/bp</dd>
-        <dt>Index duration (assumed)</dt><dd>${fmt(h.cd, 1)}</dd><dt>Credit futures</dt><dd class="big ${cls(h.nCredit)}">${fmtS(h.nCredit, 0)} ${state.hedgeIdx}</dd></dl></div>
+        <dt>Index duration (${esc(durSrc(state.hedgeIdx))})</dt><dd>${fmt(h.cd, 1)}</dd><dt>Credit futures</dt><dd class="big ${cls(h.nCredit)}">${fmtS(h.nCredit, 0)} ${state.hedgeIdx}</dd></dl></div>
     <div class="sect" style="padding:0"><table class="t"><thead><tr><th>BUCKET</th><th class="n">DV01 PRE-HEDGE</th><th class="n">DV01/CONTRACT</th><th class="n">CONTRACTS</th><th class="n">DV01 POST</th></tr></thead><tbody>` +
       h.rateTrades.map(t => `<tr><td>${t.l} <span class="muted">${t.c}</span></td><td class="n ${cls(t.dv)}">${fmtS(t.dv, 0)}</td><td class="n">${fmt(t.f?.dv01, 1)}</td><td class="n ${cls(t.n)}">${fmtS(t.n, 0)}</td><td class="n">${fmtS(t.dv + t.n * (t.f?.dv01 || 0), 0)}</td></tr>`).join("") +
     `</tbody><tfoot><tr><td colspan="4">RESIDUAL DV01</td><td class="n ${cls(h.after)}">${fmtS(h.after, 0)}</td></tr></tfoot></table></div>
@@ -1083,7 +1085,7 @@ function renderRisk() {
 
   const meth = `<p class="note"><b>DV01</b> is the EUR P&amp;L for a 1 bp fall in yield. Bonds: dirty market value × modified duration × 0.0001.</p>
     <p class="note"><b>Govt futures</b> (Schatz, Bobl, Bund, Buxl): DV01 of the cheapest-to-deliver divided by its conversion factor, per EUR 100,000 contract. The CTD is the deliverable Bund with the lowest gross basis (clean price − futures price × CF) in today's data. The CF is the clean price at a 6% yield (Buxl: 4%) on the delivery date.</p>
-    <p class="note"><b>CS01</b> per credit futures contract: index level × multiplier × spread duration × 0.0001. Index durations are not in the Eurex feed; the values on the Trade screen are editable assumptions. Check them against the index factsheet.</p>
+    <p class="note"><b>CS01</b> per credit futures contract: index level × multiplier × spread duration × 0.0001. Index durations are not in the Eurex feed. FECX's is estimated each evening by applying the index rules to the screener (euro IG corporates, fixed coupon, at least EUR 300m, over a year to maturity, market-value weighted; IG = on the ECB collateral list, without the index's ESG exclusions); the others are assumptions, as we have no ratings for high yield and no sterling or dollar bonds. All are editable on the Trade screen.</p>
     <p class="note"><b>Buckets</b> map exposure to the German futures by modified duration: Schatz &lt; 3.3, Bobl 3.3–6.2, Bund 6.2–13, Buxl &gt; 13. Credit futures fall in the bucket of their index duration.</p>
     <p class="note">Contract counts are rounded to whole lots. BTP, OAT and BONO futures are tradeable on the desk but not used in the proposal, as their CTD is not computed here. Sovereign bonds carry no CS01.</p>`;
 
@@ -1678,7 +1680,7 @@ function renderFutures() {
     DATA.futures.map(f => {
       const d = f.type === "credit" ? indexDur(f.code) : null;
       const per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
-      const durIn = f.type === "credit" ? `<input class="num" style="width:4.5em" data-dur="${f.code}" value="${fmt(d, 1)}" aria-label="Index duration ${f.code}">` : "";
+      const durIn = f.type === "credit" ? `<input class="num" style="width:4.5em" data-dur="${f.code}" value="${fmt(d, 2)}" aria-label="Index duration ${f.code}" title="${esc(durSrc(f.code))}">` : "";
       const ctd = f.ctd ? `${esc(f.ctd.name)} <span class="muted">CF ${fmt(f.ctd.cf, 4)} · basis ${fmt(f.ctd.basis, 3)}</span>` : `<span class="muted">${f.type === "credit" ? "cash-settled" : "–"}</span>`;
       return `<tr class="click${f.code === selCode ? " sel" : ""}" data-pick="${f.code}" data-kind="fut"><td class="amb">${f.code}</td><td class="desc">${esc(f.name)}</td><td>${f.contract}</td>
         <td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.low, 3)}</td><td class="n">${fmt(f.high, 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(f.lots, 0)}</td><td class="n">${fmt(f.block, 0)}</td>
@@ -1763,7 +1765,7 @@ function renderTicket() {
       <dl class="kv"><dt>Last</dt><dd class="big">${fmt(f.last, 3)}</dd><dt>Low / High</dt><dd>${fmt(f.low, 3)} / ${fmt(f.high, 3)}</dd><dt>Trades / Volume</dt><dd>${fmt(f.trades, 0)} / ${fmt(f.lots, 0)}</dd>
         <dt>Contract value</dt><dd>${fmt(f.last * f.mult, 0)} ${f.ccy}</dd>
         ${f.ctd ? `<dt>CTD</dt><dd>${esc(f.ctd.name)}</dd><dt>CF / gross basis</dt><dd>${fmt(f.ctd.cf, 4)} / ${fmt(f.ctd.basis, 3)}</dd>` : ""}
-        ${d ? `<dt>Index duration</dt><dd>${fmt(d, 1)} (assumed)</dd>` : ""}<dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) + " lots" : "–"}</dd></dl></div>`;
+        ${d ? `<dt>Index duration</dt><dd>${fmt(d, 2)} (${esc(durSrc(f.code))})</dd>` : ""}<dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) + " lots" : "–"}</dd></dl></div>`;
     sizeField = `<label class="lbl" for="tkSize">CONTRACTS</label><input id="tkSize" class="num" style="width:100%" inputmode="numeric" value="${state.lots}">
       <div class="chips">${[1, 5, 10, 25].map(v => `<button data-lots="${v}" aria-pressed="${state.lots === v}">${v}</button>`).join("")}</div>`;
     calc = () => { const n = state.lots, per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;

@@ -698,3 +698,25 @@ def test_stir_path_rest_of_quarter_and_next_meeting():
     assert S["next"]["meeting"] == "2026-10-29" and S["next"]["bp"] == pytest.approx(10, abs=0.2)
     assert q1["dfr"] == pytest.approx(2.71 + 0.06, abs=1e-6) and q1["chg"] == pytest.approx(27.0)
     assert S["euribor"][0]["basis"] == pytest.approx(20.0)
+
+
+def test_index_duration_estimate_applies_the_index_rules():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    cols = ["sector", "ecb", "amt", "mat", "dq", "mdur", "bid", "ask", "acc"]
+    ok = ["CORP_NONFIN", "3", 500, "2030-01-01", None, 4.0, 99.0, 99.0, 1.0]
+    rows = [ok] * 150 + [["CORP_FIN", "1-2", 1000, "2032-01-01", None, 5.5, 99.0, 99.0, 1.0]] * 50
+    rows += [["SOV", "1-2", 5000, "2035-01-01", None, 9.0, 99, 99, 1],          # not a corporate
+             ["CORP_NONFIN", None, 5000, "2035-01-01", None, 9.0, 99, 99, 1],   # not on the ECB list
+             ["CORP_NONFIN", "3", 200, "2035-01-01", None, 9.0, 99, 99, 1],     # under EUR 300m
+             ["CORP_NONFIN", "3", 500, "2027-03-01", None, 0.3, 99, 99, 1],     # under a year
+             ["CORP_NONFIN", "3", 500, "2035-01-01", "wide", 9.0, 99, 99, 1]]   # flagged quote
+    e = build.index_durations(rows, cols, dt.date(2026, 10, 6))["FECX"]
+    assert e["n"] == 200 and e["dur"] == pytest.approx((150 * 500 * 4.0 + 50 * 1000 * 5.5) / (150 * 500 + 50 * 1000), abs=0.01)
+    assert build.index_durations(rows[:10], cols, dt.date(2026, 10, 6)) == {}    # too few bonds: keep the assumption
+
+
+@pytest.mark.parametrize("fisn,want", [("THE REPUBLIC OF/4.875 BD 20320119", "SOV"), ("ARAB REPUBLIC O/6.375EMTN 20310411", "SOV"),
+                                       ("BANQUE OUEST AF/2.75 BD 20330122", "SUPRA")])
+def test_sovereign_and_supra_exceptions(fisn, want):
+    assert classify.sector_of(R2("DBFTFB", fisn, "", ""), {})[0] == want

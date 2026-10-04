@@ -80,6 +80,8 @@ EXCEPTIONS = [
      r"^SID - SLOVENSKA|^SID SLOVENSKA", "AGENCY"),
     (r"^COMPAGNIE DE FI|^FINANCEMENT FON|^CIE DE FINANCEM|^ARKEA PUBLIC SE", "COVERED"),  # SCF issuers (obligations foncières)
     (r"^UTD\.? ?MEXICAN|^PERUSAHAAN PENE|^PERUSAHAAN PERS", "SOV"),        # Mexico; Indonesia's sukuk issuer
+    (r"^THE REPUBLIC OF|^REP\.? ?COTE D|^ARAB REPUBLIC|^MACEDONIA$", "SOV"),  # Argentina, Benin, Cameroon, Côte d'Ivoire, Egypt, N. Macedonia
+    (r"^BANQUE OUEST AF", "SUPRA"),                                         # West African Development Bank (BOAD)
 ]
 
 # LEI-based cases where the FISN name is ambiguous
