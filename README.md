@@ -18,6 +18,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `market.py` | ECB (curves, €STR, EUR/USD), NY Fed (SOFR), FRED (ICE BofA OAS, VIX) | End-of-day market monitor and the risk-factor history for VaR |
 | `live.py` | Deutsche Börse minute files (DFRA-pretrade, DEUR-posttrade) | Intraday quotes for the site: a GitHub Actions job streams each minute file and pushes `live.json` to the branch `live` every minute |
 | `ecb_collateral.py` | ECB list of eligible marketable assets (daily) | Credit quality per bond: Eurosystem credit quality step 1–2 (A− or better) or 3 (BBB), read from the haircut; not on the list = high yield or an issuer the ECB does not accept |
+| `green.py` | Euronext ESG bond list | Green / social / sustainability / sustainability-linked labels (GRN, SOC, SUS, SLB) |
 | `ci.py` | all of the above | Daily GitHub Actions job: fetch, build, archive each business day as a draft release, publish the site |
 
 ```bash
@@ -73,9 +74,18 @@ Relative value:
   VIX and EUR/USD, with 1D/1W/1M changes. End of day: tick data, iTraxx/CDX, swap rates and Euribor are licensed.
 - **Credit quality** (ECB column and filter): the Eurosystem accepts bonds rated BBB− or better. Its daily list of
   eligible assets has no ratings, but the haircut gives the credit quality step: within a haircut category, coupon
-  type and maturity bucket, steps 1–2 (AAA to A−) share one haircut and step 3 (BBB) has a markedly higher one.
-  On 2 Oct 2026 the 9,259 benchmark bonds split into 5,299 ≥A−, 789 BBB and 3,170 not on the list (mostly bank
+  type and maturity bucket, steps 1–2 (AAA to A−) share the lowest haircut and step 3 (BBB) has a markedly higher
+  one. The ECB uses the best rating from S&P, Moody's, Fitch, DBRS and Scope, so a step can be better than one
+  agency's rating (Italy: A (low) from DBRS).
+  On 2 Oct 2026 the 9,259 benchmark bonds split into 4,836 ≥A−, 1,252 BBB and 3,170 not on the list (mostly bank
   MREL/holding-company bonds and issuers outside the EEA, which are ineligible whatever their rating).
+- **ESG labels**: green, social, sustainability and sustainability-linked bonds from the Euronext ESG bond list
+  (949 of the site's bonds on 2 Oct 2026). Bonds listed only outside Euronext (e.g. green Bunds) are not tagged.
+- **This week** (key 6): the week so far against the last day before Monday: market moves, the club's week, new
+  issues (issued this week per the ECB list, or quoted for the first time), the largest Z-spread moves per bond
+  and per issuer, ECB credit quality changes (including bonds leaving the list), rich/cheap flips, and the club's
+  coupons, maturities and futures deliveries next week. Sections that compare with last week fill once the history
+  has a day before Monday.
 - **History**: each site build stores the day's mid, YTM, Z-spread and rich/cheap per bond (and futures with the CTD
   yield) in `data/history/`, and publishes them as time series (Z-spread per bond, level per strategy).
 

@@ -7,13 +7,13 @@ Builds the portfolio site (site/portfolio.html) from one day of data.
 Reads data/<date>/ (bonds_classified, dfra_quotes, eurex_futures_daily) and the ECB curve,
 computes analytics with analytics.py and embeds the result as JSON in site/template.html.
 """
-import argparse, csv, datetime as dt, glob, gzip, io, json, math, os, re, sys
+import argparse, collections, csv, datetime as dt, glob, gzip, io, json, math, os, re, statistics, sys
 
 import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import analytics as an, ecb_collateral, ecb_curve, eurex, market  # noqa: E402
+import analytics as an, ecb_collateral, ecb_curve, eurex, green, market  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
@@ -83,9 +83,22 @@ def add_ecb_quality(rows, cols):
         q, day = None, None
     for row in rows:
         v = (q or {}).get(row[0])
-        row.append((v["cqs"] or "?") if v else None)
-    cols.append("ecb")
-    return dict(date=day, n=sum(1 for row in rows if row[-1])) if q else None
+        row += [(v["cqs"] or "?") if v else None, v.get("issued") if v else None]
+    cols += ["ecb", "iss"]
+    return dict(date=day, n=sum(1 for row in rows if row[-2])) if q else None
+
+
+def add_green(rows, cols):
+    """Appends 'esg': GREEN / SOCIAL / SUST / SLB from the Euronext ESG bond list (green.py), else None."""
+    try:
+        g = green.load()
+    except Exception as e:
+        print(f"Euronext ESG bond list unavailable: {e}", file=sys.stderr)
+        g = None
+    for row in rows:
+        row.append((g or {}).get(row[0]))
+    cols.append("esg")
+    return dict(n=sum(1 for row in rows if row[-1])) if g is not None else None
 
 
 def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
@@ -127,6 +140,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
             "mdur", "acc", "bench", "freq", "unit"]
     add_relative_value(rows, cols, keys, curve)
     ecb = add_ecb_quality(rows, cols)
+    esg = add_green(rows, cols)
 
     # futures: front contract with on-book trades
     bunds = [(i, x.coupon_fixed, x.mat, (x.bid_px + x.ask_px) / 2) for i, x in u.iterrows()
@@ -161,13 +175,13 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
 
     mkt = market.build(day, ecb_db)
 
-    return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
+    return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, esg=esg, built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
                 cols=cols, bonds=rows, futures=futures)
 
 
 # ---------------------------------------------------------------- history
-HIST_BOND_COLS = ["isin", "mid", "ytm", "z", "rv"]
+HIST_BOND_COLS = ["isin", "mid", "ytm", "z", "rv", "ecb"]   # ecb: credit quality step (text); the rest numbers
 SHARDS = 256
 
 
@@ -191,9 +205,10 @@ def write_history(data, hist_dir):
         w = csv.writer(f)
         w.writerow(["id"] + HIST_BOND_COLS[1:])
         for b in data["bonds"]:
-            w.writerow([b[c["isin"]], r((b[c["bid"]] + b[c["ask"]]) / 2, 4), b[c["ytm"]], b[c["z"]], b[c["rv"]]])
+            w.writerow([b[c["isin"]], r((b[c["bid"]] + b[c["ask"]]) / 2, 4), b[c["ytm"]], b[c["z"]], b[c["rv"]],
+                        b[c["ecb"]] if "ecb" in c else None])
         for fu in data["futures"]:
-            w.writerow([f"FUT:{fu['code']}", fu["last"], (fu.get("ctd") or {}).get("ytm"), None, None])
+            w.writerow([f"FUT:{fu['code']}", fu["last"], (fu.get("ctd") or {}).get("ytm"), None, None, None])
     return path
 
 
@@ -206,7 +221,7 @@ def build_shards(hist_dir, out_dir):
     for i, p in enumerate(days):
         with gzip.open(p, "rt", encoding="utf-8") as f:
             for row in csv.DictReader(f):
-                vals = [None if row[k] in ("", None) else float(row[k]) for k in HIST_BOND_COLS[1:]]
+                vals = [None if row.get(k) in ("", None) else (row[k] if k == "ecb" else float(row[k])) for k in HIST_BOND_COLS[1:]]
                 series.setdefault(row["id"], [None] * len(days))[i] = vals
     shards = [{} for _ in range(SHARDS)]
     for k, v in series.items():
@@ -216,6 +231,96 @@ def build_shards(hist_dir, out_dir):
         with open(os.path.join(out_dir, f"{n}.json"), "w", encoding="utf-8") as f:
             json.dump({"d": dates, "s": sh}, f, separators=(",", ":"))
     return dates
+
+
+# ---------------------------------------------------------------- this week
+def read_history(path):
+    """{id: {mid, ytm, z, rv, ecb}} from one data/history file (older files have no ecb column)."""
+    out = {}
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            out[row["id"]] = {k: (None if row.get(k) in ("", None) else (row[k] if k == "ecb" else float(row[k])))
+                              for k in HIST_BOND_COLS[1:]}
+    return out
+
+
+def weekly(data, hist_dir, top=15):
+    """The week of data['asof'] (Monday to the latest day) against the last day before Monday (the base):
+    new issues, Z-spread moves per bond and per issuer, ECB credit quality changes and rich/cheap flips.
+    Sections that need a base are None until the history holds a day before this week."""
+    asof = dt.date.fromisoformat(data["asof"])
+    mon = asof - dt.timedelta(days=asof.weekday())
+    days = sorted(os.path.basename(p)[:10] for p in glob.glob(os.path.join(hist_dir, "*.csv.gz")))
+    before = [d for d in days if d < mon.isoformat()]
+    base_day = before[-1] if before else None
+    base = read_history(os.path.join(hist_dir, f"{base_day}.csv.gz")) if base_day else None
+    seen = set()
+    for d in before[-20:]:          # ids quoted in the last ~4 weeks before this week
+        seen |= set(read_history(os.path.join(hist_dir, f"{d}.csv.gz")))
+    c = {k: i for i, k in enumerate(data["cols"])}
+    settle = dt.date.fromisoformat(data["settle"])
+    B = [{k: row[i] for k, i in c.items()} for row in data["bonds"]]
+    for b in B:
+        b["yrs"] = (dt.date.fromisoformat(b["mat"]) - settle).days / 365.25
+    brief = lambda b, **kw: dict(isin=b["isin"], name=b["name"], issuer=b["issuer"], sector=b["sector"], cpn=b["cpn"],
+                                 mat=b["mat"], amt=b["amt"], z=b["z"], ecb=b.get("ecb"), esg=b.get("esg"), **kw)
+
+    # new issues: issued this week (ECB list), or quoted for the first time this week (needs earlier history)
+    new = []
+    for b in B:
+        iss = b.get("iss")
+        fresh = iss is not None and mon.isoformat() <= iss <= data["asof"]
+        first = bool(seen) and b["isin"] not in seen and (iss is None or iss >= (mon - dt.timedelta(days=30)).isoformat())
+        if fresh or first:
+            new.append(brief(b, iss=iss, how="issued" if fresh else "first quote"))
+    new.sort(key=lambda x: -(x["amt"] or 0))
+
+    out = dict(mon=mon.isoformat(), asof=data["asof"], base=base_day, days=[d for d in days if d >= mon.isoformat()],
+               history_from=days[0] if days else None, new=new[:40], n_new=len(new),
+               wide=None, tight=None, iss_wide=None, iss_tight=None, ratings=None, rv=None)
+    if base is None:
+        return out
+
+    # Z-spread moves: firm two-way quotes, one year or longer, both days priced (|move| < 500 bp: data errors)
+    moves = []
+    for b in B:
+        o = base.get(b["isin"])
+        if not o or o["z"] is None or b["z"] is None or not b["firm"] or b["yrs"] < 1:
+            continue
+        dz = b["z"] - o["z"]
+        if abs(dz) < 500:
+            moves.append(brief(b, z0=o["z"], dz=round(dz, 1), pct=round(dz / max(abs(o["z"]), 10) * 100, 1)))
+    moves.sort(key=lambda x: -x["dz"])
+    out["wide"] = [m for m in moves[:top] if m["dz"] > 0]
+    out["tight"] = [m for m in moves[::-1][:top] if m["dz"] < 0]
+    by = collections.defaultdict(list)
+    for m in moves:
+        by[m["issuer"]].append(m["dz"])
+    iss = [dict(issuer=k, n=len(v), dz=round(statistics.median(v), 1), up=sum(x > 0 for x in v)) for k, v in by.items() if len(v) >= 2]
+    iss.sort(key=lambda x: -x["dz"])
+    out["iss_wide"] = [x for x in iss[:10] if x["dz"] > 0]
+    out["iss_tight"] = [x for x in iss[::-1][:10] if x["dz"] < 0]
+
+    # ECB credit quality changes (only when the base day has the column)
+    if any(v.get("ecb") for v in base.values()):
+        rank = {"1-2": 2, "3": 1, "?": 1, None: 0}
+        ch = []
+        for b in B:
+            o = base.get(b["isin"])
+            if o is not None and o.get("ecb") != b.get("ecb"):
+                ch.append(brief(b, ecb0=o.get("ecb"), dir="up" if rank[b.get("ecb")] > rank[o.get("ecb")] else "down"))
+        ch.sort(key=lambda x: (x["dir"] != "down", -(x["amt"] or 0)))
+        out["ratings"] = ch[:40]
+
+    # rich/cheap flips: from more than 5 bp rich to more than 5 bp cheap, or the reverse
+    flips = []
+    for b in B:
+        o = base.get(b["isin"])
+        if o and o["rv"] is not None and b["rv"] is not None and ((o["rv"] < -5 < 5 < b["rv"]) or (b["rv"] < -5 < 5 < o["rv"])):
+            flips.append(brief(b, rv0=o["rv"], rv=b["rv"], drv=round(b["rv"] - o["rv"], 1)))
+    flips.sort(key=lambda x: -abs(x["drv"]))
+    out["rv"] = flips[:top]
+    return out
 
 
 def as_document(page):
@@ -246,6 +351,7 @@ if __name__ == "__main__":
     data = build(a.day, a.ecb_db, a.bonds, a.quotes, a.futures)
     if a.history:
         write_history(data, a.history)
+        data["week"] = weekly(data, a.history)
         data["hist"] = build_shards(a.history, os.path.join(os.path.dirname(os.path.abspath(a.out)), "hist"))
         print(f"history: {len(data['hist'])} days", file=sys.stderr)
     owner, name = a.repo.split("/")

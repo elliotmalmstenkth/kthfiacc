@@ -487,9 +487,9 @@ def test_history_files_and_shards(tmp_path):
     dates = build.build_shards(str(tmp_path / "h"), str(tmp_path / "hist"))
     assert dates == ["2026-10-01", "2026-10-02", "2026-10-03"]
     sh = json.load(open(tmp_path / "hist" / f"{build.shard_of('DE0001102580')}.json"))
-    assert sh["d"] == dates and sh["s"]["DE0001102580"] == [[99.0, 2.5, -12.0, 1.5], [99.5, 2.5, -12.0, 1.5], None]
+    assert sh["d"] == dates and sh["s"]["DE0001102580"] == [[99.0, 2.5, -12.0, 1.5, None], [99.5, 2.5, -12.0, 1.5, None], None]
     fut = json.load(open(tmp_path / "hist" / f"{build.shard_of('FUT:FGBL')}.json"))["s"]["FUT:FGBL"]
-    assert fut[0] == [121.0, 2.6, None, None]
+    assert fut[0] == [121.0, 2.6, None, None, None]
     assert json.load(open(tmp_path / "hist" / f"{build.shard_of('XS0000000001')}.json"))["s"]["XS0000000001"][2][3] is None
 
 
@@ -557,8 +557,8 @@ def test_ecb_collateral_credit_quality_from_haircuts():
     import ecb_collateral as ec
     hdr = ["ISIN_CODE", "HAIRCUT_CATEGORY", "COUPON_DEFINITION", "DENOMINATION", "MATURITY_DATE", "HAIRCUT", "TYPE"]
     rows = [dict(zip(hdr, r)) for r in [
-        *[[f"A{i}", "L1D", "CD4", "EUR", "15/03/2029 00:00:00", "12", "AT02"] for i in range(5)],   # usual level, 3-5y
-        ["BBB1", "L1D", "CD4", "EUR", "15/03/2029 00:00:00", "23", "AT02"],                          # markedly higher
+        *[[f"A{i}", "L1D", "CD4", "EUR", "15/03/2030 00:00:00", "12", "AT02"] for i in range(5)],   # usual level, 3-5y
+        ["BBB1", "L1D", "CD4", "EUR", "15/03/2030 00:00:00", "23", "AT02"],                          # markedly higher
         ["EDGE", "L1D", "CD4", "EUR", "10/10/2028 00:00:00", "10", "AT02"],                          # 1-3y level, near the cut-off
         ["ABS1", "L1E", "CD4", "EUR", "15/03/2040 00:00:00", "9", "AT11"],
         ["USD1", "L1D", "CD4", "USD", "15/03/2029 00:00:00", "30", "AT02"]]]
@@ -567,3 +567,37 @@ def test_ecb_collateral_credit_quality_from_haircuts():
     q = ec.classify(ec.parse(gzip.compress(raw)), "2026-10-02")
     assert q["A0"]["cqs"] == "1-2" and q["BBB1"]["cqs"] == "3" and q["EDGE"]["cqs"] == "1-2"
     assert q["ABS1"]["cqs"] is None and "USD1" not in q
+
+
+def test_ecb_collateral_step3_majority():
+    """Category L1C holds many BBB corporates: the higher haircut can be the most common one."""
+    import ecb_collateral as ec
+    hdr = ["ISIN_CODE", "HAIRCUT_CATEGORY", "COUPON_DEFINITION", "DENOMINATION", "MATURITY_DATE", "HAIRCUT", "TYPE", "ISSUANCE_DATE"]
+    rows = [[f"C{i}", "L1C", "CD4", "EUR", "15/03/2030 00:00:00", "3", "AT03", "28/09/2026 00:00:00"] for i in range(4)]
+    rows += [[f"B{i}", "L1C", "CD4", "EUR", "15/03/2030 00:00:00", "13", "AT03", "01/01/2020 00:00:00"] for i in range(9)]
+    raw = ("\t".join(hdr) + "\n" + "\n".join("\t".join(r) for r in rows) + "\n").encode("utf-16")
+    q = ec.classify(ec.parse(raw), "2026-10-02")
+    assert {q[f"C{i}"]["cqs"] for i in range(4)} == {"1-2"} and {q[f"B{i}"]["cqs"] for i in range(9)} == {"3"}
+    assert q["C0"]["issued"] == "2026-09-28"
+
+
+def test_weekly_summary(tmp_path):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    cols = ["isin", "issuer", "name", "sector", "cpn", "mat", "amt", "bid", "ask", "firm", "ytm", "z", "rv", "ecb", "iss", "esg"]
+    def bond(isin, issuer, z, rv, ecb, iss=None, firm=1):
+        return [isin, issuer, isin, "CORP_NONFIN", 3.0, "2031-01-01", 500, 99.0, 99.2, firm, 3.5, z, rv, ecb, iss, None]
+    last = dict(asof="2026-09-25", settle="2026-09-29", cols=cols, futures=[],
+                bonds=[bond("A1", "ACME", 100, -8, "1-2"), bond("A2", "ACME", 110, 0, "1-2"), bond("B1", "BETA", 50, 0, "3")])
+    build.write_history(last, str(tmp_path))
+    now = dict(asof="2026-10-02", settle="2026-10-06", cols=cols, futures=[],
+               bonds=[bond("A1", "ACME", 140, 7, "3"), bond("A2", "ACME", 135, 0, "1-2"), bond("B1", "BETA", 45, 0, None),
+                      bond("N1", "NEWCO", 80, None, "1-2", iss="2026-09-30")])
+    build.write_history(now, str(tmp_path))
+    w = build.weekly(now, str(tmp_path))
+    assert w["base"] == "2026-09-25" and w["mon"] == "2026-09-28"
+    assert [x["isin"] for x in w["new"]] == ["N1"]
+    assert [x["isin"] for x in w["wide"]] == ["A1", "A2"] and w["wide"][0]["dz"] == 40
+    assert w["iss_wide"][0] == dict(issuer="ACME", n=2, dz=32.5, up=2)
+    assert {(x["isin"], x["ecb0"], x["ecb"], x["dir"]) for x in w["ratings"]} == {("A1", "1-2", "3", "down"), ("B1", "3", None, "down")}
+    assert [x["isin"] for x in w["rv"]] == ["A1"]

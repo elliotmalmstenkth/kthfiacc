@@ -205,6 +205,10 @@ svg.hist2 rect { fill: #7a7a7a; } svg.hist2 rect.tail { fill: var(--neg); }
 svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: var(--fg-3); font: 10px var(--mono); }
 .na { color: var(--fg-3); }
 
+/* ESG labels (Euronext ESG bond list) */
+.esg { display: inline-block; margin-left: 5px; padding: 0 3px; font-size: 10px; line-height: 13px; color: #5fd3a0; border: 1px solid #2f7a5a; vertical-align: 1px; }
+.esg.slb { color: #a8d8c4; border-color: #4c6b5e; }
+
 /* ---- workspace grids ---- */
 #v-dash { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1.15fr) minmax(0, 1fr);
   grid-template-areas: "kpi kpi kpi" "hold hold mkt" "buck sect curve"; }
@@ -212,6 +216,8 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
   grid-template-areas: "kpi kpi kpi" "blot blot blot" "strat attr sum"; }
 #v-risk { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, .9fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas: "kpi kpi kpi" "krd hedge var" "cs hedge meth"; }
+#v-week { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 270px repeat(3, 300px); overflow: auto;
+  grid-template-areas: "sum sum club" "new new next" "wide tight iss" "rat rv rv"; }
 #v-mkt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr);
   grid-template-areas: "rates credit" "rates money" "macro fut"; }
 #v-desk { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr);
@@ -224,6 +230,7 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
   #v-hold { grid-template-areas: "kpi" "blot" "strat" "attr" "sum"; }
   #v-risk { grid-template-areas: "kpi" "krd" "cs" "var" "hedge" "meth"; }
   #v-mkt { grid-template-areas: "rates" "credit" "money" "fut" "macro"; }
+  #v-week { grid-template-areas: "sum" "club" "new" "next" "wide" "tight" "iss" "rat" "rv"; }
   #v-desk { grid-template-areas: "tkt" "scr" "fut"; }
   .panel .pb { max-height: 460px; }
   .status .keys { display: none; }
@@ -242,6 +249,7 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
     <button role="tab" data-view="risk" aria-selected="false" title="Key 3">RISK ANALYTICS</button>
     <button role="tab" data-view="desk" aria-selected="false" title="Key 4">TRADE</button>
     <button role="tab" data-view="mkt" aria-selected="false" title="Key 5">MARKETS</button>
+    <button role="tab" data-view="week" aria-selected="false" title="Key 6">THIS WEEK</button>
   </nav>
   <main class="views">
     <section class="view" id="v-dash"></section>
@@ -249,6 +257,7 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
     <section class="view" id="v-risk" hidden></section>
     <section class="view" id="v-desk" hidden></section>
     <section class="view" id="v-mkt" hidden></section>
+    <section class="view" id="v-week" hidden></section>
   </main>
   <footer class="status" id="status"></footer>
 </div>
@@ -581,7 +590,7 @@ function hedgeCalc(bk) {
 const state = {
   view: store("view") || "dash",
   q: "", tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", off: new Set(store("subOff") || []), bench: store("bench") ?? true,
-  firm: store("firm") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
+  firm: store("firm") ?? false, esgOnly: store("esgOnly") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
@@ -761,7 +770,7 @@ function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = fal
 function setView(v) {
   state.view = v; store("view", v);
   document.querySelectorAll(".fkeys button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === v));
-  for (const id of ["dash", "hold", "risk", "desk", "mkt"]) $("#v-" + id).hidden = id !== v;
+  for (const id of ["dash", "hold", "risk", "desk", "mkt", "week"]) $("#v-" + id).hidden = id !== v;
   render();
 }
 $(".fkeys").addEventListener("click", e => { const v = e.target.closest("button")?.dataset.view; if (v) setView(v); });
@@ -787,7 +796,7 @@ function renderStatus() {
     <a href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>
     <span>UNIVERSE <b>${fmt(BONDS.length, 0)}</b> EUR BONDS · ${DATA.futures.length} FUTURES</span>
     <button class="tog" id="cvd" aria-pressed="${state.cvd}" title="Colour-vision-deficiency scheme: blue up / red down (as on the Bloomberg Terminal)">CVD</button>
-    <span class="keys"><kbd>1-5</kbd> VIEW · <kbd>/</kbd> SEARCH · <kbd>[ ]</kbd> TAB · <kbd>↑↓</kbd> SELECT · <kbd>ENTER</kbd> TICKET · <kbd>ESC</kbd> CLOSE</span>`;
+    <span class="keys"><kbd>1-6</kbd> VIEW · <kbd>/</kbd> SEARCH · <kbd>[ ]</kbd> TAB · <kbd>↑↓</kbd> SELECT · <kbd>ENTER</kbd> TICKET · <kbd>ESC</kbd> CLOSE</span>`;
 }
 
 document.addEventListener("click", e => {
@@ -1117,6 +1126,105 @@ function renderMkt() {
     panel("macro", "Macro and volatility", macro + `<p class="note pad">All series are end of day. Tick-by-tick data needs a paid feed (Bloomberg, LSEG, ICE); Deutsche Börse's free minute files cannot be read from a browser (no CORS) and the site has no server.</p>`, { sub: "VIX: CBOE close via FRED · EUR/USD: ECB reference rate" });
 }
 
+// ------------------------------------------------------------------ THIS WEEK
+// Built by site/build.py (weekly): this week (Monday to the latest day) against the last day before Monday.
+const W = () => DATA.week;
+function weekChg(s, mon) {   // series change from the last value before Monday to the latest value
+  if (!s) return null;
+  let i = -1;
+  for (let k = 0; k < s.d.length; k++) if (s.d[k] < mon) i = k;
+  if (i < 0 || i === s.v.length - 1) return null;
+  const a = s.v[i], b = s.v.at(-1);
+  return s.unit === "%" ? (b - a) * 100 : s.unit === "" ? (b / a - 1) * 100 : b - a;
+}
+const needBase = () => `<div class="empty"><p>Needs a trading day before this week in the history${W()?.history_from ? ` (it starts ${dTerm(W().history_from)})` : ""}. This section fills from next week, as the evening runs add one day at a time.</p></div>`;
+const ecbTxt = (q) => ECB_LBL[q] || "–";
+function bondTable(rows, cols) {
+  if (rows == null) return needBase();
+  if (!rows.length) return `<div class="empty">Nothing this week.</div>`;
+  return `<table class="t"><thead><tr><th>BOND</th>${cols.map(c => `<th class="${c[2] || ""}">${c[0]}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map(r => `<tr class="click" data-pick="${r.isin}" data-kind="bond"><td class="nm" title="${esc(r.issuer)}">${esc(r.name)}${esgTag(r)}</td>${cols.map(c => `<td class="${c[2] || ""}">${c[1](r)}</td>`).join("")}</tr>`).join("") + `</tbody></table>`;
+}
+function renderWeek() {
+  const w = W(), el = $("#v-week");
+  if (!w) { el.innerHTML = panel("sum", "This week", `<div class="empty">The weekly summary is not in this build (it needs the history folder).</div>`); return; }
+  const M = DATA.mkt || {}, mon = w.mon;
+  const mrow = (s, label, bp) => { const x = weekChg(s, mon); return s ? `<tr><td>${label}</td><td class="n">${bp ? fmt(s.v.at(-1) * 100, 0) + " bp" : fmt(s.v.at(-1), s.unit === "" ? 4 : s.unit === "%" ? 3 : 2)}</td><td class="n ${cls(x)}">${x == null ? "–" : fmtS(x, s.unit === "%" ? 1 : 2)}</td><td class="dim">${dTerm(s.d.at(-1)).slice(0, 6)}</td></tr>` : `<tr><td>${label}</td><td colspan="3" class="na">unavailable</td></tr>`; };
+  const sum = `<table class="t"><thead><tr><th>MARKET</th><th class="n">LAST</th><th class="n">WEEK</th><th>AS OF</th></tr></thead><tbody>` +
+    mrow(M.AAA2, "EUR AAA 2Y") + mrow(M.AAA5, "EUR AAA 5Y") + mrow(M.AAA10, "EUR AAA 10Y") + mrow(M.AAA30, "EUR AAA 30Y") +
+    mrow(derived("AAA10", "AAA2", "2s10s"), "2s10s slope", true) + mrow(derived("ALL10", "AAA10", "spread"), "All-govt − AAA 10Y", true) +
+    `</tbody></table><table class="t"><thead><tr><th>CREDIT / MACRO</th><th class="n">LAST</th><th class="n">WEEK</th><th>AS OF</th></tr></thead><tbody>` +
+    mrow(M.BAMLHE00EHYIOAS, "Euro HY OAS", true) + mrow(M.BAMLC0A0CM, "US IG OAS", true) + mrow(M.BAMLH0A0HYM2, "US HY OAS", true) +
+    mrow(M.ESTR, "€STR") + mrow(M.VIXCLS, "VIX") + mrow(M.EURUSD, "EUR/USD (week %)") + `</tbody></table>`;
+
+  const z = (r) => fmt(r.z, 0), cols = [["ISSUER", r => esc(r.issuer), "dim"], ["SECTOR", r => SECT[r.sector] || r.sector, "dim"]];
+  const newT = bondTable(w.new, [...cols, ["SIZE M", r => fmt(r.amt, 0), "n"], ["CPN", r => fmt(r.cpn, 3), "n"], ["MATURITY", r => r.mat],
+    ["Z BP", z, "n"], ["ECB", r => ecbTxt(r.ecb)], ["ISSUED", r => r.iss ? dTerm(r.iss).slice(0, 6) : "–"], ["SOURCE", r => r.how, "dim"]]);
+  const moveCols = [["Z BASE", r => fmt(r.z0, 0), "n"], ["Z NOW", z, "n"], ["Δ BP", r => `<span class="${r.dz > 0 ? "neg" : "pos"}">${fmtS(r.dz, 1)}</span>`, "n"], ["Δ %", r => fmtS(r.pct, 0), "n"], ["ECB", r => ecbTxt(r.ecb)]];
+  const issT = (xs, lbl) => xs == null ? "" : `<table class="t"><thead><tr><th>${lbl}</th><th class="n">BONDS</th><th class="n">WIDER</th><th class="n">MEDIAN Δ BP</th></tr></thead><tbody>` +
+    (xs.length ? xs.map(x => `<tr><td>${esc(x.issuer)}</td><td class="n">${x.n}</td><td class="n">${x.up}</td><td class="n ${x.dz > 0 ? "neg" : "pos"}">${fmtS(x.dz, 1)}</td></tr>`).join("") : `<tr><td colspan="4" class="muted">none</td></tr>`) + `</tbody></table>`;
+  const iss = w.iss_wide == null ? needBase() : issT(w.iss_wide, "WIDENING ISSUERS") + issT(w.iss_tight, "TIGHTENING ISSUERS") +
+    `<p class="note pad">Median move of issuers with two or more bonds. Several bonds of one issuer moving together is a credit signal; a single bond is often just a quote.</p>`;
+  const rat = bondTable(w.ratings, [...cols, ["FROM", r => ecbTxt(r.ecb0)], ["TO", r => `<span class="${r.dir === "down" ? "neg" : "pos"}">${ecbTxt(r.ecb)}</span>`], ["SIZE M", r => fmt(r.amt, 0), "n"]]);
+  const rv = bondTable(w.rv, [...cols, ["RV BASE", r => fmtS(r.rv0, 1), "n"], ["RV NOW", r => fmtS(r.rv, 1), "n"], ["Δ", r => fmtS(r.drv, 1), "n"], ["NOW", r => r.rv > 0 ? "cheap" : "rich"]]);
+
+  const sub = `${dTerm(w.mon)} – ${dTerm(w.asof)} · ${w.base ? `vs ${dTerm(w.base)}` : "no base day yet"} · ${(w.days || []).length} day${(w.days || []).length === 1 ? "" : "s"} of data this week`;
+  el.innerHTML =
+    panel("sum", "This week", sum, { sub }) +
+    panel("club", "Club this week", `<div id="wkClub" class="pad"><div class="muted">Loading…</div></div>`, { sub: "P&L since the base day, trades this week" }) +
+    panel("new", "New issues", newT, { sub: `${w.n_new} this week · issued this week (ECB list) or first quoted this week` }) +
+    panel("next", "Next week", `<div id="wkNext"></div>`, { sub: "club positions and Eurex contracts" }) +
+    panel("wide", "Spread widening", bondTable(w.wide, moveCols), { sub: "Z-spread, firm quotes, 1Y+ · may signal credit stress" }) +
+    panel("tight", "Spread tightening", bondTable(w.tight, moveCols), { sub: "Z-spread, firm quotes, 1Y+" }) +
+    panel("iss", "Issuers", iss, { sub: "median Z-spread move per issuer" }) +
+    panel("rat", "ECB credit quality changes", rat, { sub: "≥A− / BBB / not on the list · leaving the list can mean a downgrade below BBB−" }) +
+    panel("rv", "Rich / cheap flips", rv, { sub: "from more than 5 bp rich to more than 5 bp cheap, or back, vs the issuer curve" });
+  $("#wkNext").innerHTML = nextWeek();
+  weekClub().then(h => { const e = $("#wkClub"); if (e) e.innerHTML = h; });
+}
+// coupons and maturities of club bonds, and Eurex contracts near delivery, over the next business week
+function nextWeek() {
+  const mon = addBD(DATA.asof, 1), m = dParse(mon); while (m.getDay() !== 1) m.setDate(m.getDate() + 1);
+  const a = dIso(m), e = new Date(m); e.setDate(e.getDate() + 4); const z = dIso(e);
+  const ev = [];
+  for (const p of state.positions) {
+    if (p.kind === "bond") {
+      const b = BY_ISIN.get(p.isin); if (!b) continue;
+      for (const t of couponDates(b)) { const d = dIso(new Date(t)); if (d >= a && d <= z) ev.push([d, `${d === b.mat ? "MATURITY" : "COUPON"} ${b.name}`, d === b.mat ? fmt(p.qty, 0) : fmt(p.qty * b.cpn / (b.freq || 1) / 100, 0) + " EUR"]); }
+    } else {
+      const f = FUT.get(p.code); if (!f) continue;
+      const del = dIso(new Date(dParse(f.contract.slice(0, 8) + "10")));
+      if (del >= a && del <= addBD(z, 10)) ev.push([del, `DELIVERY ${p.code} ${mmmYY(f.contract)} (last trading 2 days before)`, fmt(p.qty, 0) + " lots"]);
+    }
+  }
+  for (const f of DATA.futures) { const del = f.contract.slice(0, 8) + "10"; if (del >= a && del <= addBD(z, 10)) ev.push([del, `${f.code} ${mmmYY(f.contract)} delivery: roll to the next contract`, ""]); }
+  ev.sort((x, y) => x[0] < y[0] ? -1 : 1);
+  return `<div class="sect"><div class="lbl">${dTerm(a)} – ${dTerm(z)}</div></div>` + (ev.length ? `<table class="t"><tbody>${ev.map(x => `<tr><td class="dim">${dTerm(x[0]).slice(0, 6)}</td><td>${esc(x[1])}</td><td class="n">${x[2]}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No coupons, maturities or futures deliveries for the club next week.</div>`) +
+    `<p class="note pad">ECB meetings and auction calendars are not in the free data yet.</p>`;
+}
+async function weekClub() {
+  const w = W(), trades = state.positions.filter(p => (p.date || (p.at || "").slice(0, 10)) >= w.mon);
+  const rows = [];
+  for (const p of state.positions) {
+    const r = risk(p); if (r.missing) continue;
+    const opened = (p.date || (p.at || "").slice(0, 10)) >= w.mon;
+    let base = opened ? p.price : null;
+    if (base == null && w.base) {
+      const h = await histOf(p.kind === "bond" ? p.isin : "FUT:" + p.code);
+      base = h?.find(x => x.d === w.base)?.v?.[0] ?? null;
+    }
+    if (base == null) continue;
+    const pnl = p.kind === "bond" ? p.qty * (r.now - base) / 100 : p.qty * (r.now - base) * r.f.mult;
+    rows.push({ l: p.kind === "bond" ? r.b.name : `${p.code} ${mmmYY(r.f.contract)}`, v: pnl });
+  }
+  rows.sort((a, b) => b.v - a.v);
+  const tot = rows.reduce((s, x) => s + x.v, 0);
+  return `<dl class="kv"><dt>Week P&amp;L (clean)</dt><dd class="big ${cls(tot)}">${rows.length ? fmtS(tot, 0) + " EUR" : "–"}</dd><dt>Trades this week</dt><dd>${trades.length}</dd>
+    ${rows.length ? `<dt>Best</dt><dd class="pos">${esc(rows[0].l)} ${fmtS(rows[0].v, 0)}</dd><dt>Worst</dt><dd class="${cls(rows.at(-1).v)}">${esc(rows.at(-1).l)} ${fmtS(rows.at(-1).v, 0)}</dd>` : ""}</dl>
+    ${rows.length ? "" : `<p class="note">${state.positions.length ? "Positions held before this week need a base day in the history." : "No positions."}</p>`}
+    ${trades.length ? `<table class="t"><tbody>${trades.slice(-8).reverse().map(p => `<tr><td class="dim">${esc((p.at || "").slice(5, 10))}</td><td>${esc(describe(p))}</td><td class="who">${esc(p.by || "")}</td></tr>`).join("")}</tbody></table>` : ""}`;
+}
+
 // ------------------------------------------------------------------ TRADE
 const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
   ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"],
@@ -1124,6 +1232,9 @@ const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn",
 // ECB credit quality: the class of a bond for the filter chips and its label
 const ECB_CLS = (b) => b.ecb === "1-2" ? "a" : b.ecb === "3" ? "bbb" : "ne";
 const ECB_LBL = { "1-2": "≥A−", "3": "BBB", "?": "ELIG" };
+const ESG_TAG = { GREEN: "GRN", SOCIAL: "SOC", SUST: "SUS", SLB: "SLB" };
+const ESG_NAME = { GREEN: "Green bond", SOCIAL: "Social bond", SUST: "Sustainability bond", SLB: "Sustainability-linked bond" };
+const esgTag = (b) => b.esg ? `<span class="esg${b.esg === "SLB" ? " slb" : ""}" title="${ESG_NAME[b.esg]} (Euronext ESG bond list)">${ESG_TAG[b.esg]}</span>` : "";
 let VISIBLE = [], ROW_H = 20, DRAWN = "";
 const SCR = {};
 // fixed column widths (characters) so the columns stay put while scrolling; the bond name takes the rest
@@ -1135,7 +1246,7 @@ const curTab = () => TABS.find(t => t.k === state.tab);
 function matcher() {
   const q = state.q.trim().toLowerCase();
   const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat];
-  return b => (!state.bench || b.bench) && (!state.firm || b.firm) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi
+  return b => (!state.bench || b.bench) && (!state.firm || b.firm) && (!state.esgOnly || b.esg) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi
     && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q));
 }
 
@@ -1166,6 +1277,7 @@ function renderDesk() {
           <div class="chips" id="mat" aria-label="Maturity">${[["all", "ALL"], ["0-3", "0-3Y"], ["3-7", "3-7Y"], ["7-15", "7-15Y"], ["15+", "15Y+"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
           <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">BENCHMARK ≥€500M SENIOR</button>
           <button class="tog" id="firm" title="Bid and offer both with size">FIRM TWO-WAY</button>
+          <button class="tog" id="esgf" title="Green, social, sustainability and sustainability-linked bonds (Euronext ESG bond list)">ESG LABELLED</button>
           <div class="chips" id="ecbf" aria-label="ECB credit quality" title="Eurosystem collateral list: credit quality step 1–2 (A− or better), step 3 (BBB), or not on the list (high yield, or an issuer the ECB does not accept)">${[["a", "≥A−"], ["bbb", "BBB"], ["ne", "NOT ON ECB LIST"]].map(([k, l]) => `<button data-q="${k}">${l}</button>`).join("")}</div>
         </div>
         <div class="pb" id="scrBody" tabindex="0" aria-label="Bond list, use arrow keys to select"></div>
@@ -1180,6 +1292,7 @@ function renderDesk() {
     $("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); renderScreener(true); };
     $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); renderScreener(true); };
     $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); renderScreener(true); };
+    $("#esgf").onclick = () => { state.esgOnly = !state.esgOnly; store("esgOnly", state.esgOnly); renderScreener(true); };
     $("#ecbf").onclick = e => { const k = e.target.dataset.q; if (!k) return; state.ecbOff.has(k) ? state.ecbOff.delete(k) : state.ecbOff.add(k); store("ecbOff", [...state.ecbOff]); renderScreener(true); };
     let raf = 0;
     const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawRows(); }); };
@@ -1200,7 +1313,7 @@ function renderScreener(reset = false) {
   $("#sectors").innerHTML = tab.s.length > 1 ? tab.s.map(([s, l]) => `<button data-s="${s}" title="${SECT[s]}" aria-pressed="${!state.off.has(s)}">${l}</button>`).join("") : "";
   $("#sectors").hidden = tab.s.length < 2;
   document.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
-  $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm);
+  $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm); $("#esgf").setAttribute("aria-pressed", state.esgOnly);
   document.querySelectorAll("#ecbf button").forEach(b => b.setAttribute("aria-pressed", !state.ecbOff.has(b.dataset.q)));
   const xs = filtered(), [sk, sd] = state.sort, box = $("#scrBody");
   const top = reset ? 0 : box.scrollTop;
@@ -1215,7 +1328,7 @@ function renderScreener(reset = false) {
 }
 
 const bondRow = (b, selIsin) => `<tr class="click${b.isin === selIsin ? " sel" : ""}" data-pick="${b.isin}" data-kind="bond">
-      <td class="nm">${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
+      <td class="nm">${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}${esgTag(b)}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
       <td class="n">${fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
       <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
       <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="${b.ecb === "3" ? "amb" : b.ecb ? "" : "muted"}">${ECB_LBL[b.ecb] || "–"}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
@@ -1330,6 +1443,7 @@ function renderTicket() {
         <dt>Bid / Offer</dt><dd class="big">${fmt(b.bid, 3)} / ${fmt(b.ask, 3)}${b.firm ? "" : ` <span class="ind" title="indicative">IND</span>`}</dd><dt>Bid-offer</dt><dd>${fmt((b.ask - b.bid) * 100, 1)} cents</dd>
         <dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp</dd><dt title="Z-spread minus the issuer's fitted spread curve">Rich / cheap</dt><dd>${b.rv == null ? "– (no issuer curve)" : `${fmtS(b.rv, 1)} bp ${b.rv > 0 ? "cheap" : "rich"}`}</dd>
         <dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd><dt>Roll-down 3M</dt><dd>${b.roll == null ? "–" : fmtS(b.roll, 1) + " bp"}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
+        <dt title="Euronext ESG bond list">ESG label</dt><dd>${b.esg ? ESG_NAME[b.esg] : "–"}</dd>
         <dt title="Eurosystem collateral list ${DATA.ecb ? dTerm(DATA.ecb.date) : ""}">ECB credit quality</dt><dd>${b.ecb === "1-2" ? "step 1–2 (A− or better)" : b.ecb === "3" ? "step 3 (BBB+ to BBB−)" : b.ecb ? "eligible, step not shown" : "not on the ECB list"}</dd>
         <dt>Min denomination</dt><dd>${fmt(b.unit, 0)}</dd><dt>Club position</dt><dd class="${cls(held)}">${held ? fmtS(held, 0) : "–"}</dd></dl></div>
       <div class="sect"><div class="lbl">Z-SPREAD HISTORY, BP</div><div class="hist" id="tkHist"></div></div>`;
@@ -1478,7 +1592,7 @@ document.addEventListener("keydown", e => {
   const typing = e.target.closest("input, select, textarea");
   if (e.key === "Escape") { if (typing) e.target.blur(); else if (state.sel && state.view === "desk") { state.sel = null; store("sel", null); renderDesk(); } return; }
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $("#login").open) return;
-  const views = { 1: "dash", 2: "hold", 3: "risk", 4: "desk", 5: "mkt" };
+  const views = { 1: "dash", 2: "hold", 3: "risk", 4: "desk", 5: "mkt", 6: "week" };
   if (views[e.key]) { e.preventDefault(); setView(views[e.key]); return; }
   if (e.key === "/") { e.preventDefault(); setView("desk"); $("#q").focus(); return; }
   if (state.view === "desk" && (e.key === "ArrowDown" || e.key === "ArrowUp") && VISIBLE.length) {
@@ -1501,7 +1615,7 @@ document.addEventListener("keydown", e => {
 // ------------------------------------------------------------------ render + storage
 function render() {
   renderAcct(); renderStatus();
-  ({ dash: renderDash, hold: renderHold, risk: renderRisk, desk: renderDesk, mkt: renderMkt })[state.view]();
+  ({ dash: renderDash, hold: renderHold, risk: renderRisk, desk: renderDesk, mkt: renderMkt, week: renderWeek })[state.view]();
 }
 
 async function loadPositions() {

@@ -9,7 +9,7 @@ haircut does: within a haircut category, coupon type and maturity bucket, bonds 
 (AAA to A-) share one haircut and step 3 (BBB+ to BBB-) has a markedly higher one. Each bond is classified
 against the most common haircut of its group:
 
-  "1-2"  haircut at the group's usual level        -> rated A- or better
+  "1-2"  haircut at the group's lowest level       -> rated A- or better
   "3"    haircut above it                          -> rated BBB+ to BBB- (investment grade, lowest bucket)
   None   on the list but not classifiable (e.g. ABS category L1E)
 
@@ -68,7 +68,9 @@ def classify(rows, asof):
         items.append((x, key, b, h))
         if b is not None:
             groups[key + (b,)][h] += 1
-    usual = {k: c.most_common(1)[0][0] for k, c in groups.items()}
+    # the step 1-2 level is the LOWEST haircut held by at least 3 bonds in the group (step 3 can be the majority,
+    # e.g. corporates in category L1C, so the most common level is not a safe reference)
+    usual = {k: min([h for h, n in c.items() if n >= 3] or c) for k, c in groups.items()}
     out = {}
     for x, key, b, h in items:
         cqs = None
@@ -77,7 +79,11 @@ def classify(rows, asof):
             ref = [usual[k] for k in (key + (b - 1,), key + (b,), key + (b + 1,)) if k in usual]
             if ref:
                 cqs = "1-2" if h <= max(ref) * 1.1 else "3"
-        out[x["ISIN_CODE"]] = dict(cqs=cqs, haircut=h, category=x["HAIRCUT_CATEGORY"], type=x.get("TYPE"))
+        try:
+            issued = dt.datetime.strptime(x.get("ISSUANCE_DATE", "")[:10], "%d/%m/%Y").date().isoformat()
+        except ValueError:
+            issued = None
+        out[x["ISIN_CODE"]] = dict(cqs=cqs, haircut=h, category=x["HAIRCUT_CATEGORY"], type=x.get("TYPE"), issued=issued)
     return out
 
 
