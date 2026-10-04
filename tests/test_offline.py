@@ -365,6 +365,7 @@ def test_build_day_and_log(tmp_path, monkeypatch):
     _write_gz(os.path.join(arch, "DEUR-posttrade", "2026-10-02", "DEUR-posttrade-daily-2026-10-02.json.gz"),
               [_pt(eurex.PRODUCTS["FEHY"][0], "12:00:00", 309.0, 5, contract="2026-12-18")])
     monkeypatch.setattr(ci.mfs, "sync", lambda *a, **k: (0, 0))
+    monkeypatch.setattr(ci.mfs, "download", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline")))   # Xetra file
     assets, row = ci.build_day("2026-10-02", arch, dist, str(tmp_path / "m.sqlite"))
     names = sorted(os.path.basename(x) for x in assets)
     assert names == ["DEUR-posttrade-2026-10-02.tar", "DFRA-pretrade-bonds-2026-10-02.tar",
@@ -720,3 +721,15 @@ def test_index_duration_estimate_applies_the_index_rules():
                                        ("BANQUE OUEST AF/2.75 BD 20330122", "SUPRA")])
 def test_sovereign_and_supra_exceptions(fisn, want):
     assert classify.sector_of(R2("DBFTFB", fisn, "", ""), {})[0] == want
+
+
+def test_archive_snapshots_saves_each_source_and_survives_failures(tmp_path, monkeypatch):
+    import ecb_collateral, market
+    monkeypatch.setattr(ecb_collateral, "latest_url", lambda: ("u", "2026-10-02"))
+    monkeypatch.setattr(ecb_collateral, "_get", lambda url: b"ecb")
+    monkeypatch.setattr(ci.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("down")))   # Euronext fails
+    monkeypatch.setattr(market, "fred", lambda sid, day: (["2026-10-01", "2026-10-02"], [3.0, 3.1]))
+    out = ci.archive_snapshots(str(tmp_path), dry_run=True, today="2026-10-04")
+    assert sorted(os.path.basename(p) for p in out) == ["ecb_eligible-2026-10-02.csv.gz", "fred-2026-10-04.csv.gz"]
+    rows = gzip.decompress(open(tmp_path / "fred-2026-10-04.csv.gz", "rb").read()).decode().splitlines()
+    assert rows[0] == "series,date,value" and len(rows) == 1 + 2 * len(market.FRED)

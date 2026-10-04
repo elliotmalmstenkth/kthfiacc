@@ -18,11 +18,19 @@ is therefore not redistributed publicly. Assets per day:
   DFRA-pretrade-bonds-<date>.tar     raw minute files, bond rows only (priceNotation 2)
   DFRA-posttrade-<date>.tar          raw minute files
   DEUR-posttrade-<date>.tar          raw minute and daily files
+  DETR-posttrade-daily-<date>.json.gz  Xetra trades (all instruments, incl. the bond ETFs), Deutsche Börse's daily file
+
+Snapshots of sources that keep only their latest version go to one draft release per month,
+snapshots-<YYYY-MM> (archive_snapshots, every run):
+
+  ecb_eligible-<list date>.csv.gz    ECB list of eligible marketable assets (haircuts, issuer groups, issue dates)
+  euronext_esg-<date>.xlsx           Euronext ESG bond list (green, social, sustainability, SLB labels)
+  fred-<date>.csv.gz                 ICE BofA OAS and VIX from FRED (FRED shows only the last three years of ICE data)
 
 One row per day is appended to data/log.csv (committed by the workflow, which also keeps the
 schedule alive: GitHub disables schedules in public repos after 60 days without activity).
 """
-import argparse, csv, datetime as dt, gzip, json, os, shutil, sqlite3, subprocess, sys, tarfile
+import argparse, csv, datetime as dt, gzip, io, json, os, shutil, sqlite3, subprocess, sys, tarfile, urllib.request
 
 import eurex, eurex_options, mfs
 
@@ -89,6 +97,12 @@ def build_day(day, archive, dist, db, firds_db=None):
         w = csv.writer(f); w.writerow([c[0] for c in cur.description]); w.writerows(cur)
 
     assets = [quotes, fut]
+    xetra = os.path.join(dist, f"DETR-posttrade-daily-{day}.json.gz")
+    try:   # Xetra trades: not used by the site yet, kept because the server deletes them the next business day
+        mfs.download(os.path.basename(xetra), xetra)
+        assets.append(xetra)
+    except Exception as e:
+        print(f"{day}: Xetra daily file skipped: {e}", file=sys.stderr)
     try:   # implied volatility from the Bund/Bobl/Schatz options; the day still publishes without it
         assets.append(eurex_options.write(eurex_options.build(day, archive), os.path.join(dist, f"eurex_options-{day}.csv.gz")))
     except Exception as e:
@@ -168,7 +182,61 @@ def cmd_daily(a):
                 shutil.rmtree(os.path.join(a.archive, feed, day), ignore_errors=True)
         built += 1
     print(f"done: {built} days", file=sys.stderr)
+    try:
+        archive_snapshots(os.path.join(a.dist, "snapshots"), a.dry_run)
+    except Exception as e:   # never fails the day's collection
+        print(f"snapshots skipped: {e}", file=sys.stderr)
     return 1 if built < len(todo) else 0
+
+
+def archive_snapshots(dist, dry_run=False, today=None):
+    """Saves today's copy of the sources that only publish their latest version (see the module docstring) to
+    the draft release snapshots-<YYYY-MM>. Files already there are skipped; each source fails on its own."""
+    import ecb_collateral, green, market
+    today = today or dt.datetime.now(mfs.TZ).date().isoformat()
+    tag = f"snapshots-{today[:7]}"
+    os.makedirs(dist, exist_ok=True)
+    have = set()
+    if not dry_run:
+        if tag in existing_tags():
+            have = {x["name"] for x in json.loads(gh("release", "view", tag, "--json", "assets"))["assets"]}
+        else:
+            gh("release", "create", tag, "--draft", "--title", f"Snapshots {today[:7]}", "--notes",
+               "Daily copies of sources that publish only their latest version (ci.py archive_snapshots): "
+               "ECB eligible assets list, Euronext ESG bond list, FRED ICE BofA OAS and VIX.")
+    out = []
+
+    def save(name, fetch):
+        if name in have:
+            return
+        try:
+            path = os.path.join(dist, name)
+            data = fetch()
+            with open(path, "wb") as f:
+                f.write(data)
+            out.append(path)
+        except Exception as e:
+            print(f"snapshot {name} skipped: {e}", file=sys.stderr)
+
+    try:
+        url, listday = ecb_collateral.latest_url()
+        save(f"ecb_eligible-{listday}.csv.gz", lambda: ecb_collateral._get(url))
+    except Exception as e:
+        print(f"snapshot ECB list skipped: {e}", file=sys.stderr)
+    save(f"euronext_esg-{today}.xlsx", lambda: urllib.request.urlopen(
+        urllib.request.Request(green.URL, headers={"User-Agent": "Mozilla/5.0 (kth-fic-club)"}), timeout=90).read())
+
+    def fred_all():
+        buf = io.StringIO(); w = csv.writer(buf); w.writerow(["series", "date", "value"])
+        for sid in market.FRED:
+            d, v = market.fred(sid, today)
+            w.writerows((sid, x, y) for x, y in zip(d, v))
+        return gzip.compress(buf.getvalue().encode(), mtime=0)
+    save(f"fred-{today}.csv.gz", fred_all)
+    if out and not dry_run:
+        gh("release", "upload", tag, *out, "--clobber")
+    print(f"{tag}: {[os.path.basename(p) for p in out] or 'nothing new'}", file=sys.stderr)
+    return out
 
 
 def cmd_firds(a):

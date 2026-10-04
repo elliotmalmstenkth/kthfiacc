@@ -106,7 +106,10 @@ Relative value:
 `.github/workflows/daily.yml` runs `ci.py` every business day at 22:37 UTC, with a fallback run at 05:17 UTC
 Tue–Sat and a FIRDS snapshot on Sundays. Each business day becomes a **draft release** `data-<date>` (visible only
 to collaborators): marks at 12:00/17:25/close, bond classification, Eurex futures, and raw data (bond rows from
-DFRA-pretrade ~340 MB, post-trade ~75 MB). The site is then rebuilt and deployed to GitHub Pages, and
+DFRA-pretrade ~340 MB, post-trade ~75 MB, Eurex option implied vols, and Xetra's daily trade file ~17 MB, kept for
+the bond ETFs). Every run also saves a dated copy of the sources that only publish their latest version (ECB
+eligible assets list, Euronext ESG list, FRED's ICE BofA OAS and VIX) to the draft release `snapshots-<YYYY-MM>`,
+so rating-step changes, label changes and the OAS history beyond FRED's three years are not lost. The site is then rebuilt and deployed to GitHub Pages, and
 `data/log.csv` gets one row per day. Manual run: Actions → Market data → Run workflow (`daily`, `site` or `firds`).
 
 `.github/workflows/live.yml` runs `live.py` on business days from 07:45 to 17:45 Frankfurt time: one long job per
