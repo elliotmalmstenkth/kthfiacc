@@ -235,11 +235,16 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
 .dqf { color: var(--amber); margin-right: 4px; cursor: help; }
 #v-week { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 270px repeat(3, 300px); overflow: auto;
   grid-template-areas: "sum sum club" "new new next" "wide tight iss" "rat rv rv"; }
-#v-mkt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto minmax(380px, auto); overflow: auto;
-  grid-template-areas: "rates credit" "rates money" "macro fut" "vol vol"; }
+#v-mkt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(600px, auto) auto minmax(380px, auto); overflow: auto;
+  grid-template-areas: "rates credit" "rates money" "stir stir" "macro fut" "vol vol"; }
 .volg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .volg > div { min-width: 0; }
 .volg > div:first-child { overflow-x: auto; }
+.t tr.muted td { color: var(--fg-3); }
+svg.chart .path { fill: none; stroke: var(--amber); stroke-width: 2; }
+svg.chart .eur { fill: #4fa3ff; stroke: #000; stroke-width: .5; }
+svg.chart .now { stroke: var(--fg-2); stroke-dasharray: 4 3; }
+svg.chart .mtg { stroke: var(--line); }
 svg.chart .call { fill: var(--amber); stroke: #000; stroke-width: .5; fill-opacity: .8; }
 svg.chart .put { fill: #4fa3ff; stroke: #000; stroke-width: .5; fill-opacity: .8; }
 svg.chart .atm { stroke: var(--fg-3); stroke-dasharray: 3 3; }
@@ -253,7 +258,7 @@ svg.chart .atm { stroke: var(--fg-3); stroke-dasharray: 3 3; }
   #v-dash { grid-template-areas: "kpi" "hold" "mkt" "buck" "sect" "curve"; }
   #v-hold { grid-template-areas: "kpi" "blot" "strat" "attr" "sum"; }
   #v-risk { grid-template-areas: "kpi" "krd" "cs" "var" "hedge" "meth"; }
-  #v-mkt { grid-template-areas: "rates" "credit" "money" "fut" "macro" "vol"; }
+  #v-mkt { grid-template-areas: "rates" "credit" "money" "stir" "fut" "macro" "vol"; }
   #v-guide { grid-template-areas: "start" "gloss" "data" "status" "limits"; }
   #v-week { grid-template-areas: "sum" "club" "new" "next" "wide" "tight" "iss" "rat" "rv"; }
   #v-desk { grid-template-areas: "tkt" "scr" "fut"; }
@@ -1161,6 +1166,48 @@ async function refreshLive() {   // newer ECB / NY Fed fixings than the build, f
   state.liveAt = new Date();
   if (state.view === "mkt") renderMkt();
 }
+// ------------------------------------------------------------------ ECB path (stir.py)
+// 3M €STR futures: the average €STR priced for each IMM quarter; + today's DFR − €STR spread = the deposit rate
+// the market expects. For the quarter under way only the days still to come count. 3M Euribor futures: forward
+// 3-month Euribor; Euribor − €STR for the same quarter is the bank credit / term premium.
+const pct = (v, n = 3) => v == null ? "–" : fmt(v, n) + "%";
+const qLbl = (q) => `${mmmYY(q.start)}–${mmmYY(q.end)}`;
+function stirPanel() {
+  const S = DATA.stir;
+  if (!S) return `<div class="empty">No money-market futures in this build. The evening run adds them from the next trading day.</div>`;
+  const nx = S.next, last = S.estr_q.at(-1), yr = S.estr_q.find(q => q.start >= addMonthsIso(S.asof, 12)) || last;
+  const head = `<div class="sect"><dl class="kv">
+      <dt>ECB deposit rate</dt><dd class="big">${pct(S.dfr, 2)}</dd><dt>€STR</dt><dd>${pct(S.estr)} <span class="muted">${S.estr_date ? dTerm(S.estr_date) : ""} · ${S.spread != null ? fmt(S.spread * 100, 1) + " bp under the DFR" : ""}</span></dd>
+      ${nx ? `<dt>Next meeting ${dTerm(nx.meeting)}</dt><dd class="${cls(nx.bp)}">${fmtS(nx.bp, 1)} bp priced <span class="muted">(${fmt(Math.abs(nx.bp) / 25 * 100, 0)}% of a 25 bp ${nx.bp >= 0 ? "hike" : "cut"}; effective ${dTerm(nx.effective)})</span></dd>` : S.meetings.length ? `<dt>Next meeting</dt><dd>${dTerm(S.meetings[0])}</dd>` : ""}
+      ${yr && yr.chg != null ? `<dt>Priced for ${qLbl(yr)}</dt><dd class="${cls(yr.chg)}">${fmtS(yr.chg, 0)} bp <span class="muted">(${fmt(Math.abs(yr.moves), 1)} × 25 bp ${yr.chg >= 0 ? "hikes" : "cuts"})</span></dd>` : ""}
+    </dl></div>`;
+  const chg = (v) => `<td class="n ${cls(v)}">${v == null ? "–" : fmtS(v, 1)}</td>`;
+  const estr = `<table class="t"><thead><tr><th>€STR QUARTER</th><th class="n">PRICE</th><th class="n" title="average €STR priced for the quarter; for the quarter under way, the days still to come">€STR</th><th class="n" title="€STR + today's DFR − €STR spread">DFR ≈</th><th class="n">VS TODAY BP</th><th class="n">25 BP MOVES</th><th class="n">1D</th><th class="n">1W</th><th class="n">TRADES</th></tr></thead><tbody>` +
+    S.estr_q.map(q => `<tr${q.trades < 5 ? ` class="muted" title="few trades: the price may be stale"` : ""}><td>${qLbl(q)}${q.remaining != null ? ` <span class="muted" title="${q.elapsed} of ${q.days} days fixed at ${fmt(q.realized, 3)}%">rest of qtr</span>` : ""}</td><td class="n">${fmt(q.price, 4)}</td><td class="n">${pct(q.remaining ?? q.rate)}</td><td class="n">${pct(q.dfr)}</td>${chg(q.chg)}<td class="n">${q.moves == null ? "–" : fmtS(q.moves, 2)}</td>${chg(q.d1)}${chg(q.w1)}<td class="n">${fmt(q.trades, 0)}</td></tr>`).join("") + `</tbody></table>`;
+  const eur = `<table class="t"><thead><tr><th>3M EURIBOR</th><th>DEPOSIT FROM</th><th class="n">PRICE</th><th class="n">EURIBOR</th><th class="n" title="Euribor − €STR for the same quarter: bank credit and term premium">BASIS BP</th><th class="n">1D</th><th class="n">1W</th><th class="n">TRADES</th></tr></thead><tbody>` +
+    S.euribor.map(q => `<tr${q.trades < 5 ? ` class="muted" title="few trades: the price may be stale"` : ""}><td>${mmmYY(q.contract)}${q.quarterly ? "" : ` <span class="muted">serial</span>`}</td><td class="dim">${dTerm(q.start)}</td><td class="n">${fmt(q.price, 3)}</td><td class="n">${pct(q.rate)}</td><td class="n">${q.basis == null ? "–" : fmt(q.basis, 1)}</td>${chg(q.d1)}${chg(q.w1)}<td class="n">${fmt(q.trades, 0)}</td></tr>`).join("") + `</tbody></table>`;
+  const note = `<p class="note pad"><b>How to read it.</b> A 3-month €STR future settles on the average overnight rate over its quarter, so its price is the market's forecast of that average, and €STR follows the ECB deposit rate a few bp below it. The path is the market's expectation (plus a small risk premium), not the ECB's plan. <b>25 BP MOVES</b> = the priced change in steps of 25 bp. Euribor is an unsecured bank rate, so it sits above €STR; a widening basis signals bank funding stress. Grey rows traded fewer than 5 times, so their price may be stale; contracts without a trade that day are left out.</p>`;
+  return `<div class="volg"><div>${head}<div class="sect"><div class="lbl">PRICED DEPOSIT RATE (AMBER) · 3M EURIBOR FORWARDS (BLUE) · ECB MEETINGS (TICKS)</div><div id="stirChart"></div></div></div><div>${estr}${eur}</div></div>${note}`;
+}
+function addMonthsIso(iso, n) { const d = new Date(iso + "T12:00:00"); d.setMonth(d.getMonth() + n); return d.toISOString().slice(0, 10); }
+function stirChart(S, w) {
+  const h = 280, L = 44, R = 12, T = 10, B = 28, t = (iso) => new Date(iso + "T12:00:00").getTime();
+  const qs = S.estr_q.filter(q => q.dfr != null), eu = S.euribor;
+  if (!qs.length) return `<div class="muted">No €STR futures priced.</div>`;
+  const x0 = t(S.asof), x1 = Math.max(...qs.map(q => t(q.end)));
+  const vals = [S.dfr, S.estr, ...qs.map(q => q.dfr), ...eu.filter(q => t(q.start) <= x1).map(q => q.rate)].filter(v => v != null);
+  let v0 = Math.min(...vals), v1 = Math.max(...vals); const pad = (v1 - v0) * 0.12 || 0.1; v0 -= pad; v1 += pad;
+  const X = (ms) => L + (ms - x0) / (x1 - x0) * (w - L - R), Y = (v) => T + (v1 - v) / (v1 - v0) * (h - T - B);
+  let g = "";
+  for (let i = 0; i <= 4; i++) { const v = v0 + (v1 - v0) * i / 4; g += `<line class="grid" x1="${L}" x2="${w - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${fmt(v, 2)}</text>`; }
+  const d0 = new Date(x0); for (let y = d0.getFullYear(); ; y++) { const ms = new Date(`${y}-01-01T12:00:00`).getTime(); if (ms > x1) break; if (ms > x0) g += `<line class="grid" x1="${X(ms)}" x2="${X(ms)}" y1="${T}" y2="${h - B}"/><text x="${X(ms)}" y="${h - 14}" text-anchor="middle">${y}</text>`; }
+  const mt = S.meetings.filter(m => t(m) <= x1).map(m => `<line class="mtg" x1="${X(t(m))}" x2="${X(t(m))}" y1="${h - B}" y2="${h - B + 5}"><title>ECB meeting ${dTerm(m)}</title></line>`).join("");
+  const now = (v, lbl, below) => v == null ? "" : `<line class="now" x1="${L}" x2="${w - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${w - R - 2}" y="${Y(v) + (below ? 11 : -3)}" text-anchor="end">${lbl} ${fmt(v, 3)}</text>`;
+  const path = qs.map((q, i) => { const a = Math.max(x0, t(q.start)), b = t(q.end); return `${i ? "L" : "M"}${X(a).toFixed(1)},${Y(q.dfr).toFixed(1)}L${X(b).toFixed(1)},${Y(q.dfr).toFixed(1)}`; }).join("");
+  const dots = eu.filter(q => t(q.start) <= x1).map(q => `<circle class="eur" cx="${X(Math.max(x0, t(q.start))).toFixed(1)}" cy="${Y(q.rate).toFixed(1)}" r="${q.quarterly ? 3.5 : 2.2}"><title>3M Euribor from ${dTerm(q.start)}: ${fmt(q.rate, 3)}% (${q.trades} trades)</title></circle>`).join("");
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Priced ECB deposit rate path">${g}${now(S.dfr, "DFR today")}${now(S.estr, "€STR today", true)}<path class="path" d="${path}"/>${dots}<line class="axis" x1="${L}" x2="${w - R}" y1="${h - B}" y2="${h - B}"/>${mt}</svg>`;
+}
+
 // ------------------------------------------------------------------ rates volatility
 // eurex_options.py: implied vol of the options on the Schatz, Bobl and Bund futures, per expiry (ATM from a
 // quadratic smile in log-moneyness) and a 30-day constant-maturity ATM vol. Yield vol (bp/day) = price vol /
@@ -1219,7 +1266,7 @@ function renderMkt() {
     ["FECX", "FEHY", "FGBC", "FUIG", "FUHY"].filter(F).map(c => { const f = F(c), d = indexDur(c); return `<tr class="click" data-pick="${c}" data-kind="fut"><td><span class="amb">${c}</span> <span class="muted">${esc(f.name)}</span></td><td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${d ? fmt(f.last * f.mult * d * 1e-4, 1) : "–"}</td></tr>`; }).join("") + `</tbody></table>
     <p class="note pad">iTraxx and CDX spreads are licensed (S&amp;P Global) and not free; the cash-bond OAS indices and Eurex credit index futures are the public proxies.</p>`;
   const money = mktRows([[M.ESTR, "€STR"], [M.SOFR, "SOFR"], [derived("SOFR", "ESTR", "SOFR − €STR"), "SOFR − €STR spread"]]) +
-    `<p class="note pad">Swap rates and Euribor are not available from free sources (EMMI and swap-dealer data are licensed). €STR is the euro risk-free rate that euro swaps now discount on.</p>`;
+    `<p class="note pad">Euribor fixings and swap rates are licensed (EMMI, swap dealers); the Eurex Euribor and €STR futures below price the same rates forward. €STR is the euro risk-free rate that euro swaps now discount on.</p>`;
   const macro = mktRows([[M.VIXCLS, "VIX", 2], [M.EURUSD, "EUR/USD", 4]]);
   const fut = `<table class="t"><thead><tr><th>CONTRACT</th><th>EXP</th><th class="n">LAST</th><th class="n">LOW</th><th class="n">HIGH</th><th class="n">VOLUME</th><th class="n">DV01</th><th class="n">CTD YTM</th></tr></thead><tbody>` +
     DATA.futures.filter(f => f.type !== "credit").map(f => `<tr class="click" data-pick="${f.code}" data-kind="fut"><td><span class="amb">${f.code}</span> <span class="muted">${esc(f.name)}</span></td><td>${mmmYY(f.contract)}</td><td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.low, 3)}</td><td class="n">${fmt(f.high, 3)}</td><td class="n">${fmt(f.lots, 0)}</td><td class="n">${fmt(f.dv01, 1)}</td><td class="n">${fmt(f.ctd?.ytm, 3)}</td></tr>`).join("") + `</tbody></table>`;
@@ -1229,9 +1276,11 @@ function renderMkt() {
     panel("credit", "Credit", credit, { sub: "OAS in bp" }) +
     panel("money", "Money markets", money, { sub: live }) +
     panel("vol", "Rates volatility (Eurex options)", volPanel(), { sub: DATA.vol ? `implied from option trades ${dTerm(DATA.asof)} · Black-76 on the future` : "not in this build" }) +
+    panel("stir", "ECB path and money-market curve (Eurex futures)", stirPanel(), { sub: DATA.stir ? `3M €STR and 3M Euribor futures, last trades ${dTerm(DATA.asof)} · rate = 100 − price` : "not in this build" }) +
     panel("fut", "Rates futures (Eurex)", fut, { sub: `last on-book trade ${dTerm(DATA.asof)}` }) +
     panel("macro", "Macro and volatility", macro + `<p class="note pad">All series are end of day. Tick-by-tick data needs a paid feed (Bloomberg, LSEG, ICE); Deutsche Börse's free minute files cannot be read from a browser (no CORS) and the site has no server.</p>`, { sub: "VIX: CBOE close via FRED · EUR/USD: ECB reference rate" });
   volWire();
+  const sb = $("#stirChart"); if (sb && DATA.stir) sb.innerHTML = stirChart(DATA.stir, Math.max(300, sb.clientWidth || 600));
 }
 
 // ------------------------------------------------------------------ THIS WEEK
@@ -1345,6 +1394,8 @@ const GLOSSARY = [
   ["Carry", "Coupon income minus funding at the repo rate. Shorts pay the coupon and earn repo less the specialness."],
   ["Roll-down", "Price gain from the bond ageing along an unchanged curve (3 months shown)."],
   ["Implied vol", "The volatility that makes an option's model price (Black-76) equal its traded price: the market's expected size of moves. Markets: Bund, Bobl, Schatz options, also in bp of yield per day."],
+  ["ECB path", "The deposit rate the market prices for each coming quarter, from 3-month €STR futures (rate = 100 − price). 25 bp moves = the priced change in steps of 25 bp."],
+  ["Euribor basis", "3-month Euribor minus €STR for the same period: the premium for lending unsecured to banks for three months."],
   ["Smile", "Implied vol by strike. Options far below the future (puts) often cost more vol than at the money: protection against a sell-off is in demand."],
   ["Firm two-way", "Bid and offer both with size: you could have traded. Otherwise the quote is indicative (dotted)."],
   ["Benchmark", "Issue size at least EUR 500m and senior: the institutional, index-eligible universe."],
@@ -1398,7 +1449,7 @@ function renderGuide() {
     ["Curves", "ECB AAA and all-govt Svensson curves", "daily, published at noon the next business day"],
     ["€STR, EUR/USD", "ECB data portal", "daily"], ["SOFR", "New York Fed", "daily"],
     ["Credit indices, VIX", "FRED (ICE BofA OAS, CBOE)", "daily"],
-    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"], ["Rates implied vol", "Eurex option trades (DEUR post-trade)", "daily, evening run"]];
+    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"], ["Rates implied vol", "Eurex option trades (DEUR post-trade)", "daily, evening run"], ["ECB path", "Eurex €STR and Euribor futures; ECB meeting calendar and deposit rate", "daily, evening run"]];
   const data = `<table class="t"><thead><tr><th>DATA</th><th>SOURCE</th><th>UPDATED</th></tr></thead><tbody>${src.map(r => `<tr><td>${r[0]}</td><td class="dim">${r[1]}</td><td class="dim">${r[2]}</td></tr>`).join("")}</tbody></table>
     <p class="note pad">GitHub Actions collects the files every business day (22:37 UTC, retry 05:17 UTC), builds the analytics and publishes this site. The Deutsche Börse files are free for non-commercial use.</p>`;
   const L = D.log || [], ok = (x, lo) => +x >= lo ? "" : "neg";

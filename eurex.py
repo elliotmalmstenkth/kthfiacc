@@ -37,6 +37,10 @@ PRODUCTS = {
     "FBON": ("DE000A163W29", "Euro-BONO", "govt", "EUR", 1000),
     "FBEU": ("DE000A3ETB78", "Euro-EU Bond", "govt", "EUR", 1000),
     "CONF": ("CH0002741988", "CONF (Swiss Confederation)", "govt", "CHF", 1000),
+    # short-term interest rate futures: EUR 1m for 3 months, price = 100 - rate -> 2,500 per point (stir.py).
+    # ISINs identified from the trades (prices 100 - rate, monthly/IMM expiries), Oct 2026.
+    "FEU3": ("DE0009653147", "3-Month Euribor", "stir", "EUR", 2500),
+    "FST3": ("DE000A3CNW06", "3-Month €STR", "stir", "EUR", 2500),
     # credit index futures: cash-settled, multiplier from FIRDS
     "FECX": ("DE000A2QQU00", "Bloomberg MSCI Euro Corporate Screened", "credit", "EUR", 1000),
     "FEHY": ("DE000A3DLQ96", "Bloomberg Liquidity Screened Euro High Yield", "credit", "EUR", 200),

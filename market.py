@@ -15,7 +15,7 @@ Each source is fetched independently; one that fails is left out and the page sh
 The same series drive the historical-simulation VaR on the site (rates: ECB AAA spot changes per
 futures bucket; credit: Euro HY OAS changes scaled by each position's spread).
 """
-import argparse, csv, datetime as dt, io, json, sqlite3, sys, urllib.request
+import argparse, csv, datetime as dt, io, json, re, sqlite3, sys, urllib.request
 
 import ecb_curve
 
@@ -60,6 +60,17 @@ def ecb_series(key, n=300, end=None):
     return [r["TIME_PERIOD"] for r in rows], [float(r["OBS_VALUE"]) for r in rows]
 
 
+def ecb_meetings():
+    """Monetary policy decision dates (ISO) from the ECB's calendar of Governing Council meetings: the day of a
+    monetary policy meeting followed by the press conference."""
+    html = _get("https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html")
+    out = set()
+    for d, txt in re.findall(r"<dt>\s*(\d{2}/\d{2}/\d{4})\s*</dt>\s*<dd>(.*?)</dd>", html, re.S):
+        if "monetary policy meeting" in txt and "press conference" in txt:
+            out.add(dt.datetime.strptime(d, "%d/%m/%Y").date().isoformat())
+    return sorted(out)
+
+
 def sofr(n=300):
     j = json.loads(_get(f"https://markets.newyorkfed.org/api/rates/secured/sofr/last/{n}.json"))["refRates"][::-1]
     return [x["effectiveDate"] for x in j], [float(x["percentRate"]) for x in j]
@@ -91,6 +102,7 @@ def build(day, ecb_db):
     except Exception as e:
         print(f"market: ECB curves unavailable: {e}", file=sys.stderr)
     add("ESTR", "€STR", "money", "%", "ECB", lambda: ecb_series("EST/B.EU000A2X2A25.WT", end=day))
+    add("DFR", "ECB deposit facility rate", "money", "%", "ECB", lambda: ecb_series("FM/D.U2.EUR.4F.KR.DFR.LEV", end=day))
     add("SOFR", "SOFR", "money", "%", "NY Fed", sofr)
     add("EURUSD", "EUR/USD", "macro", "", "ECB", lambda: ecb_series("EXR/D.USD.EUR.SP00.A", end=day))
     for sid, (name, group, unit) in FRED.items():

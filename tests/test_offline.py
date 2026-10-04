@@ -670,3 +670,31 @@ def test_option_atm_vol_and_summary():
     assert [e["expiry"] for e in s["expiries"]] == ["2026-10-23", "2026-11-20"]
     assert 0.078 < s["atm1m"] < 0.08                             # 30 days lies between the two expiries
     assert s["bp1m"] == pytest.approx(s["atm1m"] / 7.74 * 1e4 / math.sqrt(252), abs=0.01)
+
+
+# ---------------------------------------------------------------- stir (ECB path)
+def test_stir_periods_and_meeting_effective_date():
+    import stir
+    assert stir.third_wednesday(2026, 12) == dt.date(2026, 12, 16)
+    assert stir.estr_period("2026-09-16") == (dt.date(2026, 9, 16), dt.date(2026, 12, 16))
+    assert stir.euribor_period("2026-12-14") == (dt.date(2026, 12, 16), dt.date(2027, 3, 16))
+    assert stir.effective("2026-10-29") == dt.date(2026, 11, 4)          # Thursday -> next week's Wednesday
+
+
+def test_stir_path_rest_of_quarter_and_next_meeting():
+    import stir
+    days = [(dt.date(2026, 9, 1) + dt.timedelta(days=i)).isoformat() for i in range(31)]
+    estr = (days, [2.44] * len(days))
+    # quarter Sep 16 - Dec 16 (91 days), 16 days fixed at 2.44; the rest priced at 2.54 (a 10 bp move on Nov 4)
+    d1, d2 = (dt.date(2026, 11, 4) - dt.date(2026, 10, 2)).days, (dt.date(2026, 12, 16) - dt.date(2026, 11, 4)).days
+    rem = (2.44 * d1 + 2.54 * d2) / (d1 + d2)
+    q_rate = (2.44 * 16 + rem * 75) / 91
+    rows = [dict(code="FST3", contract="2026-09-16", last=100 - q_rate, trades=50, lots=100),
+            dict(code="FST3", contract="2026-12-16", last=97.29, trades=50, lots=100),
+            dict(code="FEU3", contract="2026-12-14", last=97.09, trades=50, lots=100)]
+    S = stir.build(rows, "2026-10-02", estr, 2.5, ["2026-10-29", "2026-12-17"])
+    q0, q1 = S["estr_q"]
+    assert q0["remaining"] == pytest.approx(rem, abs=1e-3)
+    assert S["next"]["meeting"] == "2026-10-29" and S["next"]["bp"] == pytest.approx(10, abs=0.2)
+    assert q1["dfr"] == pytest.approx(2.71 + 0.06, abs=1e-6) and q1["chg"] == pytest.approx(27.0)
+    assert S["euribor"][0]["basis"] == pytest.approx(20.0)

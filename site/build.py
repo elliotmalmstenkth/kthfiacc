@@ -13,7 +13,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import analytics as an, classify, ecb_collateral, ecb_curve, eurex, eurex_options, green, market  # noqa: E402
+import analytics as an, classify, ecb_collateral, ecb_curve, eurex, eurex_options, green, market, stir  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
@@ -207,6 +207,8 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
              if x.sector == "SOV" and i.startswith("DE000") and x.coupon_type == "fixed"]
     futures = []
     for code, (pisin, name, typ, ccy, mult) in eurex.PRODUCTS.items():
+        if typ == "stir":          # money-market futures: the whole strip, below (stir.py)
+            continue
         f = fut[(fut.code == code) & fut["last"].notna()].sort_values("contract")
         if f.empty:
             continue
@@ -234,11 +236,25 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
             print(f"€STR unavailable: {ex}", file=sys.stderr)
 
     mkt = market.build(day, ecb_db)
+    stirs = load_stir(fut, day, mkt)
     vol = load_vol(options_csv or os.path.join(ddir, "eurex_options.csv.gz"), day, futures)
 
     return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, esg=esg, dq=dq, log=read_log(), built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
-                cols=cols, bonds=rows, futures=futures, vol=vol)
+                cols=cols, bonds=rows, futures=futures, vol=vol, stir=stirs)
+
+
+def load_stir(fut, day, mkt):
+    """ECB path and money-market curve from the €STR and Euribor futures (stir.py); None without them."""
+    rows = [dict(code=x.code, contract=x.contract, last=x["last"], trades=x.trades, lots=x.lots)
+            for _, x in fut[fut.code.isin(["FST3", "FEU3"]) & fut["last"].notna()].iterrows()]
+    try:
+        meetings = market.ecb_meetings()
+    except Exception as e:
+        print(f"ECB meeting calendar unavailable: {e}", file=sys.stderr)
+        meetings = []
+    e, d = mkt.get("ESTR"), mkt.get("DFR")
+    return stir.build(rows, day, (e["d"], e["v"]) if e else None, d["v"][-1] if d else None, meetings)
 
 
 def load_vol(path, day, futures):
@@ -290,10 +306,28 @@ def write_history(data, hist_dir):
                         b[c["ecb"]] if "ecb" in c else None])
         for fu in data["futures"]:
             w.writerow([f"FUT:{fu['code']}", fu["last"], (fu.get("ctd") or {}).get("ytm"), None, None, None])
+        st = data.get("stir") or {}
+        for code, qs in (("FST3", st.get("estr_q", [])), ("FEU3", st.get("euribor", []))):   # price (mid), rate (ytm)
+            for q in qs:
+                w.writerow([f"STIR:{code}:{q['contract']}", q["price"], q["rate"], None, None, None])
         for code, v in (data.get("vol") or {}).items():   # 1M ATM implied vol: % of price (mid), bp/day (ytm)
             if v.get("atm1m"):
                 w.writerow([f"IV:{code}", r(v["atm1m"] * 100, 3), v.get("bp1m"), None, None, None])
     return path
+
+
+def stir_changes(data, hist_dir):
+    """1-day and 1-week changes (bp) of each money-market futures rate, from the history files."""
+    S = data.get("stir")
+    if not S:
+        return
+    days = sorted(os.path.basename(p)[:10] for p in glob.glob(os.path.join(hist_dir, "*.csv.gz")) if os.path.basename(p)[:10] < data["asof"])
+    prev = {n: read_history(os.path.join(hist_dir, f"{days[-n]}.csv.gz")) if len(days) >= n else {} for n in (1, 5)}
+    for key, qs in (("FST3", S["estr_q"]), ("FEU3", S["euribor"])):
+        for q in qs:
+            for n, k in ((1, "d1"), (5, "w1")):
+                old = (prev[n].get(f"STIR:{key}:{q['contract']}") or {}).get("ytm")
+                q[k] = round((q["rate"] - old) * 100, 1) if old is not None else None
 
 
 def build_shards(hist_dir, out_dir):
@@ -437,6 +471,7 @@ if __name__ == "__main__":
     if a.history:
         write_history(data, a.history)
         data["week"] = weekly(data, a.history)
+        stir_changes(data, a.history)
         data["hist"] = build_shards(a.history, os.path.join(os.path.dirname(os.path.abspath(a.out)), "hist"))
         print(f"history: {len(data['hist'])} days", file=sys.stderr)
     owner, name = a.repo.split("/")
