@@ -56,10 +56,17 @@ def _bucket(maturity, asof):
 
 
 def classify(rows, asof):
-    """{isin: dict(cqs, haircut, category, type)} for euro-denominated bonds."""
+    """{isin: dict(cqs, haircut, category, type, issued, group, residence, guarantor)}. The credit quality step
+    only for euro-denominated bonds; other currencies are listed with cqs None and eur False (for the country)."""
     asof = dt.date.fromisoformat(asof) if isinstance(asof, str) else asof
     items, groups = [], collections.defaultdict(collections.Counter)
+    def cty(v):           # 'IRDE' / 'GRDE' -> 'DE'
+        return v[2:] if v and len(v) == 4 else None
+    out = {}
     for x in rows:
+        if x.get("DENOMINATION") != "EUR" and x.get("ISIN_CODE"):
+            out[x["ISIN_CODE"]] = dict(cqs=None, eur=False, group=x.get("ISSUER_GROUP"),
+                                       residence=cty(x.get("ISSUER_RESIDENCE")), guarantor=cty(x.get("GUARANTOR_RESIDENCE")))
         if x.get("DENOMINATION") != "EUR" or not x.get("HAIRCUT"):
             continue
         b = _bucket(x.get("MATURITY_DATE", ""), asof)
@@ -71,7 +78,6 @@ def classify(rows, asof):
     # the step 1-2 level is the LOWEST haircut held by at least 3 bonds in the group (step 3 can be the majority,
     # e.g. corporates in category L1C, so the most common level is not a safe reference)
     usual = {k: min([h for h, n in c.items() if n >= 3] or c) for k, c in groups.items()}
-    out = {}
     for x, key, b, h in items:
         cqs = None
         if b is not None and key[0] != "L1E":   # L1E (asset-backed): one schedule, no split by rating
@@ -83,7 +89,9 @@ def classify(rows, asof):
             issued = dt.datetime.strptime(x.get("ISSUANCE_DATE", "")[:10], "%d/%m/%Y").date().isoformat()
         except ValueError:
             issued = None
-        out[x["ISIN_CODE"]] = dict(cqs=cqs, haircut=h, category=x["HAIRCUT_CATEGORY"], type=x.get("TYPE"), issued=issued, group=x.get("ISSUER_GROUP"))
+        out[x["ISIN_CODE"]] = dict(cqs=cqs, haircut=h, category=x["HAIRCUT_CATEGORY"], type=x.get("TYPE"), issued=issued, group=x.get("ISSUER_GROUP"),
+                                   eur=True, residence=cty(x.get("ISSUER_RESIDENCE")), guarantor=cty(x.get("GUARANTOR_RESIDENCE")),
+                                   climate=x.get("CLIMATE_FACTOR") == "Y")
     return out
 
 
@@ -97,6 +105,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.parse_args()
     data, day = load()
-    c = collections.Counter(v["cqs"] for v in data.values())
+    c = collections.Counter(v["cqs"] for v in data.values() if v["eur"])
     print(f"ECB eligible assets {day}: {len(data):,} EUR bonds; CQS 1-2: {c['1-2']:,}, CQS 3: {c['3']:,}, "
           f"not classified: {c[None]:,}", file=sys.stderr)

@@ -12,6 +12,9 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `eurex.py` | Eurex post-trade (DEUR-posttrade via `mfs.py`) | Daily OHLC, VWAP, volume and block volume for government bond and credit index futures, keyed by product ISIN |
 | `eurex_options.py` | Eurex post-trade (DEUR-posttrade) | Implied volatility of the Schatz/Bobl/Bund futures options (OGBS/OGBM/OGBL) per trade (Black-76 on the future, undiscounted as the options are margined futures-style); per expiry ATM vol from a quadratic smile, 1-month constant-maturity ATM vol, and the same in bp of yield per day (price vol / futures duration / √252). Shown on MARKETS; `IV:<code>` in the history |
 | `stir.py` | Eurex 3M €STR (FST3) and 3M Euribor (FEU3) futures, ECB meeting calendar, ECB deposit rate | The ECB path priced by the market: implied €STR and deposit rate per quarter (the quarter under way net of the fixings already known), the move priced for the next meeting, 3M Euribor forwards and the Euribor − €STR basis. Shown on MARKETS |
+| `ust_curve.py` | US Treasury constant-maturity yields (FRED) | Zero curve bootstrapped from the par yields, for the dollar bonds' Z-spreads |
+| `frn.py` | Euribor forwards from `stir.py` | Floating-rate notes on 3M Euribor: discount margin, rates duration (to the next reset) and spread duration |
+| `country.py` | ECB eligible list, GLEIF LEI register | Country of risk per bond (guarantor, parent of a financing vehicle, issuer); GLEIF answers cached in `data/history/lei_country.csv` |
 | `firds.py` | ESMA FIRDS (FULINS) | Reference data per ISIN → SQLite (`--cat D` debt, `--cat F` futures) |
 | `classify.py` | FIRDS + DFRA pre-trade | Sector classification (sovereign, covered, financial/non-financial corporate …) and coverage summary |
 | `ecb_curve.py` | ECB YC (data-api.ecb.europa.eu) | Archives the ECB Svensson parameters (AAA and all euro area) since 2004; spot, forward, par and discount factors |
@@ -46,6 +49,12 @@ python -m pytest -q tests                       # offline tests on synthetic dat
 ```
 
 ## Portfolio site
+
+The site has eight workspaces (keys 1–8): Dashboard, Holdings & P&L, Risk, Trade, Rates, Credit, This week, Guide.
+The screener covers euro and dollar bonds (EUR / USD switch; Z-spreads over the ECB AAA or the US Treasury curve)
+and euro FRNs on Euribor (FIXED / FRN chips; Z BP = discount margin). Dollar positions are valued in EUR at the ECB
+reference rate and funded in dollars at SOFR; their rates risk sits in US Treasury buckets and their credit risk is a
+VaR factor through the ICE BofA US HY OAS.
 
 Anyone with the link can see the bond screener, the futures and the club portfolio. The portfolio is the file
 `portfolio/positions.json` in this repo; every trade is a commit, so the commit history is the blotter.

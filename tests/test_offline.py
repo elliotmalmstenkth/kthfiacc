@@ -567,7 +567,7 @@ def test_ecb_collateral_credit_quality_from_haircuts():
     raw = ("\t".join(hdr) + "\n" + "\n".join("\t".join(r[h] for h in hdr) for r in rows) + "\n").encode("utf-16")
     q = ec.classify(ec.parse(gzip.compress(raw)), "2026-10-02")
     assert q["A0"]["cqs"] == "1-2" and q["BBB1"]["cqs"] == "3" and q["EDGE"]["cqs"] == "1-2"
-    assert q["ABS1"]["cqs"] is None and "USD1" not in q
+    assert q["ABS1"]["cqs"] is None and q["USD1"]["cqs"] is None and q["USD1"]["eur"] is False
 
 
 def test_ecb_collateral_step3_majority():
@@ -733,3 +733,50 @@ def test_archive_snapshots_saves_each_source_and_survives_failures(tmp_path, mon
     assert sorted(os.path.basename(p) for p in out) == ["ecb_eligible-2026-10-02.csv.gz", "fred-2026-10-04.csv.gz"]
     rows = gzip.decompress(open(tmp_path / "fred-2026-10-04.csv.gz", "rb").read()).decode().splitlines()
     assert rows[0] == "series,date,value" and len(rows) == 1 + 2 * len(market.FRED)
+
+
+# ---------------------------------------------------------------- dollar bonds, FRNs, country
+def test_ust_curve_par_bond_has_zero_spread():
+    import analytics as an, ust_curve
+    c = ust_curve.Curve("2026-10-01", {0.25: 4.17, 0.5: 4.27, 1: 4.44, 2: 4.78, 5: 5.01, 10: 5.24, 30: 5.61})
+    a = an.analyse(100.0, 5.24, dt.date(2036, 10, 6), dt.date(2026, 10, 6), c, 2)
+    assert a["ytm"] == pytest.approx(0.0524, abs=1e-6) and abs(a["zspread"]) < 1e-6
+    assert c.spot(0.5) == pytest.approx(2 * math.log(1 + 0.0427 / 2) * 100)       # bills: the yield, continuous
+
+
+def test_frn_discount_margin():
+    import frn
+    fw = frn.Forwards([{"start": "2026-01-01", "rate": 2.9}])
+    s, m = dt.date(2026, 10, 6), dt.date(2030, 7, 18)
+    par = frn.analyse(100.0, 48, m, s, fw)
+    assert par["dm"] == pytest.approx(48, abs=0.5)                   # at par the DM is the quoted margin
+    below = frn.analyse(99.0, 48, m, s, fw)
+    assert below["dm"] == pytest.approx(48 + 100 / par["sdur"], abs=3)   # 1 point below par ~ 1 / spread duration
+    assert par["rdur"] < 0.26 and 3 < par["sdur"] < 4                # rates risk to the next reset, spread risk to maturity
+
+
+def test_clean_frn_selection():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build, pandas as pd
+    b = pd.DataFrame(dict(full_name=["KFW Float 02/19/30 BOND", "ERSTBK 3 1/4 01/14/33 EMTN", "DZ BANK CLN v.26(36) BMW Float", "HESLAN Float 08/13/29", "XYZ FRN 2030"],
+                          fisn=[""] * 5, coupon_type=["floating"] * 5, ccy=["EUR"] * 5, float_spread_bp=[10.0, 98.0, 50.0, 0.0, 30.0],
+                          float_index=[None, None, None, None, "CMS 10Y"]))
+    assert list(build.clean_frn(b)) == [True, False, False, False, False]   # fixed now, credit-linked, margin 0, CMS
+
+
+def test_country_of_risk_priority():
+    import country
+    cache = {"L1": dict(lei="L1", country="NL", parent_country="DE"), "L2": dict(lei="L2", country="US", parent_country="")}
+    assert country.country_of("XS1", "L1", "SIEMENS FINANCIERINGSMAAT", None, cache) == ("DE", "GLEIF parent")
+    assert country.country_of("XS1", "L1", "SIEMENS FINANCIERINGSMAAT", {"guarantor": "FR"}, cache) == ("FR", "ECB guarantor")
+    assert country.country_of("XS1", "L1", "SOME OPERATING CO", {"residence": "BE"}, cache) == ("BE", "ECB issuer")
+    assert country.country_of("US1", "L2", "APPLE INC", None, cache) == ("US", "GLEIF")
+    assert country.country_of("DE0001", None, "X", None, cache) == ("DE", "ISIN")
+    assert country.country_of("XS0001", None, "X", None, cache) == (None, None)
+
+
+@pytest.mark.parametrize("fisn,want", [("LEBANON, REPUBL/6.65 BD", "SOV"), ("GUATEMALA REP/4.9 NT", "SOV"), ("HONG KONG GOVT/4 BD", "SOV"),
+                                       ("KOREA ELEC PWR/5 NT", "CORP_NONFIN"), ("TURKIYE GARANTI/7 NT", "CORP_FIN"), ("GEORGIA PWR CO/5 NT", "CORP_NONFIN"),
+                                       ("JAPAN BK INTL C/4 NT", "AGENCY")])
+def test_dollar_issuer_rules(fisn, want):
+    assert classify.sector_of(R2("DBFTFB", fisn, "", ""), {})[0] == want

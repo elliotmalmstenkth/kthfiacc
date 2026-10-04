@@ -13,10 +13,10 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import analytics as an, classify, ecb_collateral, ecb_curve, eurex, eurex_options, green, market, stir  # noqa: E402
+import analytics as an, classify, country, ecb_collateral, ecb_curve, eurex, eurex_options, frn, green, market, stir, ust_curve  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
-STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
+STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b|^TII\b|\bTIPS\b"
 # assumed spread duration of the credit index futures (editable on the site); FECX is estimated from the
 # screener when enough bonds qualify (index_durations)
 INDEX_DURATION = {"FECX": 4.5, "FEHY": 3.0, "FGBC": 6.0, "FUIG": 6.5, "FUHY": 3.2, "FUEM": 6.5, "FGGI": 6.5}
@@ -49,9 +49,10 @@ def r(x, n):
     return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), n)
 
 
-def add_relative_value(rows, cols, keys, curve):
+def add_relative_value(rows, cols, keys, curves):
     """Appends rv (Z-spread residual vs the issuer's fitted spread curve, bp, + = cheap) and roll
-    (3-month roll-down in bp of yield along the ECB AAA curve plus the issuer spread curve, + = gain)."""
+    (3-month roll-down in bp of yield along the bond's risk-free curve, ECB AAA or US Treasury, plus the issuer
+    spread curve, + = gain). curves: one per row, None for the FRNs (no rich/cheap or roll-down)."""
     iz = cols.index("z")
     groups = [k[0] for k in keys]
     years = [k[1] for k in keys]
@@ -63,9 +64,11 @@ def add_relative_value(rows, cols, keys, curve):
         if rv[i] is None and g not in coefs:
             rv[i] = rv_all[i]
     coefs = {**coefs_all, **coefs}
-    for row, g, t, v in zip(rows, groups, years, rv):
+    for row, g, t, v, curve in zip(rows, groups, years, rv, curves):
         roll = None
-        if t >= 1:
+        if curve is None:
+            v = None
+        elif t >= 1:
             roll = (curve.spot(t) - curve.spot(t - 0.25)) * 100
             if g in coefs and v is not None:   # spread roll only where the issuer curve covers the bond
                 roll += an.spread_curve_value(coefs[g], t) - an.spread_curve_value(coefs[g], t - 0.25)
@@ -87,10 +90,27 @@ def index_durations(rows, cols, settle, min_n=200):
     tot = n = dsum = 0.0
     for b in rows:
         if (b[c["sector"]] in ("CORP_FIN", "CORP_NONFIN") and b[c["ecb"]] in ("1-2", "3") and (b[c["amt"]] or 0) >= 300
+                and ("ccy" not in c or b[c["ccy"]] == "EUR") and not ("frn" in c and b[c["frn"]] is not None)
                 and b[c["mat"]] >= one_year and not b[c["dq"]] and b[c["mdur"]] and b[c["bid"]] and b[c["ask"]]):
             mv = b[c["amt"]] * ((b[c["bid"]] + b[c["ask"]]) / 2 + (b[c["acc"]] or 0))
             tot += mv; dsum += mv * b[c["mdur"]]; n += 1
     return {"FECX": dict(dur=round(dsum / tot, 2), n=int(n))} if n >= min_n else {}
+
+
+FRN_NAME = re.compile(r"\bFloat\b|\bFLR\b|Floater|\bFRN\b", re.I)
+FRN_NOT = re.compile(r"Stufenz|CLN|CMS|Swap|Inflat|Aktien|Index|Formula|TMO|Linked|PERP", re.I)
+
+
+def clean_frn(b):
+    """Euro FRNs on plain Euribor with a quoted margin: the name says floating (FLR, Float, Floater, FRN), has no
+    fixed coupon and is not step-up, CMS, index- or credit-linked, and FIRDS gives no other index (frn.py assumes
+    3-month Euribor)."""
+    nm = b.full_name.fillna("")
+    fixed_name = nm.str.match(NAME_CPN)      # "ERSTBK 3 1/4 01/14/33": a fixed coupon now, floating only later
+    # a margin of 0 is often FIRDS's "not reported": left out, as the discount margin would be off by the margin
+    return ((b.coupon_type == "floating") & (b.ccy == "EUR") & (b.float_spread_bp.fillna(0) != 0)
+            & (b.float_index.isna() | b.float_index.isin(["EURI", "EURIBOR - EURI"]))
+            & nm.str.contains(FRN_NAME) & ~nm.str.contains(FRN_NOT) & ~fixed_name)
 
 
 def load_ecb():
@@ -153,6 +173,7 @@ def add_ecb_quality(rows, cols, q, day):
     (issue date). Returns {date, n} or None without the list."""
     for row in rows:
         v = (q or {}).get(row[0])
+        v = v if v and v.get("eur", True) else None       # the step is read from the euro haircut schedule only
         row += [(v["cqs"] or "?") if v else None, v.get("issued") if v else None]
     cols += ["ecb", "iss"]
     return dict(date=day, n=sum(1 for row in rows if row[-2])) if q else None
@@ -181,38 +202,75 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
     curve = ecb_curve.Curve.load(day, "AAA", ecb_db)
     settle = an.add_business_days(dt.date.fromisoformat(day), 2)
 
-    u = b[(b.ccy == "EUR") & b.coupon_type.isin(["fixed", "zero"]) & b.sector.isin(SECTORS)]
-    u = u[~u.full_name.fillna("").str.contains(STRIP_RE, case=False)]
-    u = u.join(q[["bid", "ask", "bid_qty", "ask_qty", "ask_time", "bid_time"]], rsuffix="_px", how="inner")
+    # market data first: the Euribor futures give the FRNs their forward curve
+    mkt = market.build(day, ecb_db)
+    stirs = load_stir(fut, day, mkt)
+    try:
+        ust = ust_curve.load(day)
+    except Exception as e:   # the site still builds, without the dollar bonds
+        print(f"US Treasury curve unavailable: {e}; no dollar bonds", file=sys.stderr)
+        ust = None
+    fw = frn.Forwards(stirs["euribor"]) if stirs and stirs.get("euribor") else None
+    curves = {"EUR": curve, "USD": ust}
+    leis = country.load_cache()
+    try:   # GLEIF for issuers not seen before (a handful a day); the cache is committed with data/history
+        new = b[b.ccy.isin(["EUR", "USD"])]
+        before = len(leis)
+        country.update_cache(set(new.issuer_lei.dropna()), set(new[new.issuer.fillna("").str.contains(country.VEHICLE)].issuer_lei.dropna()), leis, max_parent_calls=200)
+        if len(leis) > before:
+            country.save_cache(leis)
+    except Exception as e:
+        print(f"GLEIF update skipped: {e}", file=sys.stderr)
+
+    base = b[b.ccy.isin([c for c, cv in curves.items() if cv is not None]) & b.sector.isin(SECTORS)]
+    base = base[~base.full_name.fillna("").str.contains(STRIP_RE, case=False)]
+    keep = base.coupon_type.isin(["fixed", "zero"])
+    if fw is not None:
+        keep |= clean_frn(base)
+    u = base[keep].join(q[["bid", "ask", "bid_qty", "ask_qty", "ask_time", "bid_time"]], rsuffix="_px", how="inner")
     u["mat"] = pd.to_datetime(u.maturity, errors="coerce").dt.date
     u = u[u.mat.notna() & (u.mat > settle + dt.timedelta(30))]
 
-    rows, keys, flags = [], [], []
+    rows, keys, flags, rcurves = [], [], [], []
     for isin, x in u.iterrows():
-        cpn = 0.0 if x.coupon_type == "zero" else clean_coupon(x.coupon_fixed, x.full_name)
-        if cpn is None or pd.isna(cpn):
-            continue
-        freq = 2 if (isin.startswith("IT") and x.sector == "SOV") else 1
+        ccy, is_frn = x.ccy, x.coupon_type == "floating"
         mid = (x.bid_px + x.ask_px) / 2
-        a = an.analyse(mid, cpn, x.mat, settle, curve, freq)
-        if not a or a.get("ytm") is None:
-            continue
+        if is_frn:   # discount margin over the Euribor forwards (frn.py); z = DM, mdur = rates duration
+            a = frn.analyse(mid, float(x.float_spread_bp), x.mat, settle, fw)
+            if not a:
+                continue
+            cpn, freq, years = a["cpn"], 4, a["years"]
+            ytm, z, mdur, acc, sdur = a["ytm"], a["dm"], a["rdur"], a["accrued"], a["sdur"]
+        else:
+            cpn = 0.0 if x.coupon_type == "zero" else clean_coupon(x.coupon_fixed, x.full_name)
+            if cpn is None or pd.isna(cpn):
+                continue
+            # dollar bonds and BTPs pay semi-annually; other euro bonds annually
+            freq = 2 if ccy == "USD" or (isin.startswith("IT") and x.sector == "SOV") else 1
+            a = an.analyse(mid, cpn, x.mat, settle, curves[ccy], freq)
+            if not a or a.get("ytm") is None:
+                continue
+            years, ytm, mdur, acc, sdur = a["years"], a["ytm"] * 100, a["mdur"], a["accrued"], None
+            z = a["zspread"] * 1e4 if a.get("zspread") is not None else None
         firm = bool(x.bid_qty > 0 and x.ask_qty > 0)
         bench = bool(x.benchmark_500m) and not bool(x.subordinated)
         # minimum denomination (FIRDS nominal value per unit); Bunds have EUR 0.01, which rounds to 1
         unit = max(1, round(x.nominal_unit)) if pd.notna(x.nominal_unit) and 0 < x.nominal_unit <= 1e6 else 1000
         name = x.full_name if pd.notna(x.full_name) and str(x.full_name).strip() else (x.fisn if pd.notna(x.fisn) else isin)
+        cty, _ = country.country_of(isin, x.issuer_lei, str(x.issuer), (ecbq or {}).get(isin), leis)
         rows.append([isin, str(x.issuer), str(name)[:48], x.sector, int(bool(x.subordinated)), r(cpn, 4),
                      x.mat.isoformat(), r(x.issued_amt / 1e6, 0) if pd.notna(x.issued_amt) else None,
-                     r(x.bid_px, 3), r(x.ask_px, 3), int(firm), r(a["ytm"] * 100, 3),
-                     r(a["zspread"] * 1e4, 1) if a.get("zspread") is not None else None,
-                     r(a["mdur"], 3), r(a["accrued"], 4), int(bench), freq, int(unit)])
+                     r(x.bid_px, 3), r(x.ask_px, 3), int(firm), r(ytm, 3), r(z, 1),
+                     r(mdur, 3), r(acc, 4), int(bench), freq, int(unit),
+                     ccy, r(float(x.float_spread_bp), 1) if is_frn else None, r(sdur, 3), cty])
         flags.append(quote_flags(mid, x.bid_px, x.ask_px, rows[-1][12]))
-        # issuer curves are fitted on firm quotes without quality flags
-        keys.append((f"{x.issuer_lei if pd.notna(x.issuer_lei) else x.issuer}|{int(bool(x.subordinated))}", a["years"], firm and not flags[-1]))
+        # issuer curves per currency, fitted on firm fixed-coupon quotes without quality flags
+        lei = x.issuer_lei if pd.notna(x.issuer_lei) else x.issuer
+        keys.append((f"{ccy}|{lei}|{int(bool(x.subordinated))}" + ("|FRN" if is_frn else ""), years, firm and not flags[-1] and not is_frn))
+        rcurves.append(None if is_frn else curves[ccy])
     cols = ["isin", "issuer", "name", "sector", "sub", "cpn", "mat", "amt", "bid", "ask", "firm", "ytm", "z",
-            "mdur", "acc", "bench", "freq", "unit"]
-    add_relative_value(rows, cols, keys, curve)
+            "mdur", "acc", "bench", "freq", "unit", "ccy", "frn", "sdur", "cty"]
+    add_relative_value(rows, cols, keys, rcurves)
     irv = cols.index("rv")
     for row, f in zip(rows, flags):         # far off the issuer's own curve: more likely a bad quote than value
         if row[irv] is not None and abs(row[irv]) > 150:
@@ -226,7 +284,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
     idur = index_durations(rows, cols, settle)
     # futures: front contract with on-book trades
     bunds = [(i, x.coupon_fixed, x.mat, (x.bid_px + x.ask_px) / 2) for i, x in u.iterrows()
-             if x.sector == "SOV" and i.startswith("DE000") and x.coupon_type == "fixed"]
+             if x.sector == "SOV" and i.startswith("DE000") and x.coupon_type == "fixed" and x.ccy == "EUR"]
     futures = []
     for code, (pisin, name, typ, ccy, mult) in eurex.PRODUCTS.items():
         if typ == "stir":          # money-market futures: the whole strip, below (stir.py)
@@ -259,12 +317,11 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
         except Exception as ex:  # the site still builds; the repo rate falls back to a default on the page
             print(f"€STR unavailable: {ex}", file=sys.stderr)
 
-    mkt = market.build(day, ecb_db)
-    stirs = load_stir(fut, day, mkt)
     vol = load_vol(options_csv or os.path.join(ddir, "eurex_options.csv.gz"), day, futures)
 
     return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, esg=esg, dq=dq, log=read_log(), built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
+                ust=dict(date=ust.date, par={str(k): v for k, v in ust.par.items()}) if ust else None,
                 cols=cols, bonds=rows, futures=futures, vol=vol, stir=stirs)
 
 

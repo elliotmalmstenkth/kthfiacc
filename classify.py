@@ -72,6 +72,11 @@ AGENCY = [r"^KFW", r"^KREDITANST", r"^LANDWIRT", r"^RENTENBANK", r"^NRW\.?BANK",
 # Issuers caught by a broader rule above (e.g. ^CHINA, ^KOREA, ^ICELAND are sovereign patterns), checked first.
 # FISN issuer names are cut at 15 characters, so patterns match the cut name.
 EXCEPTIONS = [
+    # dollar issuers named after a country but not the state (state-owned companies, banks, a US utility)
+    (r"^TURKIYE (GARANTI|VAKIF|IS BANK|HALK|SINAI)|^CHINA CINDA", "CORP_FIN"),
+    (r"^KOREA (NATL OIL|GAS|ELEC|WESTERN|SOUTH|HYDRO|EAST|MIDLAND)|^SAUDI ARABIAN O|^GEORGIA PWR|^REP SVCS|^ABU DHABI (NATIO|FUTUR)|"
+     r"^CHINA (OVERSEAS|OVER |EVERGRAND)|^JAPAN TOB|^FRANCE TELECOM|^MEXICO CITY ARP", "CORP_NONFIN"),
+    (r"^JAPAN (BK INTL|INTL COOP)|^TURKIYE IHRACAT|^ABU DHABI DEVEL|^OESTERREICHISCH$", "AGENCY"),
     (r"^CHINA CON(STR)?\.? ?BK|^BANK OF CHINA|^ICBC|^AGRICULTURAL BK", "CORP_FIN"),
     (r"^CHINA THREE GOR|^CHINA SOUTHERN|^STATE GRID|^SINOPEC|^CNOOC|^PETROCHINA", "CORP_NONFIN"),
     (r"^ICELAND BONDCO", "CORP_NONFIN"),                               # Iceland Foods (UK supermarket), not the state
@@ -81,6 +86,9 @@ EXCEPTIONS = [
     (r"^COMPAGNIE DE FI|^FINANCEMENT FON|^CIE DE FINANCEM|^ARKEA PUBLIC SE", "COVERED"),  # SCF issuers (obligations foncières)
     (r"^UTD\.? ?MEXICAN|^PERUSAHAAN PENE|^PERUSAHAAN PERS", "SOV"),        # Mexico; Indonesia's sukuk issuer
     (r"^THE REPUBLIC OF|^REP\.? ?COTE D|^ARAB REPUBLIC|^MACEDONIA$", "SOV"),  # Argentina, Benin, Cameroon, Côte d'Ivoire, Egypt, N. Macedonia
+    # dollar sovereigns, as FISN abbreviates them: "LEBANON, REPUBL", "GUATEMALA REP", "REP.OF GHANA", "HONG KONG GOVT" ...
+    (r"^[A-Z ]+, ?REP(UBL\w*)?\.?$|^[A-Z ]+ REP$|^(THE )?REP\.? ?OF |^REPUBLICA |^REPUBBLICA |^BOLIVARIAN REP|^(THE )?STATE OF QA|"
+     r"^THE GOVERNMENT|^[A-Z ]+ GOVT$|^MINISTRY FIN|^THE MINISTRY OF|^(STATE|ST) T REP POL|SULTANATE|^[A-Z]+ KINGDOM$", "SOV"),
     (r"^BANQUE OUEST AF", "SUPRA"),                                         # West African Development Bank (BOAD)
 ]
 
@@ -91,6 +99,8 @@ LEI_SECTOR = {
     "QKL54NQY28TCDAI75F60": "SUPRA",   # IFC
     "VGRQXHF3J8VDLUA7XE92": "CORP_NONFIN",  # IBM ("INTERNATIONAL B")
     "969500KCGF3SUYJHPV70": "SOV",     # Republique Francaise (AFT)
+    "254900HROIFWPRGM1V77": "SOV",     # US Treasury (FISN "UST ..." as well as "US T BONDS")
+    "549300KPBYGYF7HCHO27": "SOV",     # Argentina ("REP.ARGENTINA", some FISNs "UNKNOWN")
     "5493007SJLLCTM6J6M37": "CORP_FIN",  # Unicaja Banco ("UNI")
     "A6NZLYKYN1UV7VVGFX65": "CORP_FIN",  # Argenta Spaarbank ("ASPA")
     "96950015LNMQ336X4W81": "AGENCY",    # SAGESS (French state strategic stockpile agency)

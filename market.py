@@ -26,6 +26,10 @@ FRED = {  # id: (name, group, unit)
     "BAMLC0A0CM": ("US Corporate IG OAS (ICE BofA)", "credit", "%"),
     "BAMLH0A0HYM2": ("US High Yield OAS (ICE BofA)", "credit", "%"),
     "VIXCLS": ("VIX (CBOE, close)", "macro", "index"),
+    "DGS2": ("US Treasury 2Y", "rates", "%"),
+    "DGS5": ("US Treasury 5Y", "rates", "%"),
+    "DGS10": ("US Treasury 10Y", "rates", "%"),
+    "DGS30": ("US Treasury 30Y", "rates", "%"),
 }
 
 
