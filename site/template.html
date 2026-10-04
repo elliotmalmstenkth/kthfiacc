@@ -1312,7 +1312,7 @@ function renderGuide() {
       <li><b>Dashboard</b>: book KPIs, holdings, market monitor, DV01 by bucket, curve.</li>
       <li><b>Holdings &amp; P&amp;L</b>: blotter, strategies, attribution, sector summary, funding assumptions.</li>
       <li><b>Risk analytics</b>: key-rate DV01, credit spread risk, hedge proposal, VaR / expected shortfall.</li>
-      <li><b>Trade</b>: bond screener (CORP / GOVT / SSA / COVERED), Eurex futures, ticket for outright, pair and fly trades. Filter in the amber row under the column headers: <code>4.5-5.5</code>, <code>&gt;60</code>, <code>&lt;0.2</code>, <code>&gt;4 &lt;6</code>; text columns match on contains, MATURITY on years (<code>2030-2032</code>).</li>
+      <li><b>Trade</b>: bond screener (CORP / GOVT / SSA / COVERED), Eurex futures, ticket for outright, pair and fly trades. Filters: see SCREENER FILTERS below.</li>
       <li><b>Markets</b>: yields, credit spreads, money markets, futures, VIX and EUR/USD.</li>
       <li><b>This week</b>: new issues, spread movers, ECB credit quality changes, rich/cheap flips, next week.</li>
       <li><b>Guide</b>: this page.</li></ol>
@@ -1322,6 +1322,17 @@ function renderGuide() {
       <li>Trade: pick a bond or future, choose BUY or SELL / SHORT and the size, then <b>BOOK TRADE</b>. Buys fill at the offer, sells at the bid, futures at the last price.</li>
       <li>Pairs and flies: switch the ticket to PAIR or FLY, click each leg, then a bond or future. Sizes are DV01-neutral.</li>
       <li>Close: Holdings → CLOSE on the position (strategies close all legs together). A long is sold at the bid, a short bought back at the offer; the trade moves to CLOSED with its realized P&amp;L.</li></ol>
+    <h3>SCREENER FILTERS</h3><p class="note">Type in the amber row under the column headers on the Trade screen. Filters combine with each other and with the buttons above the table; a filter that cannot be read turns red and is ignored. CLEAR FILTERS (top right) empties them all.</p>
+    <table class="t"><thead><tr><th>TYPE</th><th>MEANS</th><th>EXAMPLE</th></tr></thead><tbody>
+      <tr><td><code>4.5-5.5</code></td><td>between, both ends included</td><td>MOD DUR: duration close to the FECX index</td></tr>
+      <tr><td><code>&gt;60</code> <code>&gt;=60</code></td><td>above / at least</td><td>Z BP: spread above 60 bp</td></tr>
+      <tr><td><code>&lt;0.2</code> <code>&lt;=0.2</code></td><td>below / at most</td><td>B-O: cheap to trade in and out</td></tr>
+      <tr><td><code>&gt;4 &lt;6</code></td><td>both conditions</td><td>YTM: between 4% and 6%, ends excluded</td></tr>
+      <tr><td><code>5</code></td><td>equal at the decimals typed</td><td>MOD DUR <code>5</code> = 4.5 to 5.5; <code>4.9</code> = 4.85 to 4.95</td></tr>
+      <tr><td><code>-10-10</code></td><td>negative numbers work</td><td>RV BP: within 10 bp of the issuer curve</td></tr>
+      <tr><td><code>2030-2032</code></td><td>MATURITY takes years</td><td>bonds maturing 2030 to 2032</td></tr>
+      <tr><td><code>heidel</code></td><td>text columns: contains</td><td>BOND (name or issuer), SECTOR, ECB (<code>BBB</code>)</td></tr>
+    </tbody></table>
     <h3>KEYS</h3><p class="note"><kbd>1</kbd>–<kbd>7</kbd> workspace · <kbd>/</kbd> search · <kbd>[</kbd> <kbd>]</kbd> screener tab · <kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Enter</kbd> ticket size · <kbd>Esc</kbd> close</p></div>`;
   const gloss = `<div class="sect"><dl class="gl">${GLOSSARY.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`;
   const src = [["Bond quotes", "Börse Frankfurt MiFID II pre-trade files", "every minute; closing marks each evening"],
@@ -1495,7 +1506,7 @@ function renderScreener(reset = false) {
   VISIBLE = xs; SCR.tab = tab; SCR.counts = counts; DRAWN = "";
   const head = BCOLS.map(([k, l, d, t]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}"${t ? ` title="${esc(t)}"` : ""}>${l}${sk === k ? (sd > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
   const cols = BCOLS.map(([k]) => BW[k] ? `<col style="width:calc(${BW[k]}ch + 13px)">` : "<col>").join("");
-  const frow = BCOLS.map(([k, , d]) => `<th class="${d !== undefined ? "n" : ""}"><input data-f="${k}" value="${esc(state.cf[k] || "")}" aria-label="Filter ${k}" title="${CF_TEXT.has(k) ? "contains" : "4.5-5.5 · >60 · <=0.2 · >4 <6 · a number"}${k === "mat" ? " (years)" : ""}" autocomplete="off" spellcheck="false"></th>`).join("");
+  const frow = BCOLS.map(([k, , d]) => `<th class="${d !== undefined ? "n" : ""}"><input data-f="${k}" value="${esc(state.cf[k] || "")}" aria-label="Filter ${k}" autocomplete="off" spellcheck="false"></th>`).join("");
   box.innerHTML = `<table class="t vt"><colgroup>${cols}</colgroup><thead><tr>${head}</tr><tr class="cf">${frow}</tr></thead><tbody id="scrRows"></tbody></table>`;
   box.style.setProperty("--hh", box.querySelector("thead tr").offsetHeight + "px");
   markFilters();
