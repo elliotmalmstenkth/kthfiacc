@@ -413,7 +413,7 @@ function book() {
     s.mv += x.r.mv; s.dv01 += x.r.dv01; s.cs01 += x.r.cs01; s.y += x.r.mv * x.r.y; s.z += x.r.mv * (x.r.z ?? 0); s.n++;
   }
   return { rows, ok, bonds, futs, mv, gross, wavg, dv01: sum(ok, "dv01"), cs01: sum(ok, "cs01"), pnl: sum(ok, "pnl"),
-           carry: sum(ok, "carry"), tot: sum(ok, "tot"),
+           carry: sum(ok, "carry"), tot: sum(ok, "tot"), real: state.closed.reduce((s, x) => s + (x.tot || 0), 0),
            futNotional: futs.reduce((s, x) => s + Math.abs(x.r.notional), 0), buck, sect,
            missing: rows.filter(x => x.r.missing).length };
 }
@@ -610,12 +610,12 @@ const state = {
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
   repo: store("repo") ?? DATA.estr?.rate ?? 2.0, special: store("special") ?? 0, stratSel: null, stratName: "",
-  positions: [], dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
+  positions: [], closed: [], blotTab: store("blotTab") || "open", dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
 };
 
 // ------------------------------------------------------------------ GitHub storage
-// The portfolio is portfolio/positions.json in the repo. Anyone can read it; collaborators with
-// write access save with a personal GitHub token (kept only in this browser).
+// The portfolio is portfolio/positions.json in the repo: open positions and closed trades. Anyone can read it;
+// collaborators with write access save with a personal GitHub token (kept only in this browser).
 const REPO = DATA.repo;
 const API = `https://api.github.com/repos/${REPO.owner}/${REPO.name}`;
 const FILE = `${API}/contents/${REPO.path}`;
@@ -627,17 +627,18 @@ const gh = {
   headers(json) { const h = { Accept: "application/vnd.github+json" }; if (this.token) h.Authorization = "Bearer " + this.token; if (json) h["Content-Type"] = "application/json"; return h; },
   async load() {
     const r = await fetch(`${FILE}?ref=${encodeURIComponent(REPO.branch)}`, { headers: this.headers(), cache: "no-store" });
-    if (r.status === 404) { this.sha = null; return []; }
+    if (r.status === 404) { this.sha = null; return { positions: [], closed: [] }; }
     if (!r.ok) throw Object.assign(new Error("load " + r.status), { status: r.status });
     const j = await r.json();
     this.sha = j.sha;
-    return JSON.parse(b64ToUtf8(j.content)).positions || [];
+    const d = JSON.parse(b64ToUtf8(j.content));
+    return { positions: d.positions || [], closed: d.closed || [] };
   },
-  // mutate(current) -> new list. If someone else saved in between (409), reload the file and re-apply.
+  // mutate({positions, closed}) -> the new file contents. If someone else saved in between (409), reload the file and re-apply.
   async save(mutate, message) {
     for (let attempt = 0; ; attempt++) {
       const next = mutate(await this.load());
-      const body = { message, branch: REPO.branch, content: utf8ToB64(JSON.stringify({ positions: next }, null, 1) + "\n") };
+      const body = { message, branch: REPO.branch, content: utf8ToB64(JSON.stringify({ positions: next.positions, closed: next.closed }, null, 1) + "\n") };
       if (this.sha) body.sha = this.sha;
       const r = await fetch(FILE, { method: "PUT", headers: this.headers(true), body: JSON.stringify(body) });
       if (r.ok) { this.sha = (await r.json()).content.sha; return next; }
@@ -667,25 +668,41 @@ async function addPositions(list, label = "") {
   if (!state.canWrite) { openLogin(); return false; }
   const rows = list.map(p => ({ id: newId(), ...p, date: tradeDay(), by: gh.login, at: new Date().toISOString() }));
   try {
-    state.positions = await gh.save(cur => [...cur, ...rows], `Portfolio: ${label ? label + ": " : ""}${rows.map(describe).join(", ")} (${gh.login})`);
+    setDoc(await gh.save(d => ({ ...d, positions: [...d.positions, ...rows] }), `Portfolio: ${label ? label + ": " : ""}${rows.map(describe).join(", ")} (${gh.login})`));
     render(); return true;
   } catch (e) { writeError(e); return false; }
 }
-async function closePosition(id, btn) {
-  const pos = state.positions.find(x => x.id === id);
+const setDoc = (d) => { state.positions = d.positions; state.closed = d.closed; };
+// Closing trades out of the position: a long is sold at the bid, a short bought back at the offer (one-sided
+// quote: the mid), a future at the last price. The trade moves to the closed list with its realized P&L,
+// clean P&L at the exit price plus carry up to the close.
+function closeRec(p) {
+  const r = risk(p), rec = { ...p, closed: tradeDay(), closedAt: new Date().toISOString(), closedBy: gh.login };
+  const r2 = (v) => Math.round(v * 100) / 100;
+  if (r.missing) return { ...rec, exit: null, pnl: 0, carry: 0, tot: 0 };
+  const exit = p.kind === "bond" ? (p.qty >= 0 ? r.b.bid : r.b.ask) || r.b.mid : r.f.last;
+  const pnl = p.kind === "bond" ? p.qty * (exit - p.price) / 100 : p.qty * (exit - p.price) * r.f.mult;
+  const carry = p.kind === "bond" ? r.carry : 0;
+  return { ...rec, exit, pnl: r2(pnl), carry: r2(carry), tot: r2(pnl + carry) };
+}
+async function closeWhere(pred, what, btn) {
+  const recs = state.positions.filter(pred).map(closeRec), tot = recs.reduce((s, x) => s + x.tot, 0);
   try {
-    state.positions = await gh.save(cur => cur.filter(x => x.id !== id), `Portfolio: close ${describe(pos)} (${gh.login})`);
-    render(); toast("Position closed");
+    // re-price against the file as saved (someone may have changed it), at the prices shown now
+    setDoc(await gh.save(d => ({ positions: d.positions.filter(x => !pred(x)), closed: [...d.closed, ...d.positions.filter(pred).map(closeRec)] }),
+      `Portfolio: close ${what}, realized ${fmtS(tot, 0)} EUR (${gh.login})`));
+    if (state.stratSel && !state.positions.some(x => x.strat?.id === state.stratSel)) state.stratSel = null;
+    render(); toast(`Closed: realized ${fmtS(tot, 0)} EUR`);
   } catch (e) { if (btn) btn.disabled = false; writeError(e); }
 }
-async function closeStrategy(sid, btn) {
-  const legs = state.positions.filter(x => x.strat?.id === sid), name = legs[0]?.strat?.name || "strategy";
-  try {
-    state.positions = await gh.save(cur => cur.filter(x => x.strat?.id !== sid), `Portfolio: close ${name}: ${legs.map(describe).join(", ")} (${gh.login})`);
-    if (state.stratSel === sid) state.stratSel = null;
-    render(); toast(`${name} closed`);
-  } catch (e) { if (btn) btn.disabled = false; writeError(e); }
-}
+const closePosition = (id, btn) => {
+  const pos = state.positions.find(x => x.id === id), x = pos && closeRec(pos);
+  return closeWhere(p => p.id === id, `${describe(pos)} at ${x?.exit != null ? fmt(x.exit, 3) : "no price"}`, btn);
+};
+const closeStrategy = (sid, btn) => {
+  const legs = state.positions.filter(x => x.strat?.id === sid);
+  return closeWhere(p => p.strat?.id === sid, `${legs[0]?.strat?.name || "strategy"}: ${legs.map(describe).join(", ")}`, btn);
+};
 function writeError(e) {
   if (e?.status === 401) { toast("Your GitHub token is no longer valid. Please sign in again."); gh.token = null; store("ghToken", null); state.canWrite = false; render(); }
   else if (e?.status === 403 || e?.status === 404) toast("Your GitHub account cannot write to the repo. Ask Elliot to add you as a collaborator.");
@@ -822,7 +839,8 @@ document.addEventListener("click", e => {
   const go = e.target.closest("[data-go]"); if (go) setView(go.dataset.go);
   const del = e.target.closest("[data-del]");
   if (del) {
-    if (!del.classList.contains("armed")) { del.classList.add("armed"); del.textContent = "CONFIRM"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "CLOSE"; }, 4000); return; }
+    if (!del.classList.contains("armed")) { const pos = state.positions.find(x => x.id === del.dataset.del), x = pos && closeRec(pos);
+      del.classList.add("armed"); del.textContent = x?.exit != null ? `CONFIRM ${pos.qty >= 0 ? "SELL" : "BUY"} @ ${fmt(x.exit, 3)}` : "CONFIRM"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "CLOSE"; }, 4000); return; }
     del.disabled = true; closePosition(del.dataset.del, del);
   }
   const ds = e.target.closest("[data-delstrat]");
@@ -844,13 +862,13 @@ function kpiStrip(bk) {
   const k = (l, v, s, c = "") => `<div class="kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`;
   return `<div class="kpis" style="grid-area:kpi">` +
     k("MARKET VALUE", `${fmt(bk.mv / 1e6, 2)}M`, "EUR dirty, bonds") +
-    k("TOTAL P&amp;L", fmtS(bk.tot, 0), `clean ${fmtS(bk.pnl, 0)} · carry ${fmtS(bk.carry, 0)}`, cls(bk.tot)) +
+    k("TOTAL P&amp;L", fmtS(bk.tot + bk.real, 0), `realized ${fmtS(bk.real, 0)}`, cls(bk.tot + bk.real)) +
     k("YTM", `${fmt(bk.wavg("y"), 2)}%`, "gross MV-weighted") +
     k("Z-SPREAD", `${fmt(bk.wavg("z"), 0)} BP`, "vs ECB AAA") +
     k("MOD DURATION", fmt(bk.wavg("dur"), 2), "gross MV-weighted") +
     k("DV01", fmtS(bk.dv01, 0), "EUR/bp, net of futures", cls(bk.dv01)) +
     k("CS01", fmtS(bk.cs01, 0), "EUR/bp spread", cls(bk.cs01)) +
-    (() => { const V = varOf(bk); return k("VAR 99% 1D", V ? fmt(V.v99.v, 0) : "–", V ? `ES97.5 ${fmt(V.es975.v, 0)} EUR` : "no factor data"); })() +
+    (() => { const V = bk.ok.length ? varOf(bk) : null; return k("VAR 99% 1D", V ? fmt(V.v99.v, 0) : "–", V ? `ES97.5 ${fmt(V.es975.v, 0)} EUR` : bk.ok.length ? "no factor data" : "no positions"); })() +
     k("POSITIONS", `${bk.bonds.length}<span class="muted"> / ${bk.futs.length}</span>`, "bonds / futures") +
     k("FUT NOTIONAL", `${fmt(bk.futNotional / 1e6, 2)}M`, "gross, contract ccy") + `</div>`;
 }
@@ -939,7 +957,9 @@ function curveChart(bk, W = 600, H = 230) {
 // ------------------------------------------------------------------ HOLDINGS & P&L
 function renderHold() {
   const bk = book();
-  const tools = `<button class="btn" id="csvBook" ${bk.rows.length ? "" : "disabled"}>EXPORT CSV</button><a class="btn" href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>`;
+  const showClosed = state.blotTab === "closed", C = state.closed.slice().sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
+  const tools = `<span class="chips" id="blotTab"><button data-bt="open" aria-pressed="${!showClosed}">OPEN ${bk.rows.length}</button><button data-bt="closed" aria-pressed="${showClosed}">CLOSED ${C.length}</button></span>` +
+    `<button class="btn" id="csvBook" ${(showClosed ? C.length : bk.rows.length) ? "" : "disabled"}>EXPORT CSV</button><a class="btn" href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>`;
   const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">TOTAL</th><th class="n">YTM</th><th class="n">Z BP</th><th class="n">MOD DUR</th><th class="n">DV01</th><th class="n">CS01</th><th>STRATEGY</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
     bk.rows.map(({ p, r }) => `<tr class="click" data-pick="${esc(p.kind === "bond" ? p.isin : p.code)}" data-kind="${p.kind === "bond" ? "bond" : "fut"}">
       <td>${sideTag(p.qty)}</td><td class="nm">${instr(p, r)}</td><td class="dim">${esc(p.kind === "bond" ? p.isin : (p.contract || ""))}</td>
@@ -957,6 +977,16 @@ function renderHold() {
       <td class="n ${cls(bk.carry)}">${fmtS(bk.carry, 0)}</td><td class="n ${cls(bk.tot)}">${fmtS(bk.tot, 0)}</td>
       <td class="n">${fmt(bk.wavg("y"), 2)}</td><td class="n">${fmt(bk.wavg("z"), 0)}</td><td class="n">${fmt(bk.wavg("dur"), 2)}</td>
       <td class="n ${cls(bk.dv01)}">${fmtS(bk.dv01, 0)}</td><td class="n ${cls(bk.cs01)}">${fmtS(bk.cs01, 0)}</td><td colspan="4"></td></tr></tfoot></table>` : emptyBook();
+
+  const cname = (x) => x.kind === "bond" ? esc(BY_ISIN.get(x.isin)?.name || x.isin) : `${esc(x.code)} ${mmmYY(x.contract)}`;
+  const closedTbl = C.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th class="n">NOMINAL / LOTS</th><th class="n">ENTRY PX</th><th class="n" title="long: sold at the bid; short: bought back at the offer; futures: last price">EXIT PX</th><th class="n">ΔPX</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">REALIZED</th><th>STRATEGY</th><th>TRADER</th><th>OPENED</th><th>CLOSED</th><th>CLOSED BY</th></tr></thead><tbody>` +
+    C.map(x => `<tr class="click" data-pick="${esc(x.kind === "bond" ? x.isin : x.code)}" data-kind="${x.kind === "bond" ? "bond" : "fut"}">
+      <td>${sideTag(x.qty)}</td><td class="nm">${cname(x)}</td><td class="dim">${esc(x.kind === "bond" ? x.isin : (x.contract || ""))}</td><td class="n">${fmt(x.qty, 0)}</td>
+      <td class="n">${fmt(x.price, 3)}</td><td class="n">${x.exit != null ? fmt(x.exit, 3) : `<span class="neg">NO PX</span>`}</td><td class="n ${cls(x.exit - x.price)}">${x.exit != null ? fmtS(x.exit - x.price, 3) : "–"}</td>
+      <td class="n ${cls(x.pnl)}">${fmtS(x.pnl, 0)}</td><td class="n ${cls(x.carry)}">${fmtS(x.carry, 0)}</td><td class="n ${cls(x.tot)}">${fmtS(x.tot, 0)}</td>
+      <td class="strat-tag">${esc(x.strat?.name || "")}</td><td class="who">${esc(x.by || "")}</td><td class="dim">${esc(x.date || (x.at || "").slice(0, 10))}</td><td class="dim">${esc(x.closed || "")}</td><td class="who">${esc(x.closedBy || "")}</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td colspan="7">TOTAL</td><td class="n ${cls(C.reduce((s, x) => s + x.pnl, 0))}">${fmtS(C.reduce((s, x) => s + x.pnl, 0), 0)}</td><td class="n ${cls(C.reduce((s, x) => s + x.carry, 0))}">${fmtS(C.reduce((s, x) => s + x.carry, 0), 0)}</td><td class="n ${cls(bk.real)}">${fmtS(bk.real, 0)}</td><td colspan="5"></td></tr></tfoot></table>`
+    : `<div class="empty"><p class="hd">NO CLOSED TRADES</p><p>CLOSE on a position sells a long at the bid (buys back a short at the offer, a future at the last price) and records the realized P&amp;L here.</p></div>`;
 
   const strats = strategies(bk);
   const attr = bars([...strats.map(g => ({ l: g.name, v: g.tot })),
@@ -981,15 +1011,18 @@ function renderHold() {
     `</tbody></table>` : `<div class="empty">No bond positions.</div>`;
 
   $("#v-hold").innerHTML = kpiStrip(bk) +
-    panel("blot", "Position blotter", blot, { sub: `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${LIVE.data ? `${dTerm(LIVE.data.day)} ${utcToCet(LIVE.data.msg)} CET intraday` : dTerm(DATA.asof)}`, tools }) +
+    panel("blot", showClosed ? "Closed trades" : "Position blotter", showClosed ? closedTbl : blot, { sub: showClosed ? `${C.length} trades · realized ${fmtS(bk.real, 0)} EUR` : `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${LIVE.data ? `${dTerm(LIVE.data.day)} ${utcToCet(LIVE.data.msg)} CET intraday` : dTerm(DATA.asof)}`, tools }) +
     panel("strat", "Strategies", stratTbl, { sub: `${strats.length} pairs / flies · level = long − short (pair), 2 × body − wings (fly)` }) +
     panel("attr", "P&amp;L attribution", attr, { sub: "EUR, total P&L by strategy and position" }) +
-    panel("sum", "Summary by sector", fund + sum + `<p class="note pad"><b>Total P&amp;L</b> = clean-price P&amp;L versus the trade price + carry. <b>Carry</b> = coupon accrual (including coupons paid) since the trade settled, minus funding at the repo rate (ACT/360) on the dirty trade value; shorts pay the coupon and earn repo less the specialness. Futures carry is in the price. Weights use gross bond market value.</p>`);
+    panel("sum", "Summary by sector", fund + sum + `<p class="note pad"><b>Total P&amp;L</b> = open positions (clean-price P&amp;L versus the trade price, marked at mid, + carry) + realized P&amp;L of closed trades (exit at the bid for longs, the offer for shorts). <b>Carry</b> = coupon accrual (including coupons paid) since the trade settled, minus funding at the repo rate (ACT/360) on the dirty trade value; shorts pay the coupon and earn repo less the specialness. Futures carry is in the price. Weights use gross bond market value.</p>`);
   if (sg) fillHist("stratHist", sg.id, async (w) => spark(await levelHist(sg.type, sg.legs, "y"), { w, label: sg.name }));
   const num = (v) => Number(String(v).replace(",", "."));
   $("#repo").onchange = e => { const v = num(e.target.value); if (isFinite(v)) { state.repo = v; store("repo", v); } render(); };
   $("#special").onchange = e => { const v = num(e.target.value); if (isFinite(v)) { state.special = v; store("special", v); } render(); };
-  $("#csvBook")?.addEventListener("click", () => csv(`kthficc-book-${DATA.asof}.csv`,
+  $("#blotTab").onclick = e => { const t = e.target.closest("button")?.dataset.bt; if (t) { state.blotTab = t; store("blotTab", t); render(); } };
+  $("#csvBook")?.addEventListener("click", () => showClosed ? csv(`kthficc-closed-${DATA.asof}.csv`,
+    ["side", "kind", "instrument", "isin_or_contract", "qty", "entry_px", "exit_px", "clean_pnl", "carry", "realized_pnl", "strategy", "trader", "opened", "closed", "closed_by"],
+    C.map(x => [x.qty >= 0 ? "long" : "short", x.kind, x.kind === "bond" ? BY_ISIN.get(x.isin)?.name : x.code, x.kind === "bond" ? x.isin : x.contract, x.qty, x.price, x.exit, x.pnl, x.carry, x.tot, x.strat?.name, x.by, x.at, x.closedAt, x.closedBy])) : csv(`kthficc-book-${DATA.asof}.csv`,
     ["side", "kind", "instrument", "isin_or_contract", "sector", "qty", "trade_px", "mark", "market_value", "clean_pnl", "carry", "total_pnl", "ytm", "z_bp", "mod_dur", "dv01", "cs01", "strategy", "trader", "trade_time"],
     bk.rows.map(({ p, r }) => [p.qty >= 0 ? "long" : "short", p.kind, p.kind === "bond" ? r.b?.name : p.code, p.kind === "bond" ? p.isin : p.contract,
       p.kind === "bond" ? SECT[r.b?.sector] : r.f?.type, p.qty, p.price, r.now, p.kind === "bond" ? r.mv : r.notional, r.pnl, r.carry, r.tot, r.y, r.z, r.dur, r.dv01, r.cs01, p.strat?.name, p.by, p.at])));
@@ -1219,6 +1252,7 @@ function nextWeek() {
 }
 async function weekClub() {
   const w = W(), trades = state.positions.filter(p => (p.date || (p.at || "").slice(0, 10)) >= w.mon);
+  const closedW = state.closed.filter(x => (x.closed || "") >= w.mon), realW = closedW.reduce((s, x) => s + (x.tot || 0), 0);
   const rows = [];
   for (const p of state.positions) {
     const r = risk(p); if (r.missing) continue;
@@ -1234,7 +1268,7 @@ async function weekClub() {
   }
   rows.sort((a, b) => b.v - a.v);
   const tot = rows.reduce((s, x) => s + x.v, 0);
-  return `<dl class="kv"><dt>Week P&amp;L (clean)</dt><dd class="big ${cls(tot)}">${rows.length ? fmtS(tot, 0) + " EUR" : "–"}</dd><dt>Trades this week</dt><dd>${trades.length}</dd>
+  return `<dl class="kv"><dt>Week P&amp;L (clean)</dt><dd class="big ${cls(tot)}">${rows.length ? fmtS(tot, 0) + " EUR" : "–"}</dd><dt>Realized this week</dt><dd class="${cls(realW)}">${closedW.length ? fmtS(realW, 0) + " EUR" : "–"}</dd><dt>Trades this week</dt><dd>${trades.length}</dd>
     ${rows.length ? `<dt>Best</dt><dd class="pos">${esc(rows[0].l)} ${fmtS(rows[0].v, 0)}</dd><dt>Worst</dt><dd class="${cls(rows.at(-1).v)}">${esc(rows.at(-1).l)} ${fmtS(rows.at(-1).v, 0)}</dd>` : ""}</dl>
     ${rows.length ? "" : `<p class="note">${state.positions.length ? "Positions held before this week need a base day in the history." : "No positions."}</p>`}
     ${trades.length ? `<table class="t"><tbody>${trades.slice(-8).reverse().map(p => `<tr><td class="dim">${esc((p.at || "").slice(5, 10))}</td><td>${esc(describe(p))}</td><td class="who">${esc(p.by || "")}</td></tr>`).join("")}</tbody></table>` : ""}`;
@@ -1282,7 +1316,7 @@ function renderGuide() {
       <li>Create a classic personal access token with the <code>public_repo</code> scope; click <b>SIGN IN TO TRADE</b> and paste it (it stays in your browser).</li>
       <li>Trade: pick a bond or future, choose BUY or SELL / SHORT and the size, then <b>BOOK TRADE</b>. Buys fill at the offer, sells at the bid, futures at the last price.</li>
       <li>Pairs and flies: switch the ticket to PAIR or FLY, click each leg, then a bond or future. Sizes are DV01-neutral.</li>
-      <li>Close: Holdings → CLOSE on the position (strategies close all legs together).</li></ol>
+      <li>Close: Holdings → CLOSE on the position (strategies close all legs together). A long is sold at the bid, a short bought back at the offer; the trade moves to CLOSED with its realized P&amp;L.</li></ol>
     <h3>KEYS</h3><p class="note"><kbd>1</kbd>–<kbd>7</kbd> workspace · <kbd>/</kbd> search · <kbd>[</kbd> <kbd>]</kbd> screener tab · <kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Enter</kbd> ticket size · <kbd>Esc</kbd> close</p></div>`;
   const gloss = `<div class="sect"><dl class="gl">${GLOSSARY.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`;
   const src = [["Bond quotes", "Börse Frankfurt MiFID II pre-trade files", "every minute; closing marks each evening"],
@@ -1723,7 +1757,7 @@ function render() {
 
 async function loadPositions() {
   try {
-    state.positions = await gh.load(); state.dbState = "ready"; state.loadedAt = Date.now();
+    setDoc(await gh.load()); state.dbState = "ready"; state.loadedAt = Date.now();
   } catch (e) { state.dbState = "error"; state.loadErr = e.status; }
   render();
 }

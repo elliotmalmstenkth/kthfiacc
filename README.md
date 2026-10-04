@@ -50,6 +50,9 @@ Anyone with the link can see the bond screener, the futures and the club portfol
 
 To trade: become a collaborator on the repo, create a classic personal access token with the `public_repo` scope,
 and sign in on the site (the token is stored only in your browser). Buys execute at the offer and sells at the bid.
+CLOSE trades a position out (a long is sold at the bid, a short bought back at the offer, a future at the last
+price) and moves it to `closed` in the same file with its realized P&L: clean P&L at the exit price plus carry.
+Total P&L = open positions marked at mid + realized P&L of closed trades.
 
 Relative value:
 
