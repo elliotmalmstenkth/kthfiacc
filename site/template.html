@@ -83,7 +83,7 @@ table.t { border-collapse: collapse; width: 100%; }
 .t tbody tr.sel td.nm { color: #ffc56b; }
 .t td.amb, .t .amb { color: var(--amber); } .t td.dim { color: var(--fg-2); }
 .t td.desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
-.t.vt { table-layout: fixed; min-width: calc(116ch + 176px); }   /* screener: fixed columns */
+.t.vt { table-layout: fixed; min-width: calc(104ch + 163px); }   /* screener: fixed columns */
 .t.vt td { overflow: hidden; text-overflow: ellipsis; }
 .t.vt td.nm { max-width: none; }
 .t tr.sp td { padding: 0; border: 0; }
@@ -605,7 +605,7 @@ function hedgeCalc(bk) {
 const state = {
   view: store("view") || "dash",
   q: "", tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", off: new Set(store("subOff") || []), bench: store("bench") ?? true,
-  firm: store("firm") ?? false, esgOnly: store("esgOnly") ?? false, hideDq: store("hideDq") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: store("sort") || ["amt", -1],
+  firm: store("firm") ?? false, esgOnly: store("esgOnly") ?? false, hideDq: store("hideDq") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: (store("sort")?.[0] === "isin" ? null : store("sort")) || ["amt", -1],
   dur: store("dur") || {}, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
@@ -1323,7 +1323,7 @@ function renderGuide() {
 }
 
 // ------------------------------------------------------------------ TRADE
-const BCOLS = [["name", "BOND"], ["isin", "ISIN"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
+const BCOLS = [["name", "BOND"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
   ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"],
   ["ecb", "ECB", undefined, "Eurosystem credit quality from the ECB list of eligible collateral: ≥A− (steps 1–2), BBB (step 3), – not on the list"], ["mdur", "MOD DUR", 2]];
 // ECB credit quality: the class of a bond for the filter chips and its label
@@ -1338,7 +1338,7 @@ const esgTag = (b) => b.esg ? `<span class="esg${b.esg === "SLB" ? " slb" : ""}"
 let VISIBLE = [], ROW_H = 20, DRAWN = "";
 const SCR = {};
 // fixed column widths (characters) so the columns stay put while scrolling; the bond name takes the rest
-const BW = { isin: 12, sector: 11, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ytm: 7, z: 7, rv: 7, ecb: 5, mdur: 9 };
+const BW = { sector: 11, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ytm: 7, z: 7, rv: 7, ecb: 5, mdur: 9 };
 
 const curTab = () => TABS.find(t => t.k === state.tab);
 
@@ -1400,8 +1400,8 @@ function renderDesk() {
     const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawRows(); }); };
     $("#scrBody").addEventListener("scroll", redraw, { passive: true });
     window.addEventListener("resize", redraw);
-    $("#csvScr").onclick = () => csv(`kthficc-screener-${state.tab}-${DATA.asof}.csv`, BCOLS.map(c => c[0]).concat(["subordinated", "firm", "accrued", "rolldown_3m_bp", "min_denomination"]),
-      filtered().map(b => BCOLS.map(c => c[0] === "sector" ? SECT[b.sector] : b[c[0]]).concat([b.sub, b.firm, b.acc, b.roll, b.unit])));
+    $("#csvScr").onclick = () => csv(`kthficc-screener-${state.tab}-${DATA.asof}.csv`, ["isin"].concat(BCOLS.map(c => c[0])).concat(["subordinated", "firm", "accrued", "rolldown_3m_bp", "min_denomination"]),
+      filtered().map(b => [b.isin].concat(BCOLS.map(c => c[0] === "sector" ? SECT[b.sector] : b[c[0]])).concat([b.sub, b.firm, b.acc, b.roll, b.unit])));
   }
   renderScreener(); renderFutures(); renderTicket();
 }
@@ -1426,11 +1426,11 @@ function renderScreener(reset = false) {
   drawRows(top);
   box.scrollTop = top;
   $("#scrCount").textContent = `${tab.t} · ${fmt(xs.length, 0)} bonds · mid-based analytics`;
-  document.querySelectorAll("#scrBody th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["name", "mat", "sector", "isin"].includes(k) ? 1 : -1)]; store("sort", state.sort); renderScreener(true); });
+  document.querySelectorAll("#scrBody th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["name", "mat", "sector"].includes(k) ? 1 : -1)]; store("sort", state.sort); renderScreener(true); });
 }
 
 const bondRow = (b, selIsin) => `<tr class="click${b.isin === selIsin ? " sel" : ""}" data-pick="${b.isin}" data-kind="bond">
-      <td class="nm">${dqTag(b)}${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}${esgTag(b)}</td><td class="dim">${b.isin}</td><td class="dim">${SECT[b.sector]}</td>
+      <td class="nm">${dqTag(b)}${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}${esgTag(b)}</td><td class="dim">${SECT[b.sector]}</td>
       <td class="n">${fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
       <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
       <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="${b.ecb === "3" ? "amb" : b.ecb ? "" : "muted"}">${ECB_LBL[b.ecb] || "–"}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
@@ -1448,9 +1448,9 @@ function drawRows(top) {
   const selIsin = state.sel?.kind === "bond" ? state.sel.id : null, key = `${n}:${first}:${last}:${selIsin}`;
   if (key !== DRAWN) {
     DRAWN = key;
-    const pad = (h) => h > 0 ? `<tr class="sp"><td colspan="13" style="height:${h}px"></td></tr>` : "";
+    const pad = (h) => h > 0 ? `<tr class="sp"><td colspan="${BCOLS.length}" style="height:${h}px"></td></tr>` : "";
     tb.innerHTML = n ? pad(first * ROW_H) + VISIBLE.slice(first, last).map(b => bondRow(b, selIsin)).join("") + pad((n - last) * ROW_H)
-      : `<tr><td colspan="13" class="empty">${emptyMsg(SCR.tab, SCR.counts)}</td></tr>`;
+      : `<tr><td colspan="${BCOLS.length}" class="empty">${emptyMsg(SCR.tab, SCR.counts)}</td></tr>`;
     // the real row pitch, measured between rows (the first row also carries half of the top border)
     const rs = tb.querySelectorAll("tr.click");
     if (rs.length > 2) {
