@@ -10,6 +10,17 @@
    "date": "2026-10-02",
    "by": "elliotmalmstenkth",
    "at": "2026-10-04T20:19:12.461Z"
+  },
+  {
+   "id": "muu9ndetc0euf",
+   "kind": "future",
+   "code": "FGBM",
+   "contract": "2026-12-08",
+   "qty": -17,
+   "price": 112.74,
+   "date": "2026-10-02",
+   "by": "elliotmalmstenkth",
+   "at": "2026-10-04T20:21:12.485Z"
   }
  ],
  "closed": [],
