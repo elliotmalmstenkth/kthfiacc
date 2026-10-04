@@ -15,6 +15,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `ust_curve.py` | US Treasury constant-maturity yields (FRED) | Zero curve bootstrapped from the par yields, for the dollar bonds' Z-spreads |
 | `frn.py` | Euribor forwards from `stir.py` | Floating-rate notes on 3M Euribor: discount margin, rates duration (to the next reset) and spread duration |
 | `country.py` | ECB eligible list, GLEIF LEI register | Country of risk per bond (guarantor, parent of a financing vehicle, issuer); GLEIF answers cached in `data/history/lei_country.csv` |
+| `orders.py` | Deutsche Börse minute files (archive) | Limit orders in `portfolio/positions.json`: matched each evening (bonds: a firm quote through the limit; futures: a trade through it), filled into positions or expired |
 | `firds.py` | ESMA FIRDS (FULINS) | Reference data per ISIN → SQLite (`--cat D` debt, `--cat F` futures) |
 | `classify.py` | FIRDS + DFRA pre-trade | Sector classification (sovereign, covered, financial/non-financial corporate …) and coverage summary |
 | `ecb_curve.py` | ECB YC (data-api.ecb.europa.eu) | Archives the ECB Svensson parameters (AAA and all euro area) since 2004; spot, forward, par and discount factors |
@@ -55,6 +56,15 @@ The screener covers euro and dollar bonds (EUR / USD switch; Z-spreads over the 
 and euro FRNs on Euribor (FIXED / FRN chips; Z BP = discount margin). Dollar positions are valued in EUR at the ECB
 reference rate and funded in dollars at SOFR; their rates risk sits in US Treasury buckets and their credit risk is a
 VaR factor through the ICE BofA US HY OAS.
+
+Trading desk tools: the ticket shows the trade's impact on the book (DV01, CS01, VaR, capital, largest country)
+before booking, takes limit orders (DAY or one week) and sets alerts (kept in the viewer's browser). Risk has stress
+tests (rates ±100, steepener/flattener, spreads × 1.5, BTP − Bund +100, risk-off); Holdings shows the book's P&L
+per evening against the FECX index (return on gross, excess return, Sharpe, drawdown) and the working orders; the
+KPI CAPITAL USED applies repo haircuts (the ECB's where available) and approximate futures margins against a
+EUR 1m budget. Eurex EUR/USD futures give the cost of hedging dollars (hedged yields of dollar bonds, the
+cross-currency basis), VSTOXX futures the volatility curve and EURO STOXX Banks futures the bank-share side of
+bank credit (Credit).
 
 Anyone with the link can see the bond screener, the futures and the club portfolio. The portfolio is the file
 `portfolio/positions.json` in this repo; every trade is a commit, so the commit history is the blotter.

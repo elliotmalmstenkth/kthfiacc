@@ -17,7 +17,7 @@ Post-trade flags:
 'last' is the final on-book trade (2/O/K), a proxy for the Eurex daily settlement price,
 which is not in the MiFID files.
 """
-import argparse, gzip, json, os, sqlite3, sys
+import argparse, datetime as dt, gzip, json, os, sqlite3, sys
 from collections import defaultdict
 
 import mfs
@@ -41,6 +41,12 @@ PRODUCTS = {
     # ISINs identified from the trades (prices 100 - rate, monthly/IMM expiries), Oct 2026.
     "FEU3": ("DE0009653147", "3-Month Euribor", "stir", "EUR", 2500),
     "FST3": ("DE000A3CNW06", "3-Month €STR", "stir", "EUR", 2500),
+    # other products used for the markets view and as hedges (ISINs checked on eurex.com, Oct 2026):
+    # FCEU EUR 100,000 against USD (price = USD per EUR, so the P&L is in dollars); FVS EUR 100 per VSTOXX point;
+    # FESB EUR 50 per EURO STOXX Banks point
+    "FCEU": ("DE000A1N53R4", "EUR/USD", "fx", "USD", 100000),
+    "FVS": ("DE000A0Z3CW9", "VSTOXX (EURO STOXX 50 volatility)", "vol", "EUR", 100),
+    "FESB": ("DE0005705651", "EURO STOXX Banks", "equity", "EUR", 50),
     # credit index futures: cash-settled, multiplier from FIRDS
     "FECX": ("DE000A2QQU00", "Bloomberg MSCI Euro Corporate Screened", "credit", "EUR", 1000),
     "FEHY": ("DE000A3DLQ96", "Bloomberg Liquidity Screened Euro High Yield", "credit", "EUR", 200),
@@ -58,7 +64,7 @@ def connect(db=mfs.DB_DEFAULT):
     con = sqlite3.connect(db)
     con.execute("""CREATE TABLE IF NOT EXISTS futures_daily(date TEXT, code TEXT, contract TEXT, ccy TEXT,
         trades INT, lots REAL, block_lots REAL, open REAL, high REAL, low REAL, last REAL, last_time TEXT,
-        vwap REAL, PRIMARY KEY(date, code, contract))""")
+        vwap REAL, cal_spread REAL, cal_pairs INT, PRIMARY KEY(date, code, contract))""")
     return con
 
 
@@ -83,24 +89,49 @@ def day_trades(date, archive=mfs.ARCHIVE_DEFAULT, feed="DEUR-posttrade"):
     return [t for t in trades if t.get("transactionIdentificationCode") not in cancelled]
 
 
+def calendar_spread(near, far, max_gap=60):
+    """Median of (far price − near price) over the far contract's trades that have a near-contract trade within
+    max_gap seconds: (spread, number of pairs), or (None, 0)."""
+    import bisect, statistics
+    ts = lambda t: dt.datetime.fromisoformat(t["tradingDateAndTime"][:19]).timestamp()
+    nt = [ts(t) for t in near]
+    diffs = []
+    for t in far:
+        x = ts(t)
+        i = bisect.bisect_left(nt, x)
+        best = min((j for j in (i - 1, i) if 0 <= j < len(nt)), key=lambda j: abs(nt[j] - x), default=None)
+        if best is not None and abs(nt[best] - x) <= max_gap:
+            diffs.append(t["price"] - near[best]["price"])
+    return (statistics.median(diffs), len(diffs)) if diffs else (None, 0)
+
+
 def build_daily(date, archive=mfs.ARCHIVE_DEFAULT, db=mfs.DB_DEFAULT):
     agg = defaultdict(list)
     for t in day_trades(date, archive):
         agg[(BY_ISIN[t["instrumentIdentificationCode"]], t["contractDate"])].append(t)
-    rows = []
+    rows, books = [], {}
     for (code, contract), ts in sorted(agg.items()):
         ts.sort(key=lambda t: t["tradingDateAndTime"])
         book = [t for t in ts if t.get("mmtTradingMode") in ON_BOOK and t.get("price") is not None]
         px = [t["price"] for t in book]
         lots = sum(t["quantity"] for t in book)
         vwap = sum(t["price"] * t["quantity"] for t in book) / lots if lots else None
-        rows.append((date, code, contract, PRODUCTS[code][3], len(ts), lots,
+        books[(code, contract)] = book
+        rows.append([date, code, contract, PRODUCTS[code][3], len(ts), lots,
                      sum(t["quantity"] for t in ts if t.get("mmtTradingMode") == "5"),
                      px[0] if px else None, max(px, default=None), min(px, default=None), px[-1] if px else None,
-                     book[-1]["tradingDateAndTime"][:19] if book else None, vwap))
+                     book[-1]["tradingDateAndTime"][:19] if book else None, vwap, None, 0])
+    # calendar spread of each later contract over the front one, from trades close in time (EUR/USD: the
+    # forward points between the two delivery dates; bond futures: the roll)
+    for row in rows:
+        code, contract = row[1], row[2]
+        front = min((c for (k, c) in books if k == code and books[(k, c)]), default=None)
+        if front is None or contract == front:
+            continue
+        row[13], row[14] = calendar_spread(books[(code, front)], books[(code, contract)])
     con = connect(db)
     con.execute("DELETE FROM futures_daily WHERE date=?", (date,))
-    con.executemany("INSERT INTO futures_daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    con.executemany("INSERT INTO futures_daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.commit()
     print(f"{date}: {len(rows)} contracts in {len({r[1] for r in rows})} products -> {db}", file=sys.stderr)
     return rows

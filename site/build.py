@@ -280,6 +280,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
     dq = dict(reclass=reclass, n=sum(1 for f in flags if f), reasons=dict(collections.Counter(x for f in flags for x in f)))
     ecb = add_ecb_quality(rows, cols, ecbq, ecbday)
     esg = add_green(rows, cols)
+    add_haircuts(rows, cols, ecbq)
 
     idur = index_durations(rows, cols, settle)
     # futures: front contract with on-book trades
@@ -302,6 +303,10 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
                 item.update(dv01=r(c["dv01_contract"], 2), ctd=dict(isin=c["isin"], name=str(u.loc[c["isin"], "full_name"]),
                             cpn=r(c["coupon"], 3), mat=c["maturity"], cf=r(c["cf"], 6), basis=r(c["basis"], 4),
                             ytm=r(c["ytm"] * 100, 3)))
+        later = f.iloc[1:]
+        if "cal_spread" in f and len(later):   # later contracts: price consistent with the front's last trade
+            item["cal"] = [dict(contract=y.contract, last=r(y["last"], 5), spread=r(y.cal_spread, 6) if pd.notna(y.cal_spread) else None,
+                                pairs=int(y.cal_pairs) if pd.notna(y.cal_pairs) else 0, trades=int(y.trades)) for _, y in later.iterrows()]
         if typ == "credit":
             e = idur.get(code)
             item["dur"] = e["dur"] if e else INDEX_DURATION.get(code)
@@ -317,12 +322,150 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
         except Exception as ex:  # the site still builds; the repo rate falls back to a default on the page
             print(f"€STR unavailable: {ex}", file=sys.stderr)
 
+    fxh = fx_hedge(futures, mkt)
+    ic, iy = cols.index("ccy"), cols.index("ytm")
+    for row in rows:   # dollar bonds: yield for a euro investor who hedges the currency (rolling 3-month forwards)
+        row.append(r(row[iy] - fxh["diff"], 3) if fxh and row[ic] == "USD" and row[iy] is not None else None)
+    cols.append("yh")
+    idx = spread_indices(rows, cols)
     vol = load_vol(options_csv or os.path.join(ddir, "eurex_options.csv.gz"), day, futures)
 
     return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, esg=esg, dq=dq, log=read_log(), built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
                 ust=dict(date=ust.date, par={str(k): v for k, v in ust.par.items()}) if ust else None,
-                cols=cols, bonds=rows, futures=futures, vol=vol, stir=stirs)
+                fxh=fxh, idx=idx, cols=cols, bonds=rows, futures=futures, vol=vol, stir=stirs)
+
+
+# repo haircuts (% of market value) for the book's capital use: the ECB's own haircut for bonds on its list,
+# otherwise a conservative bilateral-repo level by type (assumptions, shown as such on the site)
+DEFAULT_HAIRCUT = {"UST": 2.0, "USD_PUBLIC": 8.0, "USD_CORP": 15.0, "EUR_PUBLIC": 10.0, "EUR_CORP": 20.0}
+
+
+def add_haircuts(rows, cols, ecbq):
+    """Appends 'hc': repo haircut in % and 'hcs': its source ('ECB' or 'assumed')."""
+    c = {k: i for i, k in enumerate(cols)}
+    for row in rows:
+        v = (ecbq or {}).get(row[0])
+        if v and v.get("eur") and v.get("haircut") is not None:
+            row += [r(v["haircut"], 1), "ECB"]
+            continue
+        usd, corp = row[c["ccy"]] == "USD", row[c["sector"]].startswith("CORP")
+        k = ("UST" if usd and row[c["sector"]] == "SOV" and row[c["cty"]] == "US" else
+             ("USD" if usd else "EUR") + ("_CORP" if corp else "_PUBLIC"))
+        row += [DEFAULT_HAIRCUT[k], "assumed"]
+    cols += ["hc", "hcs"]
+
+
+def fx_hedge(futures, mkt):
+    """EUR/USD hedge from the Eurex EUR/USD futures: the calendar spread between the front and the next contract
+    (trades paired within a minute) gives the forward points over that period, so
+    (F_far / F_near − 1) × 360 / days = r_USD − r_EUR implied, the cost (in % a year) of hedging dollars back into
+    euros. Compared with SOFR − €STR, the gap is the cross-currency basis (approximate: the futures period
+    starts in December, the overnight rates are today's). None without a usable spread."""
+    f = next((x for x in futures if x["code"] == "FCEU"), None)
+    far = next((c for c in (f or {}).get("cal", []) if c.get("spread") is not None and c.get("pairs", 0) >= 2), None)
+    if not f or not far or not f.get("last"):
+        return None
+    import stir as _stir
+    d0 = _stir.third_wednesday(*map(int, f["contract"][:7].split("-")))
+    d1 = _stir.third_wednesday(*map(int, far["contract"][:7].split("-")))
+    days = (d1 - d0).days
+    diff = far["spread"] / f["last"] * 360 / days * 100
+    sofr, estr = (mkt.get("SOFR") or {}).get("v", [None])[-1], (mkt.get("ESTR") or {}).get("v", [None])[-1]
+    return dict(near=f["contract"], far=far["contract"], days=days, near_px=f["last"], points=r(far["spread"] * 1e4, 2),
+                pairs=far["pairs"], diff=r(diff, 4), sofr=sofr, estr=estr,
+                basis=r((diff - (sofr - estr)) * 100, 1) if sofr is not None and estr is not None else None)
+
+
+# median Z-spreads of euro credit segments: a free stand-in for credit indices, kept in the history as IDX:<key>
+SEGMENTS = [("EUR_IG", "Euro IG corporates (ECB-eligible, senior)", lambda b: b["sector"].startswith("CORP") and b["ecb"] in ("1-2", "3") and not b["sub"]),
+            ("BANK_SNR", "Euro banks, senior", lambda b: b["sector"] == "CORP_FIN" and not b["sub"]),
+            ("BANK_SUB", "Euro banks, subordinated", lambda b: b["sector"] == "CORP_FIN" and b["sub"]),
+            ("NONFIN", "Euro non-financial corporates", lambda b: b["sector"] == "CORP_NONFIN" and not b["sub"])]
+
+
+def spread_indices(rows, cols):
+    """{key: {name, z, n}}: median Z of euro fixed-coupon bonds with firm quotes, no quality flag, 1-30 years."""
+    c = {k: i for i, k in enumerate(cols)}
+    out = {}
+    for key, name, f in SEGMENTS:
+        zs = [row[c["z"]] for row in rows
+              if row[c["ccy"]] == "EUR" and row[c["frn"]] is None and row[c["firm"]] and not row[c["dq"]] and row[c["z"]] is not None
+              and f({k: row[c[k]] for k in ("sector", "ecb", "sub")})]
+        if len(zs) >= 20:
+            out[key] = dict(name=name, z=r(statistics.median(zs), 1), n=len(zs))
+    return out
+
+
+def hist_changes(data, hist_dir):
+    """1-day and 1-week changes from the history files: IDX segments (bp of Z) and the new futures (price)."""
+    days = sorted(os.path.basename(p)[:10] for p in glob.glob(os.path.join(hist_dir, "*.csv.gz")) if os.path.basename(p)[:10] < data["asof"])
+    prev = {n: read_history(os.path.join(hist_dir, f"{days[-n]}.csv.gz")) if len(days) >= n else {} for n in (1, 5)}
+    for k, v in (data.get("idx") or {}).items():
+        for n, key in ((1, "d1"), (5, "w1")):
+            old = (prev[n].get(f"IDX:{k}") or {}).get("mid")
+            v[key] = r(v["z"] - old, 1) if old is not None else None
+    for f in data["futures"]:
+        for n, key in ((1, "d1"), (5, "w1")):
+            old = (prev[n].get(f"FUT:{f['code']}") or {}).get("mid")
+            f[key] = r(f["last"] - old, 5) if old is not None and f.get("last") is not None else None
+
+
+def pnl_history(hist_dir, positions_path, mkt, usd_isins=()):
+    """The club book's P&L per history day (clean price P&L of the positions open that day, marked at the day's
+    mid, plus the realized P&L of trades closed by then; carry left out), with the FECX index as benchmark.
+    {d, pnl, gross, bench} or None without trades or history."""
+    if not os.path.exists(positions_path):
+        return None
+    doc = json.load(open(positions_path))
+    trades = doc.get("positions", []) + doc.get("closed", [])
+    if not trades:
+        return None
+    start = min((t.get("date") or t.get("at", "")[:10]) for t in trades)
+    files = sorted(p for p in glob.glob(os.path.join(hist_dir, "*.csv.gz")) if os.path.basename(p)[:10] >= start)
+    if not files:
+        return None
+    e = mkt.get("EURUSD")
+    fxs = dict(zip(e["d"], e["v"])) if e else {}
+    mult = {k: v[4] for k, v in eurex.PRODUCTS.items()}
+    last_mark, last_fx = {}, None
+    out = dict(d=[], pnl=[], gross=[], bench=[])
+    fecx0 = None
+    for p in files:
+        d = os.path.basename(p)[:10]
+        h = read_history(p)
+        last_fx = fxs.get(d, last_fx) or last_fx or (list(fxs.values())[-1] if fxs else None)
+        pnl = gross = 0.0
+        for t in trades:
+            opened = t.get("date") or t.get("at", "")[:10]
+            if opened > d:
+                continue
+            if t.get("closed") and t["closed"] <= d:
+                pnl += t.get("tot") or 0
+                continue
+            key = t["isin"] if t["kind"] == "bond" else f"FUT:{t['code']}"
+            m = (h.get(key) or {}).get("mid")
+            if m is not None:
+                last_mark[key] = m
+            m = last_mark.get(key)
+            if m is None:
+                continue
+            if t["kind"] == "bond":
+                usd = t["isin"] in usd_isins
+                fx = last_fx if usd else 1
+                if not fx:
+                    continue
+                pnl += t["qty"] * (m - t["price"]) / 100 / fx
+                gross += abs(t["qty"]) * m / 100 / fx
+            else:
+                fx = last_fx if t["code"] == "FCEU" else 1
+                pnl += t["qty"] * (m - t["price"]) * mult.get(t["code"], 1) / (fx or 1)
+        fe = (h.get("FUT:FECX") or {}).get("mid")
+        fecx0 = fecx0 or fe
+        out["d"].append(d); out["pnl"].append(r(pnl, 0)); out["gross"].append(r(gross, 0))
+        out["bench"].append(r((fe / fecx0 - 1) * 100, 4) if fe and fecx0 else None)
+    return out
+
 
 
 def load_stir(fut, day, mkt):
@@ -391,6 +534,8 @@ def write_history(data, hist_dir):
         for code, qs in (("FST3", st.get("estr_q", [])), ("FEU3", st.get("euribor", []))):   # price (mid), rate (ytm)
             for q in qs:
                 w.writerow([f"STIR:{code}:{q['contract']}", q["price"], q["rate"], None, None, None])
+        for k, v in (data.get("idx") or {}).items():      # median Z of the euro credit segments
+            w.writerow([f"IDX:{k}", v["z"], None, None, None, None])
         for code, v in (data.get("vol") or {}).items():   # 1M ATM implied vol: % of price (mid), bp/day (ytm)
             if v.get("atm1m"):
                 w.writerow([f"IV:{code}", r(v["atm1m"] * 100, 3), v.get("bp1m"), None, None, None])
@@ -553,6 +698,9 @@ if __name__ == "__main__":
         write_history(data, a.history)
         data["week"] = weekly(data, a.history)
         stir_changes(data, a.history)
+        hist_changes(data, a.history)
+        ic = data["cols"].index("ccy")
+        data["pnlh"] = pnl_history(a.history, os.path.join(ROOT, a.positions), data["mkt"], {b[0] for b in data["bonds"] if b[ic] == "USD"})
         data["hist"] = build_shards(a.history, os.path.join(os.path.dirname(os.path.abspath(a.out)), "hist"))
         print(f"history: {len(data['hist'])} days", file=sys.stderr)
     owner, name = a.repo.split("/")

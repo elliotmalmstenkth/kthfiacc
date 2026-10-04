@@ -177,6 +177,10 @@ def cmd_daily(a):
             gh("release", "create", f"data-{day}", "--draft", "--title", f"Market data {day}",
                "--notes", notes(row, assets), *assets)
             print(f"{day}: draft release data-{day} created ({len(assets)} files)", file=sys.stderr)
+        try:   # limit orders, while the day's raw files are still on disk
+            process_orders(day, a.archive, a.dry_run)
+        except Exception as e:
+            print(f"{day}: limit orders not processed: {e}", file=sys.stderr)
         if a.cleanup:  # save disk space on the runner: only the processed day's folders
             for feed in FEEDS:
                 shutil.rmtree(os.path.join(a.archive, feed, day), ignore_errors=True)
@@ -187,6 +191,33 @@ def cmd_daily(a):
     except Exception as e:   # never fails the day's collection
         print(f"snapshots skipped: {e}", file=sys.stderr)
     return 1 if built < len(todo) else 0
+
+
+def process_orders(day, archive, dry_run=False, path="portfolio/positions.json"):
+    """Matches the club's working limit orders against the day's minute files (orders.py) and saves fills and
+    expiries to the portfolio file through the GitHub API (retried if someone saved in between)."""
+    import base64, orders
+    repo = os.environ.get("GITHUB_REPOSITORY", "elliotmalmstenkth/kthfiacc")
+    branch = os.environ.get("PORTFOLIO_BRANCH") or os.environ.get("GITHUB_REF_NAME") or "claude/compassionate-edison-wxgg9h"
+    for attempt in range(3):
+        j = json.loads(gh("api", f"repos/{repo}/contents/{path}?ref={branch}"))
+        doc = json.loads(base64.b64decode(j["content"]))
+        work = [o for o in doc.get("orders", []) if o.get("status") == "working" and o.get("day", "") <= day]
+        if not work:
+            return 0, 0
+        files = mfs.day_files(archive, "DFRA-pretrade", day)
+        trades = eurex.day_trades(day, archive) if any(o["kind"] == "future" for o in work) else []
+        new, nf, ne = orders.run(doc, day, files, trades)
+        print(f"{day}: {nf} limit orders filled, {ne} expired", file=sys.stderr)
+        if dry_run or not (nf or ne):
+            return nf, ne
+        body = json.dumps({"message": f"Portfolio: {nf} limit order(s) filled, {ne} expired on {day} (evening run)", "branch": branch,
+                           "sha": j["sha"], "content": base64.b64encode((json.dumps(new, indent=1) + "\n").encode()).decode()})
+        r = subprocess.run(["gh", "api", "-X", "PUT", f"repos/{repo}/contents/{path}", "--input", "-"], input=body, capture_output=True, text=True)
+        if r.returncode == 0:
+            return nf, ne
+        print(f"saving orders failed ({r.stderr.strip()[:200]}), retrying", file=sys.stderr)
+    raise RuntimeError("could not save the order fills")
 
 
 def archive_snapshots(dist, dry_run=False, today=None):

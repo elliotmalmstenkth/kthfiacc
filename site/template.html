@@ -217,12 +217,12 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
 .atabs .ccy { margin-left: auto; align-self: center; }
 
 /* ---- workspace grids ---- */
-#v-dash { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1.15fr) minmax(0, 1fr);
-  grid-template-areas: "kpi kpi kpi" "hold hold mkt" "buck sect curve"; }
-#v-hold { grid-template-columns: minmax(0, 1.6fr) minmax(0, .75fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1.15fr);
-  grid-template-areas: "kpi kpi kpi" "blot blot blot" "strat attr sum"; }
-#v-risk { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, .9fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, .8fr) minmax(0, .8fr);
-  grid-template-areas: "kpi kpi kpi" "krd hedge var" "cs hedge var" "cty hedge meth"; }
+#v-dash { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(300px, 1.15fr) minmax(250px, .9fr) minmax(260px, 1fr); overflow: auto;
+  grid-template-areas: "kpi kpi kpi" "hold hold mkt" "watch watch cal" "buck sect curve"; }
+#v-hold { grid-template-columns: minmax(0, 1.5fr) minmax(0, .9fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, .7fr) minmax(0, .6fr);
+  grid-template-areas: "kpi kpi kpi" "blot blot blot" "strat perf sum" "attr perf sum"; }
+#v-risk { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, .9fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, .8fr) minmax(0, .9fr);
+  grid-template-areas: "kpi kpi kpi" "krd hedge var" "cs hedge var" "cty stress meth"; }
 #v-guide { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1.1fr) minmax(0, 1fr);
   grid-template-areas: "start gloss data" "status status limits"; }
 #v-guide .pb { padding: 0; }
@@ -239,8 +239,8 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
   grid-template-areas: "sum sum club" "new new next" "wide tight iss" "rat rv rv"; }
 #v-rates { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(240px, auto) minmax(200px, auto) minmax(600px, auto) minmax(340px, auto) minmax(420px, auto); overflow: auto;
   grid-template-areas: "gov ust" "gov money" "stir stir" "fut fut" "vol vol"; }
-#v-credit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(300px, auto) minmax(430px, auto) minmax(230px, auto); overflow: auto;
-  grid-template-areas: "spreads cmp" "sov cmp" "frn macro"; }
+#v-credit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(300px, auto) minmax(300px, auto) minmax(430px, auto) minmax(230px, auto); overflow: auto;
+  grid-template-areas: "spreads cmp" "banks cmp" "sov macro" "frn macro"; }
 .volg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .volg > div { min-width: 0; }
 .volg > div:first-child { overflow-x: auto; }
@@ -259,11 +259,11 @@ svg.chart .atm { stroke: var(--fg-3); stroke-dasharray: 3 3; }
   .app { height: auto; min-height: 100vh; }
   .views { padding-block: 8px 16px; }
   .view { height: auto; grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: none !important; }
-  #v-dash { grid-template-areas: "kpi" "hold" "mkt" "buck" "sect" "curve"; }
-  #v-hold { grid-template-areas: "kpi" "blot" "strat" "attr" "sum"; }
-  #v-risk { grid-template-areas: "kpi" "krd" "cs" "cty" "var" "hedge" "meth"; }
+  #v-dash { grid-template-areas: "kpi" "hold" "watch" "cal" "mkt" "buck" "sect" "curve"; }
+  #v-hold { grid-template-areas: "kpi" "blot" "strat" "perf" "attr" "sum"; }
+  #v-risk { grid-template-areas: "kpi" "krd" "cs" "cty" "stress" "var" "hedge" "meth"; }
   #v-rates { grid-template-areas: "gov" "ust" "money" "stir" "fut" "vol"; }
-  #v-credit { grid-template-areas: "spreads" "cmp" "sov" "frn" "macro"; }
+  #v-credit { grid-template-areas: "spreads" "cmp" "banks" "sov" "frn" "macro"; }
   #v-guide { grid-template-areas: "start" "gloss" "data" "status" "limits"; }
   #v-week { grid-template-areas: "sum" "club" "new" "next" "wide" "tight" "iss" "rat" "rv"; }
   #v-desk { grid-template-areas: "tkt" "scr" "fut"; }
@@ -420,23 +420,35 @@ function risk(p) {
     const dirty = b.mid + b.acc, mv = p.qty * dirty / 100 / fx;
     const dv01 = mv * b.mdur * 1e-4, cs01 = noCredit(b) ? 0 : mv * (b.sdur ?? b.mdur) * 1e-4;
     const pnl = p.qty * (b.mid - p.price) / 100 / fx, carry = carryOf(p, b).total / fx;
-    return { b, mv, dv01, cs01, pnl, carry, tot: pnl + carry, now: b.mid, y: b.ytm, z: b.z, dur: b.mdur, notional: p.qty,
+    return { b, mv, dv01, cs01, pnl, carry, tot: pnl + carry, now: b.mid, y: b.ytm, z: b.z, dur: b.mdur, notional: p.qty, capital: Math.abs(mv) * (b.hc ?? 20) / 100,
              bucket: b.ccy === "EUR" ? bucketOf(b.mdur) : null, ust: b.ccy === "USD" ? ustBucket(b.mdur) : null };
   }
   const f = FUT.get(p.code);
   if (!f) return { missing: true };
-  const notional = p.qty * f.last * f.mult, pnl = p.qty * (f.last - p.price) * f.mult;
+  // contracts priced in dollars (EUR/USD, the US credit futures) pay their P&L in dollars: converted at the ECB rate
+  const fx = f.ccy === "USD" ? FX : 1;
+  if (!fx) return { missing: true };
+  const notional = p.qty * f.last * f.mult, pnl = p.qty * (f.last - p.price) * f.mult / fx;
+  const capital = Math.abs(notional) / fx * futMargin(f) / 100;
   if (f.type === "credit") {
-    const d = indexDur(f.code), dv = d ? notional * d * 1e-4 : null;
-    return { f, mv: 0, notional, dv01: dv, cs01: dv, pnl, carry: 0, tot: pnl, now: f.last, bucket: d ? bucketOf(d) : null, dur: d };
+    const d = indexDur(f.code), dv = d ? notional / fx * d * 1e-4 : null;
+    return { f, mv: 0, notional, dv01: dv, cs01: dv, pnl, carry: 0, tot: pnl, now: f.last, bucket: d && f.ccy === "EUR" ? bucketOf(d) : null, dur: d, capital };
   }
   return { f, mv: 0, notional, dv01: f.dv01 != null ? p.qty * f.dv01 : null, cs01: 0, pnl, carry: 0, tot: pnl, now: f.last,
-           bucket: f.dv01 != null ? f.code : null, y: f.ctd?.ytm };
+           bucket: f.dv01 != null ? f.code : null, y: f.ctd?.ytm, capital };
 }
 
-// The whole book in one pass: rows, totals, bucket and sector aggregates.
-function book() {
-  const rows = state.positions.map(p => ({ p, r: risk(p) }));
+// Capital: bonds tie up their repo haircut (the ECB's for bonds on its list, else an assumption by type, see
+// site/build.py); futures their initial margin, approximated in % of contract value (Eurex margins are not in the
+// free data). The club's budget is the equity the book may use.
+const CAPITAL_BUDGET = 1e6;
+const FUT_MARGIN = { FGBS: 0.7, FGBM: 1.5, FGBL: 2.5, FGBX: 5, FBTS: 1.5, FBTP: 4, FOAT: 3, FBON: 3, CONF: 2.5 };
+const futMargin = (f) => FUT_MARGIN[f.code] ?? ({ credit: 3, fx: 2.5, vol: 25, equity: 12, govt: 3 }[f.type] ?? 5);
+
+// The whole book in one pass: rows, totals, bucket and sector aggregates. positions: the club's (default) or a
+// hypothetical list, for the impact of a trade before it is booked.
+function book(positions = state.positions) {
+  const rows = positions.map(p => ({ p, r: risk(p) }));
   const ok = rows.filter(x => !x.r.missing);
   const bonds = ok.filter(x => x.p.kind === "bond"), futs = ok.filter(x => x.p.kind !== "bond");
   const mv = bonds.reduce((s, x) => s + x.r.mv, 0);
@@ -457,7 +469,7 @@ function book() {
     const k = x.r.b.sector, s = sect[k] ??= { mv: 0, dv01: 0, cs01: 0, y: 0, z: 0, n: 0 };
     s.mv += x.r.mv; s.dv01 += x.r.dv01; s.cs01 += x.r.cs01; s.y += x.r.mv * x.r.y; s.z += x.r.mv * (x.r.z ?? 0); s.n++;
   }
-  return { rows, ok, bonds, futs, mv, gross, wavg, dv01: sum(ok, "dv01"), cs01: sum(ok, "cs01"), pnl: sum(ok, "pnl"),
+  return { rows, ok, bonds, futs, mv, gross, wavg, dv01: sum(ok, "dv01"), cs01: sum(ok, "cs01"), pnl: sum(ok, "pnl"), capital: sum(ok, "capital"),
            carry: sum(ok, "carry"), tot: sum(ok, "tot"), real: state.closed.reduce((s, x) => s + (x.tot || 0), 0),
            futNotional: futs.reduce((s, x) => s + Math.abs(x.r.notional), 0), buck, ust, cty, sect,
            missing: rows.filter(x => x.r.missing).length };
@@ -667,7 +679,7 @@ const state = {
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
   repo: store("repo") ?? DATA.estr?.rate ?? 2.0, special: store("special") ?? 0, stratSel: null, stratName: "",
-  positions: [], closed: [], blotTab: store("blotTab") || "open", dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
+  positions: [], closed: [], orders: [], watch: store("watch") || [], ordType: "mkt", ordLimit: null, ordTif: "day", blotTab: store("blotTab") || "open", dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
 };
 
 // ------------------------------------------------------------------ GitHub storage
@@ -684,18 +696,18 @@ const gh = {
   headers(json) { const h = { Accept: "application/vnd.github+json" }; if (this.token) h.Authorization = "Bearer " + this.token; if (json) h["Content-Type"] = "application/json"; return h; },
   async load() {
     const r = await fetch(`${FILE}?ref=${encodeURIComponent(REPO.branch)}`, { headers: this.headers(), cache: "no-store" });
-    if (r.status === 404) { this.sha = null; return { positions: [], closed: [] }; }
+    if (r.status === 404) { this.sha = null; return { positions: [], closed: [], orders: [] }; }
     if (!r.ok) throw Object.assign(new Error("load " + r.status), { status: r.status });
     const j = await r.json();
     this.sha = j.sha;
     const d = JSON.parse(b64ToUtf8(j.content));
-    return { positions: d.positions || [], closed: d.closed || [] };
+    return { positions: d.positions || [], closed: d.closed || [], orders: d.orders || [] };
   },
   // mutate({positions, closed}) -> the new file contents. If someone else saved in between (409), reload the file and re-apply.
   async save(mutate, message) {
     for (let attempt = 0; ; attempt++) {
       const next = mutate(await this.load());
-      const body = { message, branch: REPO.branch, content: utf8ToB64(JSON.stringify({ positions: next.positions, closed: next.closed }, null, 1) + "\n") };
+      const body = { message, branch: REPO.branch, content: utf8ToB64(JSON.stringify({ positions: next.positions, closed: next.closed, orders: next.orders || [] }, null, 1) + "\n") };
       if (this.sha) body.sha = this.sha;
       const r = await fetch(FILE, { method: "PUT", headers: this.headers(true), body: JSON.stringify(body) });
       if (r.ok) { this.sha = (await r.json()).content.sha; return next; }
@@ -729,7 +741,7 @@ async function addPositions(list, label = "") {
     render(); return true;
   } catch (e) { writeError(e); return false; }
 }
-const setDoc = (d) => { state.positions = d.positions; state.closed = d.closed; };
+const setDoc = (d) => { state.positions = d.positions; state.closed = d.closed; state.orders = d.orders || []; };
 // Closing trades out of the position: a long is sold at the bid, a short bought back at the offer (one-sided
 // quote: the mid), a future at the last price. The trade moves to the closed list with its realized P&L,
 // clean P&L at the exit price plus carry up to the close.
@@ -738,15 +750,37 @@ function closeRec(p) {
   const r2 = (v) => Math.round(v * 100) / 100;
   if (r.missing) return { ...rec, exit: null, pnl: 0, carry: 0, tot: 0 };
   const exit = p.kind === "bond" ? (p.qty >= 0 ? r.b.bid : r.b.ask) || r.b.mid : r.f.last;
-  const pnl = p.kind === "bond" ? p.qty * (exit - p.price) / 100 / fxOf(r.b) : p.qty * (exit - p.price) * r.f.mult;   // EUR
+  const pnl = p.kind === "bond" ? p.qty * (exit - p.price) / 100 / fxOf(r.b) : p.qty * (exit - p.price) * r.f.mult / (r.f.ccy === "USD" ? FX : 1);   // EUR
   const carry = p.kind === "bond" ? r.carry : 0;
   return { ...rec, exit, pnl: r2(pnl), carry: r2(carry), tot: r2(pnl + carry) };
 }
+// Limit orders: stored in the portfolio file and matched each evening against the day's minute files (orders.py).
+// A limit that can trade now (a buy at or above the offer, a sell at or below the bid) is executed at once.
+function orderDay() {   // the first trading day an order placed now can work: today before the 17:30 close, else the next
+  const now = new Date(), fr = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Berlin" }));
+  const d = dIso(fr), open = fr.getDay() % 6 && (fr.getHours() * 60 + fr.getMinutes()) < 17 * 60 + 30;
+  return open ? d : addBD(d, 1);
+}
+async function placeOrder(o, desc) {
+  if (!state.canWrite) { openLogin(); return false; }
+  const day = orderDay(), row = { id: newId(), ...o, at: new Date().toISOString(), day, expires: state.ordTif === "week" ? addBD(day, 4) : day, by: gh.login, status: "working" };
+  try {
+    setDoc(await gh.save(d => ({ ...d, orders: [...(d.orders || []), row] }), `Portfolio: limit order ${desc} @ ${fmt(o.limit, 3)} (${gh.login})`));
+    render(); toast(`Order working: ${desc} @ ${fmt(o.limit, 3)} until ${dTerm(row.expires)}`); return true;
+  } catch (e) { writeError(e); return false; }
+}
+async function cancelOrder(id, btn) {
+  try {
+    setDoc(await gh.save(d => ({ ...d, orders: (d.orders || []).map(o => o.id === id && o.status === "working" ? { ...o, status: "cancelled", cancelled_at: new Date().toISOString() } : o) }), `Portfolio: cancel order ${id} (${gh.login})`));
+    render(); toast("Order cancelled");
+  } catch (e) { if (btn) btn.disabled = false; writeError(e); }
+}
+
 async function closeWhere(pred, what, btn) {
   const recs = state.positions.filter(pred).map(closeRec), tot = recs.reduce((s, x) => s + x.tot, 0);
   try {
     // re-price against the file as saved (someone may have changed it), at the prices shown now
-    setDoc(await gh.save(d => ({ positions: d.positions.filter(x => !pred(x)), closed: [...d.closed, ...d.positions.filter(pred).map(closeRec)] }),
+    setDoc(await gh.save(d => ({ ...d, positions: d.positions.filter(x => !pred(x)), closed: [...d.closed, ...d.positions.filter(pred).map(closeRec)] }),
       `Portfolio: close ${what}, realized ${fmtS(tot, 0)} EUR (${gh.login})`));
     if (state.stratSel && !state.positions.some(x => x.strat?.id === state.stratSel)) state.stratSel = null;
     render(); toast(`Closed: realized ${fmtS(tot, 0)} EUR`);
@@ -903,6 +937,11 @@ document.addEventListener("click", e => {
       del.classList.add("armed"); del.textContent = x?.exit != null ? `CONFIRM ${pos.qty >= 0 ? "SELL" : "BUY"} @ ${fmt(x.exit, 3)}` : "CONFIRM"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "CLOSE"; }, 4000); return; }
     del.disabled = true; closePosition(del.dataset.del, del);
   }
+  const cx = e.target.closest("[data-cancel]");
+  if (cx) {
+    if (!cx.classList.contains("armed")) { cx.classList.add("armed"); cx.textContent = "CONFIRM"; setTimeout(() => { cx.classList.remove("armed"); cx.textContent = "CANCEL"; }, 4000); return; }
+    cx.disabled = true; cancelOrder(cx.dataset.cancel, cx); return;
+  }
   const ds = e.target.closest("[data-delstrat]");
   if (ds) {
     if (!ds.classList.contains("armed")) { ds.classList.add("armed"); ds.textContent = "CONFIRM"; setTimeout(() => { ds.classList.remove("armed"); ds.textContent = "CLOSE"; }, 4000); return; }
@@ -930,7 +969,7 @@ function kpiStrip(bk) {
     k("CS01", fmtS(bk.cs01, 0), "EUR/bp spread", cls(bk.cs01)) +
     (() => { const V = bk.ok.length ? varOf(bk) : null; return k("VAR 99% 1D", V ? fmt(V.v99.v, 0) : "–", V ? `ES97.5 ${fmt(V.es975.v, 0)} EUR` : bk.ok.length ? "no factor data" : "no positions"); })() +
     k("POSITIONS", `${bk.bonds.length}<span class="muted"> / ${bk.futs.length}</span>`, "bonds / futures") +
-    k("FUT NOTIONAL", `${fmt(bk.futNotional / 1e6, 2)}M`, "gross, contract ccy") + `</div>`;
+    k("CAPITAL USED", `${fmt(bk.capital / 1e6, 2)}M`, `${fmt(bk.capital / CAPITAL_BUDGET * 100, 0)}% of the ${fmt(CAPITAL_BUDGET / 1e6, 1)}M budget`, bk.capital > CAPITAL_BUDGET ? "neg" : "") + `</div>`;
 }
 
 function bars(items, fmtv, kind = "amber") {
@@ -984,7 +1023,10 @@ function renderDash() {
     panel("mkt", "Market monitor", mkt, { sub: `Eurex last · ${dTerm(DATA.asof)}` }) +
     panel("buck", "DV01 by bucket", bars(buckItems, v => fmtS(v, 0)), { sub: "EUR/bp, net", tools: `<button class="btn" data-go="risk">RISK [3]</button>` }) +
     panel("sect", "Sector allocation", bars(sectItems, v => fmt(v / 1e6, 2) + "M"), { sub: "market value" }) +
-    panel("curve", "ECB AAA curve vs holdings", "", { sub: "spot % (cont.) vs holdings YTM", id: "curveBox" });
+    panel("curve", "ECB AAA curve vs holdings", "", { sub: "spot % (cont.) vs holdings YTM", id: "curveBox" }) +
+    panel("watch", "Watchlist and alerts", watchPanel(), { sub: "yours, kept in this browser" }) +
+    panel("cal", "Calendar", calPanel(bk), { sub: "next 90 days: the book's cash flows, expiries, ECB meetings" });
+  bindWatch();
   drawCurve(bk);
 }
 // Draw at the panel's real pixel size so text and dots are not distorted.
@@ -1018,7 +1060,9 @@ function curveChart(bk, W = 600, H = 230) {
 function renderHold() {
   const bk = book();
   const showClosed = state.blotTab === "closed", C = state.closed.slice().sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
-  const tools = `<span class="chips" id="blotTab"><button data-bt="open" aria-pressed="${!showClosed}">OPEN ${bk.rows.length}</button><button data-bt="closed" aria-pressed="${showClosed}">CLOSED ${C.length}</button></span>` +
+  const showOrders = state.blotTab === "orders", O = state.orders.slice().sort((a, b) => (a.status === "working" ? 0 : 1) - (b.status === "working" ? 0 : 1) || (b.at || "").localeCompare(a.at || ""));
+  const nWork = O.filter(o => o.status === "working").length;
+  const tools = `<span class="chips" id="blotTab"><button data-bt="open" aria-pressed="${!showClosed && !showOrders}">OPEN ${bk.rows.length}</button><button data-bt="orders" aria-pressed="${showOrders}">ORDERS ${nWork}</button><button data-bt="closed" aria-pressed="${showClosed}">CLOSED ${C.length}</button></span>` +
     `<button class="btn" id="csvBook" ${(showClosed ? C.length : bk.rows.length) ? "" : "disabled"}>EXPORT CSV</button><a class="btn" href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>`;
   const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">TOTAL</th><th class="n">YTM</th><th class="n">Z BP</th><th class="n">MOD DUR</th><th class="n">DV01</th><th class="n">CS01</th><th>STRATEGY</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
     bk.rows.map(({ p, r }) => `<tr class="click" data-pick="${esc(p.kind === "bond" ? p.isin : p.code)}" data-kind="${p.kind === "bond" ? "bond" : "fut"}">
@@ -1048,6 +1092,17 @@ function renderHold() {
     `</tbody><tfoot><tr><td colspan="7">TOTAL</td><td class="n ${cls(C.reduce((s, x) => s + x.pnl, 0))}">${fmtS(C.reduce((s, x) => s + x.pnl, 0), 0)}</td><td class="n ${cls(C.reduce((s, x) => s + x.carry, 0))}">${fmtS(C.reduce((s, x) => s + x.carry, 0), 0)}</td><td class="n ${cls(bk.real)}">${fmtS(bk.real, 0)}</td><td colspan="5"></td></tr></tfoot></table>`
     : `<div class="empty"><p class="hd">NO CLOSED TRADES</p><p>CLOSE on a position sells a long at the bid (buys back a short at the offer, a future at the last price) and records the realized P&amp;L here.</p></div>`;
 
+  const oName = (o) => o.kind === "bond" ? esc(BY_ISIN.get(o.isin)?.name || o.isin) : `${esc(o.code)} ${mmmYY(o.contract)}`;
+  const oNow = (o) => o.kind === "bond" ? (() => { const b = BY_ISIN.get(o.isin); return b ? (o.qty > 0 ? b.ask : b.bid) : null; })() : FUT.get(o.code)?.last;
+  const ordTbl = O.length ? `<table class="t"><thead><tr><th>STATUS</th><th>SIDE</th><th>INSTRUMENT</th><th class="n">NOMINAL / LOTS</th><th class="n">LIMIT</th><th class="n" title="offer for a buy, bid for a sell (futures: last)">MARKET</th><th class="n">AWAY</th><th>PLACED</th><th>VALID TO</th><th>BY</th><th class="n">FILL</th><th></th></tr></thead><tbody>` +
+    O.slice(0, 60).map(o => { const now = oNow(o), away = now != null ? (o.qty > 0 ? now - o.limit : o.limit - now) : null;
+      return `<tr class="click" data-pick="${esc(o.kind === "bond" ? o.isin : o.code)}" data-kind="${o.kind === "bond" ? "bond" : "fut"}"><td class="${o.status === "working" ? "amb" : o.status === "filled" ? "pos" : "muted"}">${o.status.toUpperCase()}</td>
+      <td>${sideTag(o.qty)}</td><td class="nm">${oName(o)}</td><td class="n">${fmt(o.qty, 0)}</td><td class="n">${fmt(o.limit, 3)}</td><td class="n">${fmt(now, 3)}</td>
+      <td class="n" title="how far the market is from the limit">${o.status === "working" && away != null ? fmt(away, 3) : ""}</td><td class="dim">${esc((o.at || "").slice(0, 16).replace("T", " "))}</td><td class="dim">${esc(o.expires || "")}</td><td class="who">${esc(o.by || "")}</td>
+      <td class="n">${o.fill_px != null ? fmt(o.fill_px, 3) : ""}</td><td>${o.status === "working" && state.canWrite ? `<button class="btn x" data-cancel="${esc(o.id)}">CANCEL</button>` : ""}</td></tr>`; }).join("") + `</tbody></table>
+    <p class="note pad">Working orders are checked each evening against the day's minute quotes (bonds: a firm offer at or below a buy limit, a firm bid at or above a sell limit; futures: a trade through the limit). Fills appear as positions the next morning.</p>`
+    : `<div class="empty"><p class="hd">NO ORDERS</p><p>Choose LIMIT in the ticket on the Trade screen to leave an order at your price instead of paying the offer.</p></div>`;
+
   const strats = strategies(bk);
   const attr = bars([...strats.map(g => ({ l: g.name, v: g.tot })),
     ...bk.ok.filter(x => !x.p.strat).map(x => ({ l: x.p.kind === "bond" ? x.r.b.name : `${x.p.code} ${mmmYY(x.r.f.contract)}`, v: x.r.tot }))].sort((a, b) => b.v - a.v), v => fmtS(v, 0), "pnl");
@@ -1071,10 +1126,12 @@ function renderHold() {
     `</tbody></table>` : `<div class="empty">No bond positions.</div>`;
 
   $("#v-hold").innerHTML = kpiStrip(bk) +
-    panel("blot", showClosed ? "Closed trades" : "Position blotter", showClosed ? closedTbl : blot, { sub: showClosed ? `${C.length} trades · realized ${fmtS(bk.real, 0)} EUR` : `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${LIVE.data ? `${dTerm(LIVE.data.day)} ${utcToCet(LIVE.data.msg)} CET intraday` : dTerm(DATA.asof)}`, tools }) +
+    panel("blot", showClosed ? "Closed trades" : showOrders ? "Orders" : "Position blotter", showClosed ? closedTbl : showOrders ? ordTbl : blot, { sub: showOrders ? `${nWork} working` : showClosed ? `${C.length} trades · realized ${fmtS(bk.real, 0)} EUR` : `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${LIVE.data ? `${dTerm(LIVE.data.day)} ${utcToCet(LIVE.data.msg)} CET intraday` : dTerm(DATA.asof)}`, tools }) +
     panel("strat", "Strategies", stratTbl, { sub: `${strats.length} pairs / flies · level = long − short (pair), 2 × body − wings (fly)` }) +
+    panel("perf", "Performance vs benchmark", perfPanel(), { sub: "daily, evening marks" }) +
     panel("attr", "P&amp;L attribution", attr, { sub: "EUR, total P&L by strategy and position" }) +
     panel("sum", "Summary by sector", fund + sum + `<p class="note pad"><b>Total P&amp;L</b> = open positions (clean-price P&amp;L versus the trade price, marked at mid, + carry) + realized P&amp;L of closed trades (exit at the bid for longs, the offer for shorts). <b>Carry</b> = coupon accrual (including coupons paid) since the trade settled, minus funding at the repo rate (ACT/360) on the dirty trade value; shorts pay the coupon and earn repo less the specialness. Futures carry is in the price. Weights use gross bond market value.</p>`);
+  if (DATA.pnlh?.d.length) fillHist("perfHist", "perf", async (w) => spark(DATA.pnlh.d.map((d, i) => ({ d, v: DATA.pnlh.pnl[i] })), { w, unit: "EUR", dec: 0, label: "Book P&L" }));
   if (sg) fillHist("stratHist", sg.id, async (w) => spark(await levelHist(sg.type, sg.legs, "y"), { w, label: sg.name }));
   const num = (v) => Number(String(v).replace(",", "."));
   $("#repo").onchange = e => { const v = num(e.target.value); if (isFinite(v)) { state.repo = v; store("repo", v); } render(); };
@@ -1086,6 +1143,73 @@ function renderHold() {
     ["side", "kind", "instrument", "isin_or_contract", "sector", "qty", "trade_px", "mark", "market_value", "clean_pnl", "carry", "total_pnl", "ytm", "z_bp", "mod_dur", "dv01", "cs01", "strategy", "trader", "trade_time"],
     bk.rows.map(({ p, r }) => [p.qty >= 0 ? "long" : "short", p.kind, p.kind === "bond" ? r.b?.name : p.code, p.kind === "bond" ? p.isin : p.contract,
       p.kind === "bond" ? SECT[r.b?.sector] : r.f?.type, p.qty, p.price, r.now, p.kind === "bond" ? r.mv : r.notional, r.pnl, r.carry, r.tot, r.y, r.z, r.dur, r.dv01, r.cs01, p.strat?.name, p.by, p.at])));
+}
+
+// The club book over time (site/build.py pnl_history): clean P&L of the open positions at each evening's marks plus
+// realized P&L, against the FECX index (the Eurex future on euro IG corporates) as the benchmark.
+function perfPanel() {
+  const H = DATA.pnlh;
+  if (!H || !H.d.length) return `<div class="empty">No history yet: the series starts with the first evening build after the first trade.</div>`;
+  const n = H.d.length, pnl = H.pnl, gross = H.gross.filter(g => g > 0), avgG = gross.length ? gross.reduce((a, b) => a + b, 0) / gross.length : null;
+  const daily = pnl.map((v, i) => i ? v - pnl[i - 1] : v);
+  let peak = -Infinity, dd = 0; for (const v of pnl) { peak = Math.max(peak, v); dd = Math.min(dd, v - peak); }
+  const mean = daily.reduce((a, b) => a + b, 0) / n, sd = Math.sqrt(daily.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1));
+  const ret = avgG ? pnl.at(-1) / avgG * 100 : null, bench = H.bench.at(-1);
+  const best = Math.max(...daily), worst = Math.min(...daily);
+  return `<div class="sect"><div class="lbl">BOOK P&amp;L, EUR (CLEAN + REALIZED)</div><div class="hist" id="perfHist"></div></div>
+    <dl class="kv pad"><dt>Days</dt><dd>${n} (${dTerm(H.d[0])} – ${dTerm(H.d.at(-1))})</dd><dt>P&amp;L</dt><dd class="${cls(pnl.at(-1))}">${fmtS(pnl.at(-1), 0)} EUR</dd>
+      <dt title="P&L over the average gross bond market value">Return on gross</dt><dd class="${cls(ret)}">${ret == null ? "–" : fmtS(ret, 2) + "%"}</dd>
+      <dt title="the FECX future's price change over the same days">FECX index</dt><dd class="${cls(bench)}">${bench == null ? "–" : fmtS(bench, 2) + "%"}</dd>
+      <dt title="return on gross minus the index">Excess return</dt><dd class="${cls(ret - bench)}">${ret == null || bench == null ? "–" : fmtS(ret - bench, 2) + "%"}</dd>
+      <dt title="mean daily P&L / its standard deviation × √252; shown from 10 days">Sharpe ratio</dt><dd>${n >= 10 && sd > 0 ? fmt(mean / sd * Math.sqrt(252), 2) : "– (needs 10 days)"}</dd>
+      <dt>Max drawdown</dt><dd class="${cls(dd)}">${fmtS(dd, 0)} EUR</dd><dt>Best / worst day</dt><dd>${fmtS(best, 0)} / ${fmtS(worst, 0)}</dd></dl>
+    <p class="note pad">A fund like AMF's is judged against an index, not in euros: excess return and drawdown are the numbers to beat. Carry is left out of the history; the evening marks are mids.</p>`;
+}
+
+// ------------------------------------------------------------------ watchlist and alerts
+// Per viewer (browser storage): a level to watch on a bond (Z-spread, yield, price), a future (price) or a euro
+// credit segment (median Z). Triggered alerts are listed first and announced once per visit.
+const WF = { z: "Z / DM bp", ytm: "YTM %", mid: "price", last: "price", idx: "median Z bp" };
+function watchVal(w) {
+  if (w.kind === "bond") { const b = BY_ISIN.get(w.id); return b ? b[w.f] : null; }
+  if (w.kind === "fut") return FUT.get(w.id)?.last ?? null;
+  return DATA.idx?.[w.id]?.z ?? null;
+}
+const watchName = (w) => w.kind === "bond" ? (BY_ISIN.get(w.id)?.name || w.id) : w.kind === "fut" ? w.id : (DATA.idx?.[w.id]?.name || w.id);
+const watchHit = (w) => { const v = watchVal(w); return v != null && (w.op === ">" ? v > w.lv : v < w.lv); };
+function watchPanel() {
+  const W = state.watch;
+  const idxOpts = Object.entries(DATA.idx || {}).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join("");
+  const add = `<div class="row pad"><span class="lbl">SEGMENT</span><select id="wIdx">${idxOpts}</select><select id="wOp"><option>&gt;</option><option>&lt;</option></select>
+    <input id="wLv" class="num" style="width:6em" placeholder="bp" inputmode="decimal"><button class="btn" id="wAdd">ADD</button><span class="muted">bonds and futures: from the ticket on the Trade screen</span></div>`;
+  if (!W.length) return `<div class="empty"><p>No alerts yet. In the ticket, set a level under ALERT, for example "Z-spread above 90 bp" on a bond you would buy cheaper, or watch a whole segment below.</p></div>` + add;
+  const rows = W.map((w, i) => ({ w, i, v: watchVal(w), hit: watchHit(w) })).sort((a, b) => b.hit - a.hit);
+  return `<table class="t"><thead><tr><th></th><th>INSTRUMENT</th><th>FIELD</th><th class="n">NOW</th><th class="n">ALERT</th><th></th></tr></thead><tbody>` +
+    rows.map(({ w, i, v, hit }) => `<tr ${w.kind !== "idx" ? `class="click" data-pick="${esc(w.id)}" data-kind="${w.kind}"` : ""}><td class="${hit ? "amb" : "muted"}">${hit ? "● HIT" : "○"}</td><td class="nm">${esc(watchName(w))}</td><td class="dim">${WF[w.f]}</td>
+      <td class="n">${fmt(v, w.f === "z" || w.f === "idx" ? 1 : 3)}</td><td class="n">${w.op} ${fmt(w.lv, w.f === "z" || w.f === "idx" ? 0 : 3)}</td><td><button class="btn x" data-unwatch="${i}">✕</button></td></tr>`).join("") + `</tbody></table>` + add;
+}
+function addWatch(w) { state.watch.push(w); store("watch", state.watch); toast(`Alert set: ${watchName(w)} ${WF[w.f]} ${w.op} ${w.lv}`); }
+function bindWatch() {
+  document.querySelectorAll("[data-unwatch]").forEach(b => b.onclick = e => { e.stopPropagation(); state.watch.splice(+b.dataset.unwatch, 1); store("watch", state.watch); render(); });
+  const a = $("#wAdd"); if (a) a.onclick = () => { const lv = Number($("#wLv").value.replace(",", ".")); if (!isFinite(lv) || $("#wLv").value === "") return toast("Enter a level");
+    addWatch({ kind: "idx", id: $("#wIdx").value, f: "idx", op: $("#wOp").value, lv }); render(); };
+}
+
+// ------------------------------------------------------------------ calendar
+function calPanel(bk) {
+  const t0 = dParse(DATA.asof).getTime(), t1 = t0 + 90 * DAY, ev = [];
+  for (const x of bk.bonds) {
+    const b = x.r.b;
+    for (const t of couponDates(b)) if (t > t0 && t <= t1) ev.push({ t, w: "Coupon", n: b.name, a: `${b.ccy} ${fmt(x.p.qty * b.cpn / (b.freq || 1) / 100, 0)}` });
+    const m = dParse(b.mat).getTime(); if (m > t0 && m <= t1) ev.push({ t: m, w: "Redemption", n: b.name, a: `${b.ccy} ${fmt(x.p.qty, 0)}` });
+  }
+  for (const x of bk.futs) { const c = x.p.contract || x.r.f.contract, t = c ? dParse(c).getTime() : 0; if (t > t0 && t <= t1) ev.push({ t, w: "Futures expiry", n: `${x.p.code} ${mmmYY(c)}`, a: `${fmtS(x.p.qty, 0)} lots` }); }
+  for (const m of DATA.stir?.meetings || []) { const t = dParse(m).getTime(); if (t > t0 && t <= t1) ev.push({ t, w: "ECB meeting", n: "Monetary policy decision", a: DATA.stir.next?.meeting === m ? `${fmtS(DATA.stir.next.bp, 1)} bp priced` : "" }); }
+  for (const o of state.orders.filter(o => o.status === "working")) { const t = dParse(o.expires).getTime(); if (t >= t0 && t <= t1) ev.push({ t, w: "Order expires", n: o.kind === "bond" ? (BY_ISIN.get(o.isin)?.name || o.isin) : o.code, a: `limit ${fmt(o.limit, 3)}` }); }
+  ev.sort((a, b) => a.t - b.t);
+  if (!ev.length) return `<div class="empty">Nothing in the next 90 days.</div>`;
+  return `<table class="t"><thead><tr><th>DATE</th><th>EVENT</th><th>WHAT</th><th class="n">AMOUNT</th></tr></thead><tbody>` +
+    ev.map(e => `<tr><td>${dTerm(dIso(new Date(e.t)))}</td><td class="${e.w === "ECB meeting" ? "amb" : ""}">${e.w}</td><td class="nm">${esc(e.n)}</td><td class="n">${e.a}</td></tr>`).join("") + `</tbody></table>`;
 }
 
 function csv(name, head, rows) {
@@ -1137,12 +1261,14 @@ function renderRisk() {
     <p class="note"><b>CS01</b> per credit futures contract: index level × multiplier × spread duration × 0.0001. Index durations are not in the Eurex feed. FECX's is estimated each evening by applying the index rules to the screener (euro IG corporates, fixed coupon, at least EUR 300m, over a year to maturity, market-value weighted; IG = on the ECB collateral list, without the index's ESG exclusions); the others are assumptions, as we have no ratings for high yield and no sterling or dollar bonds. All are editable on the Trade screen.</p>
     <p class="note"><b>Buckets</b> map exposure to the German futures by modified duration: Schatz &lt; 3.3, Bobl 3.3–6.2, Bund 6.2–13, Buxl &gt; 13. Credit futures fall in the bucket of their index duration.</p>
     <p class="note"><b>Dollar bonds</b> are shown in EUR at the ECB reference rate and assumed funded in dollars at SOFR, so the currency only affects the P&amp;L, not the principal. Their rates risk is in US Treasury buckets (VaR: US Treasury yields), their credit risk in the CS01 (VaR: ICE BofA US HY OAS). <b>FRNs</b>: DV01 from the rates duration (to the next reset, small), CS01 from the spread duration.</p>
+    <p class="note"><b>Capital used</b>: bonds × their repo haircut (ECB haircut if on the list; else EUR public 10%, EUR corporate 20%, US Treasury 2%, other dollar public 8%, dollar corporate 15%) + futures × an approximate initial margin (e.g. Bund 2.5%, VSTOXX 25%); budget EUR ${fmt(CAPITAL_BUDGET, 0)}. EUR/USD, VSTOXX and bank-share futures are not VaR factors; they appear in the stress tests.</p>
     <p class="note">Contract counts are rounded to whole lots. BTP, OAT and BONO futures are tradeable on the desk but not used in the proposal, as their CTD is not computed here. Sovereign bonds carry no CS01.</p>`;
 
   $("#v-risk").innerHTML = kpiStrip(bk) +
     panel("krd", "Key-rate DV01", krd, { sub: "EUR/bp by futures bucket" }) +
     panel("cs", "Credit spread risk", cs, { sub: "CS01 EUR/bp" }) +
     panel("cty", "Country exposure", ctyTbl, { sub: "EUR, bonds" }) +
+    panel("stress", "Stress tests", stressPanel(bk), { sub: "instant shocks, first order" }) +
     panel("hedge", "Hedge proposal", hedge) +
     panel("var", "Value at risk", varPanel(bk), { sub: "historical simulation, 1 day" }) +
     panel("meth", "Methodology", meth, { pad: true });
@@ -1167,6 +1293,53 @@ function varPanel(bk) {
       <dl class="kv"><dt>Scenarios</dt><dd>${V.n} days, ${dTerm(V.from)} – ${dTerm(V.to)}</dd><dt>Worst day</dt><dd class="neg">${fmtS(V.worst.v, 0)} EUR (${dTerm(V.worst.d)})</dd>
         <dt>Credit exposure (DTS)</dt><dd>${fmt(V.dts, 0)} EUR per bp of Euro HY OAS</dd>${V.dtsUs ? `<dt>Dollar credit (DTS)</dt><dd>${fmt(V.dtsUs, 0)} EUR per bp of US HY OAS</dd>` : ""}${V.sov ? `<dt>Sovereign spread</dt><dd>${fmt(V.sov, 0)} EUR per bp</dd>` : ""}</dl>
       <p class="note">Full revaluation is not used: P&amp;L = −DV01 × Δyield per futures bucket (ECB AAA 2/5/10/30Y) − CS01 × Δspread, with spreads moving in proportion to their level (DTS) against the ICE BofA Euro HY OAS. Convexity, idiosyncratic spread moves and futures basis are not captured. 10-day by √10 scaling.</p></div>`;
+}
+
+// ------------------------------------------------------------------ stress tests
+// First-order P&L under defined shocks, from the same sensitivities as VaR: rates −DV01 × Δy per bucket (euro by
+// Bund-future bucket, dollar by US Treasury bucket), credit −CS01 × Δspread (a bond's spread move in proportion to
+// its own spread, as DTS), sovereign shocks on the bonds' DV01, and simple moves for the equity, volatility and
+// FX futures. No convexity, no correlation model: each scenario is a what-if, not a probability.
+const STRESS = [
+  { n: "Rates +100 bp", d: "parallel, euro and dollar", eur: [100, 100, 100, 100], usd: [100, 100, 100, 100] },
+  { n: "Rates −100 bp", d: "parallel, euro and dollar", eur: [-100, -100, -100, -100], usd: [-100, -100, -100, -100] },
+  { n: "Bear steepener", d: "2Y −25, 5Y −8, 10Y +25, 30Y +30 bp", eur: [-25, -8, 25, 30], usd: [-25, -8, 25, 30] },
+  { n: "Bull flattener", d: "2Y +25, 5Y +8, 10Y −25, 30Y −30 bp", eur: [25, 8, -25, -30], usd: [25, 8, -25, -30] },
+  { n: "Credit spreads × 1.5", d: "every credit spread widens by half (March 2020 was about × 2)", credit: 0.5 },
+  { n: "BTP − Bund +100 bp", d: "Italy +100, Spain/Portugal/Greece +50 bp on government bonds", sov: { IT: 100, ES: 50, PT: 50, GR: 50 } },
+  { n: "Risk-off", d: "Bunds −30, USTs −40 bp, credit × 1.5, BTP +100, bank shares −20%, VSTOXX +10, EUR/USD −3%",
+    eur: [-30, -30, -30, -30], usd: [-40, -40, -40, -40], credit: 0.5, sov: { IT: 100, ES: 50, PT: 50, GR: 50 }, eq: -0.2, vol: 10, fx: -0.03 },
+];
+function stressOf(bk, sc) {
+  const M = DATA.mkt || {}, idx = DATA.idx || {};
+  // spread level of each credit index future's index, for its spread shock (bp)
+  const lvl = { FECX: idx.EUR_IG?.z, FGBC: idx.EUR_IG?.z, FEHY: M.BAMLHE00EHYIOAS?.v.at(-1) * 100, FUIG: M.BAMLC0A0CM?.v.at(-1) * 100,
+                FUHY: M.BAMLH0A0HYM2?.v.at(-1) * 100, FUEM: M.BAMLH0A0HYM2?.v.at(-1) * 100 };
+  let rates = 0, credit = 0, sov = 0, other = 0;
+  if (sc.eur) BUCKETS.forEach(([c], i) => { rates -= (bk.buck[c].bonds + bk.buck[c].futs) * sc.eur[i]; });
+  if (sc.usd) UST_BUCKETS.forEach(([c], i) => { rates -= bk.ust[c] * sc.usd[i]; });
+  for (const x of bk.bonds) {
+    if (sc.credit && x.r.cs01) credit -= x.r.cs01 * Math.max(x.r.z ?? 0, 0) * sc.credit;
+    const s = sc.sov?.[x.r.b.cty];
+    if (s && x.r.b.sector === "SOV" && x.r.b.ccy === "EUR") sov -= x.r.dv01 * s;
+  }
+  for (const x of bk.futs) {
+    const f = x.r.f;
+    if (f.type === "credit" && sc.credit && x.r.cs01 && lvl[f.code]) credit -= x.r.cs01 * lvl[f.code] * sc.credit;
+    if (f.type === "govt" && sc.sov && f.code === "FBTP") sov -= x.r.notional * 8 * 1e-4 * sc.sov.IT;   // long-term BTP future: duration about 8
+    const fx = f.ccy === "USD" ? FX : 1;
+    if (f.type === "equity" && sc.eq) other += x.p.qty * f.last * sc.eq * f.mult / fx;
+    if (f.type === "vol" && sc.vol) other += x.p.qty * sc.vol * f.mult / fx;
+    if (f.type === "fx" && sc.fx) other += x.p.qty * f.last * sc.fx * f.mult / fx;
+  }
+  return { rates, credit, sov, other, tot: rates + credit + sov + other };
+}
+function stressPanel(bk) {
+  if (!bk.ok.length) return `<div class="empty">No positions.</div>`;
+  const c = (v) => `<td class="n ${cls(v)}">${Math.abs(v) < 0.5 ? "–" : fmtS(v, 0)}</td>`;
+  return `<table class="t"><thead><tr><th>SCENARIO (EUR)</th><th class="n">RATES</th><th class="n">CREDIT</th><th class="n">SOV.</th><th class="n">OTHER</th><th class="n">TOTAL</th></tr></thead><tbody>` +
+    STRESS.map(sc => { const r = stressOf(bk, sc); return `<tr title="${esc(sc.d)}"><td>${esc(sc.n)}</td>${c(r.rates)}${c(r.credit)}${c(r.sov)}${c(r.other)}<td class="n ${cls(r.tot)}"><b>${fmtS(r.tot, 0)}</b></td></tr>`; }).join("") +
+    `</tbody></table><p class="note pad">Hover a scenario for its shocks. First-order: −DV01 × Δyield by bucket (euro and dollar), −CS01 × spread × the widening (DTS-style), sovereign shocks on euro government bonds by country; OTHER = bank-share, VSTOXX and EUR/USD futures. VaR says how bad a normal bad day is; a stress test asks what a named shock would do.</p>`;
 }
 
 function setHedgePct(v) { state.hedgePct = Math.max(0, Math.min(200, v)); store("hedgePct", state.hedgePct); renderRisk(); }
@@ -1355,7 +1528,19 @@ function ccyCompare() {
     .map(([k, g]) => ({ k, e: med(g.EUR), u: med(g.USD), n: g.EUR.length + g.USD.length })).sort((a, b) => b.n - a.n).slice(0, 15);
   const iss = both.length ? `<table class="t"><thead><tr><th>ISSUER IN BOTH</th><th class="n">EUR Z</th><th class="n">USD Z</th><th class="n">USD − EUR</th><th class="n">BONDS</th></tr></thead><tbody>` +
     both.map(r => `<tr><td>${esc(r.k)}</td><td class="n">${fmt(r.e, 0)}</td><td class="n">${fmt(r.u, 0)}</td><td class="n ${cls(r.u - r.e)}">${fmtS(Math.round(r.u - r.e) || 0, 0)}</td><td class="n dim">${r.n}</td></tr>`).join("") + `</tbody></table>` : "";
-  return tbl + iss + `<p class="note pad">Median Z-spreads: euro bonds over the ECB AAA curve, dollar bonds over US Treasuries, so the difference also holds the gap between the two risk-free curves' swap spreads, not only credit. Issuers that pay more in one currency are the classic reverse-Yankee / Yankee question: where should they issue next?</p>`;
+  const X = DATA.fxh;
+  const hedge = X ? `<div class="sect"><div class="lbl">HEDGING DOLLARS INTO EUROS (EUREX EUR/USD FUTURES)</div><dl class="kv">
+      <dt title="(far / near − 1) × 360 / days, from the ${dTerm(X.near)} and ${dTerm(X.far)} contracts, ${X.pairs} trades paired within a minute">Implied r(USD) − r(EUR)</dt><dd class="big">${fmt(X.diff, 2)}% a year</dd>
+      <dt>Forward points</dt><dd>${fmt(X.points, 1)} pips over ${X.days} days</dd>
+      <dt>SOFR − €STR today</dt><dd>${X.sofr != null ? fmt(X.sofr - X.estr, 2) + "%" : "–"}</dd>
+      <dt title="implied differential minus the overnight-rate differential: the cross-currency basis, roughly (the futures period starts in December)">Basis</dt><dd>${X.basis != null ? fmtS(X.basis, 0) + " bp" : "–"}</dd></dl></div>` : "";
+  const hy = MAT_BUCKETS.map(([l, lo, hi]) => {
+    const e = corp.filter(b => b.ccy === "EUR" && b.yrs >= lo && b.yrs < hi).map(b => b.ytm), u = corp.filter(b => b.ccy === "USD" && b.yh != null && b.yrs >= lo && b.yrs < hi).map(b => b.yh);
+    return { l, e: med(e), u: med(u) };
+  });
+  const hyTbl = X ? `<table class="t"><thead><tr><th>FOR A EURO INVESTOR</th><th class="n">EUR YTM</th><th class="n">USD YTM HEDGED</th><th class="n">PICK-UP</th></tr></thead><tbody>` +
+    hy.map(r => `<tr><td>${r.l}</td><td class="n">${fmt(r.e, 2)}%</td><td class="n">${fmt(r.u, 2)}%</td><td class="n ${cls(r.u - r.e)}">${r.e != null && r.u != null ? fmtS((r.u - r.e) * 100, 0) + " bp" : "–"}</td></tr>`).join("") + `</tbody></table>` : "";
+  return hedge + hyTbl + tbl + iss + `<p class="note pad"><b>Hedged yield</b> = a dollar bond's yield minus the cost of hedging the currency with rolling EUR/USD forwards (the implied rate differential): what a euro fund like AMF actually earns. Median Z-spreads: euro bonds over the ECB AAA curve, dollar bonds over US Treasuries, so the difference also holds the gap between the two risk-free curves' swap spreads, not only credit. Issuers that pay more in one currency are the classic reverse-Yankee / Yankee question: where should they issue next?</p>`;
 }
 const EA = new Set(["AT", "BE", "HR", "CY", "EE", "FI", "FR", "DE", "GR", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PT", "SK", "SI", "ES", "BG"]);
 function sovSpreads() {
@@ -1366,7 +1551,7 @@ function sovSpreads() {
   const ctys = [...new Set(sov.map(b => b.cty))].filter(c => c !== "DE");
   const rows = ctys.map(c => ({ c, b5: pick(c, 5), b10: pick(c, 10) })).filter(r => r.b10 || r.b5)
     .map(r => ({ ...r, s5: r.b5 && de[5] ? (r.b5.ytm - de[5].ytm) * 100 : null, s10: r.b10 && de[10] ? (r.b10.ytm - de[10].ytm) * 100 : null }))
-    .sort((a, b) => (b.s10 ?? b.s5 ?? -1e9) - (a.s10 ?? a.s5 ?? -1e9));
+    .sort((a, b) => (EA.has(b.c) - EA.has(a.c)) || (b.s10 ?? b.s5 ?? -1e9) - (a.s10 ?? a.s5 ?? -1e9));   // euro area first
   if (!rows.length || !de[10]) return `<div class="empty">No German 10-year benchmark with a firm quote today.</div>`;
   const ex = (c) => EA.has(c) ? "" : ` <span class="muted" title="outside the euro area: a euro-denominated bond">non-EA</span>`;
   return `<table class="t"><thead><tr><th>COUNTRY</th><th>10Y BOND</th><th class="n">YTM</th><th class="n">VS BUND 10Y</th><th class="n">VS BUND 5Y</th></tr></thead><tbody>` +
@@ -1382,6 +1567,23 @@ function frnPanel() {
     groups.map(([l, f]) => { const g = fr.filter(f); return g.length ? `<tr><td>${l}</td><td class="n">${g.length}</td><td class="n">${fmt(med(g.map(b => b.frn)), 0)}</td><td class="n">${fmt(med(g.map(b => b.z)), 0)}</td><td class="n">${fmt(med(g.map(b => b.sdur)), 1)}</td></tr>` : ""; }).join("") +
     `</tbody></table><p class="note pad">Discount margin (DM): the spread over the Euribor forwards from the Eurex futures that prices the FRN; DM above the quoted margin = trading below par. Assumes 3-month Euribor resets; margins from FIRDS. Filter the screener with the FRN chip.</p>`;
 }
+function banksPanel() {
+  const I = DATA.idx || {}, f = FUT.get("FESB");
+  const seg = (k) => I[k] ? `<tr><td>${esc(I[k].name)}</td><td class="n">${fmt(I[k].z, 0)} bp</td><td class="n ${cls(-I[k].d1)}">${I[k].d1 == null ? "–" : fmtS(I[k].d1, 1)}</td><td class="n ${cls(-I[k].w1)}">${I[k].w1 == null ? "–" : fmtS(I[k].w1, 1)}</td><td class="n dim">${fmt(I[k].n, 0)}</td></tr>` : "";
+  const pc = (v) => f && v != null ? fmtS(v / (f.last - v) * 100, 2) + "%" : "–";
+  return `<table class="t"><thead><tr><th>EURO CREDIT SEGMENT</th><th class="n">MEDIAN Z</th><th class="n">1D</th><th class="n">1W</th><th class="n">BONDS</th></tr></thead><tbody>${seg("BANK_SNR")}${seg("BANK_SUB")}${seg("EUR_IG")}${seg("NONFIN")}</tbody></table>
+    ${f ? `<table class="t"><thead><tr><th>BANK SHARES</th><th class="n">LAST</th><th class="n">1D</th><th class="n">1W</th><th class="n">TRADES</th></tr></thead><tbody><tr class="click" data-pick="FESB" data-kind="fut"><td><span class="amb">FESB</span> <span class="muted">EURO STOXX Banks future ${mmmYY(f.contract)}</span></td><td class="n">${fmt(f.last, 2)}</td><td class="n ${cls(f.d1)}">${pc(f.d1)}</td><td class="n ${cls(f.w1)}">${pc(f.w1)}</td><td class="n">${fmt(f.trades, 0)}</td></tr></tbody></table>` : ""}
+    <p class="note pad">Bank shares and bank credit price the same risk: when bank shares fall, subordinated spreads widen first, then senior. Median Z of firm euro quotes (1D/1W fill as the history grows; a fall in spread is green). A desk short bank credit risk can hedge with the bank-share future, a classic capital-structure trade.</p>`;
+}
+function vstoxxTbl() {
+  const f = FUT.get("FVS");
+  if (!f) return "";
+  const curve = [{ contract: f.contract, px: f.last, trades: f.trades, sp: 0 }, ...(f.cal || []).filter(c => c.spread != null).map(c => ({ contract: c.contract, px: f.last + c.spread, trades: c.trades, sp: c.spread }))];
+  const slope = curve.length > 1 ? curve[1].px - curve[0].px : null;
+  return `<table class="t"><thead><tr><th>VSTOXX FUTURE</th><th class="n">LEVEL</th><th class="n">VS FRONT</th><th class="n">TRADES</th></tr></thead><tbody>` +
+    curve.map((c, i) => `<tr ${i ? "" : `class="click" data-pick="FVS" data-kind="fut"`}><td>${mmmYY(c.contract)}</td><td class="n">${fmt(c.px, 2)}</td><td class="n ${cls(c.sp)}">${i ? fmtS(c.sp, 2) : "–"}</td><td class="n dim">${fmt(c.trades, 0)}</td></tr>`).join("") +
+    `</tbody></table><p class="note pad">Expected EURO STOXX 50 volatility, the euro VIX; it moves with high-yield and Crossover spreads. ${slope == null ? "" : slope >= 0 ? "Upward sloping (contango): the market sees today's calm lasting." : "Downward sloping (backwardation): stress now, expected to fade."} Later months are priced against the front's trades within a minute.</p>`;
+}
 function renderCredit() {
   const M = DATA.mkt || {}, F = (c) => FUT.get(c);
   marketsLive();
@@ -1395,7 +1597,8 @@ function renderCredit() {
     panel("cmp", "Euro vs dollar credit", ccyCompare(), { sub: "median Z-spread, bp, firm quotes" }) +
     panel("sov", "Sovereign spreads in euro", sovSpreads(), { sub: "vs Germany, firm quotes" }) +
     panel("frn", "Floating-rate notes", frnPanel(), { sub: "discount margin over Euribor, bp" }) +
-    panel("macro", "Risk sentiment", macro + `<p class="note pad">All series are end of day. Tick-by-tick data needs a paid feed (Bloomberg, LSEG, ICE).</p>`, { sub: "VIX: CBOE close via FRED · EUR/USD: ECB reference rate" });
+    panel("banks", "Banks: credit and equity", banksPanel(), { sub: "median Z of euro bank bonds · EURO STOXX Banks future" }) +
+    panel("macro", "Risk sentiment", macro + vstoxxTbl() + `<p class="note pad">VIX: CBOE close via FRED; EUR/USD: ECB reference rate; VSTOXX: Eurex futures.</p>`, { sub: "volatility and FX" });
 }
 
 // ------------------------------------------------------------------ THIS WEEK
@@ -1514,6 +1717,12 @@ const GLOSSARY = [
   ["Discount margin", "An FRN's spread over the Euribor forwards that discounts its coupons to the price: the FRN's Z-spread. Above the quoted margin = trading below par."],
   ["FRN", "Floating-rate note: the coupon resets to Euribor + a fixed margin every quarter, so the price barely moves with rates (tiny DV01) but does with credit (spread duration)."],
   ["Country of risk", "Where the credit risk sits: the guarantor or the parent of a financing vehicle where known, else the issuer's country (column CTY)."],
+  ["Hedged yield", "A dollar bond's yield for a euro investor who hedges the currency with rolling forwards: YTM − (r USD − r EUR), the differential implied by the Eurex EUR/USD futures."],
+  ["Cross-currency basis", "Implied rate differential from FX forwards minus the actual difference in overnight rates (SOFR − €STR): the extra price of swapping one currency for the other."],
+  ["Stress test", "P&L under a named shock (rates +100 bp, spreads × 1.5, BTP − Bund +100 ...): what VaR, which describes normal bad days, does not tell."],
+  ["Haircut", "The share of a bond's value a repo lender will not lend against, so the equity the position needs. The ECB's haircuts for bonds on its list, assumptions otherwise (CAPITAL USED)."],
+  ["Limit order", "An order to buy no higher (sell no lower) than a price; it waits until the market comes to it, and may never fill. Saves the bid-offer, costs certainty."],
+  ["VSTOXX", "Expected 30-day volatility of the EURO STOXX 50, the euro VIX; its futures curve shows whether stress is expected to last."],
   ["Smile", "Implied vol by strike. Options far below the future (puts) often cost more vol than at the money: protection against a sell-off is in demand."],
   ["Firm two-way", "Bid and offer both with size: you could have traded. Otherwise the quote is indicative (dotted)."],
   ["Benchmark", "Issue size at least EUR 500m and senior: the institutional, index-eligible universe."],
@@ -1535,18 +1744,19 @@ function renderGuide() {
   const start = `<div class="sect">
     <p class="note">The club's paper rates-and-credit portfolio on free euro and dollar market data. Prices are Börse Frankfurt's closing quotes (intraday when the feed runs); every trade is a commit in the repo, so the commit history is the blotter.</p>
     <h3>WORKSPACES</h3><ol>
-      <li><b>Dashboard</b>: book KPIs, holdings, market monitor, DV01 by bucket, curve.</li>
-      <li><b>Holdings &amp; P&amp;L</b>: blotter, strategies, attribution, sector summary, funding assumptions.</li>
-      <li><b>Risk analytics</b>: key-rate DV01 (euro and dollar), credit spread risk, country exposure, hedge proposal, VaR / expected shortfall.</li>
+      <li><b>Dashboard</b>: book KPIs, holdings, market monitor, your watchlist and alerts, a 90-day calendar (coupons, expiries, ECB meetings), DV01 by bucket, curve.</li>
+      <li><b>Holdings &amp; P&amp;L</b>: blotter (open, working orders, closed), strategies, performance against the FECX index, attribution, sector summary, funding assumptions.</li>
+      <li><b>Risk analytics</b>: key-rate DV01 (euro and dollar), credit spread risk, country exposure, stress tests, hedge proposal, VaR / expected shortfall.</li>
       <li><b>Trade</b>: bond screener (CORP / GOVT / SSA / COVERED; EUR or USD; fixed or FRN), Eurex futures, ticket for outright, pair and fly trades. Filters: see SCREENER FILTERS below.</li>
       <li><b>Rates</b>: euro and US government yields, money markets, the ECB path from the €STR and Euribor futures, rates futures, rates volatility from the Bund/Bobl/Schatz options.</li>
-      <li><b>Credit</b>: credit indices and futures, euro vs dollar credit (also issuer by issuer), euro sovereign spreads vs Germany, floating-rate notes, risk sentiment.</li>
+      <li><b>Credit</b>: credit indices and futures, euro vs dollar credit (with the hedged yield and the EUR/USD hedge cost), banks' credit vs their shares, sovereign spreads vs Germany, floating-rate notes, risk sentiment with the VSTOXX curve.</li>
       <li><b>This week</b>: new issues, spread movers, ECB credit quality changes, rich/cheap flips, next week.</li>
       <li><b>Guide</b>: this page.</li></ol>
     <h3>HOW TO TRADE</h3><ol>
       <li>Ask Elliot to add your GitHub account as a collaborator on the repo.</li>
       <li>Create a classic personal access token with the <code>public_repo</code> scope; click <b>SIGN IN TO TRADE</b> and paste it (it stays in your browser).</li>
       <li>Trade: pick a bond or future, choose BUY or SELL / SHORT and the size, then <b>BOOK TRADE</b>. Buys fill at the offer, sells at the bid, futures at the last price.</li>
+      <li>Before you book, read IMPACT ON THE BOOK in the ticket: DV01, CS01, VaR, capital and the largest country, now and after. Choose LIMIT to leave an order at your price (checked each evening against the minute data); set an ALERT to be told when a level is reached.</li>
       <li>Pairs and flies: switch the ticket to PAIR or FLY, click each leg, then a bond or future. Sizes are DV01-neutral.</li>
       <li>Close: Holdings → CLOSE on the position (strategies close all legs together). A long is sold at the bid, a short bought back at the offer; the trade moves to CLOSED with its realized P&amp;L.</li></ol>
     <h3>SCREENER FILTERS</h3><p class="note">Type in the amber row under the column headers on the Trade screen. Filters combine with each other and with the buttons above the table; a filter that cannot be read turns red and is ignored. CLEAR FILTERS (top right) empties them all. EUR / USD (right of the asset-class tabs) switches the currency; FIXED / FRN picks the coupon type.</p>
@@ -1569,7 +1779,7 @@ function renderGuide() {
     ["Curves", "ECB AAA and all-govt Svensson curves", "daily, published at noon the next business day"],
     ["€STR, EUR/USD", "ECB data portal", "daily"], ["SOFR", "New York Fed", "daily"],
     ["Credit indices, VIX", "FRED (ICE BofA OAS, CBOE)", "daily"],
-    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"], ["Rates implied vol", "Eurex option trades (DEUR post-trade)", "daily, evening run"], ["ECB path", "Eurex €STR and Euribor futures; ECB meeting calendar and deposit rate", "daily, evening run"], ["US Treasury curve", "US Treasury constant-maturity yields via FRED", "daily, one day behind"], ["Country", "ECB list (residence, guarantor), GLEIF LEI register", "daily; GLEIF for new issuers"]];
+    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"], ["Rates implied vol", "Eurex option trades (DEUR post-trade)", "daily, evening run"], ["ECB path", "Eurex €STR and Euribor futures; ECB meeting calendar and deposit rate", "daily, evening run"], ["FX hedge, VSTOXX, bank shares", "Eurex EUR/USD, VSTOXX and EURO STOXX Banks futures", "daily, evening run"], ["US Treasury curve", "US Treasury constant-maturity yields via FRED", "daily, one day behind"], ["Country", "ECB list (residence, guarantor), GLEIF LEI register", "daily; GLEIF for new issuers"]];
   const data = `<table class="t"><thead><tr><th>DATA</th><th>SOURCE</th><th>UPDATED</th></tr></thead><tbody>${src.map(r => `<tr><td>${r[0]}</td><td class="dim">${r[1]}</td><td class="dim">${r[2]}</td></tr>`).join("")}</tbody></table>
     <p class="note pad">GitHub Actions collects the files every business day (22:37 UTC, retry 05:17 UTC), builds the analytics and publishes this site. The Deutsche Börse files are free for non-commercial use.</p>`;
   const L = D.log || [], ok = (x, lo) => +x >= lo ? "" : "neg";
@@ -1848,6 +2058,23 @@ function bindMode() {
   };
 }
 
+// What the trade does to the book, before it is booked (as a risk desk asks first): DV01, CS01, VaR, capital and
+// the largest country, now and after. extra: the hypothetical positions.
+function impactHtml(extra) {
+  if (!extra.length || state.dbState !== "ready") return "";
+  const a = book(), b = book([...state.positions, ...extra]), va = varOf(a), vb = varOf(b);
+  const topCty = (bk) => { const xs = Object.entries(bk.cty).sort((p, q) => q[1].gross - p[1].gross); return xs.length && bk.gross ? [xs[0][0], xs[0][1].gross / bk.gross * 100] : null; };
+  const ca = topCty(a), cb = topCty(b);
+  const row = (l, x, y, f, warn) => `<tr><td>${l}</td><td class="n">${f(x)}</td><td class="n ${warn ? "neg" : ""}">${f(y)}</td><td class="n ${cls(y - x)}">${x != null && y != null && isFinite(y - x) ? fmtS(y - x, 0) : ""}</td></tr>`;
+  const e0 = (v) => v == null ? "–" : fmtS(v, 0);
+  return `<div class="lbl" style="margin-top:6px" title="the club book now and with this trade added">IMPACT ON THE BOOK</div><table class="t"><thead><tr><th></th><th class="n">NOW</th><th class="n">AFTER</th><th class="n">Δ</th></tr></thead><tbody>
+    ${row("DV01 EUR/bp", a.dv01, b.dv01, e0)}${row("CS01 EUR/bp", a.cs01, b.cs01, e0)}
+    ${row("VaR 99% 1D", va && a.ok.length ? va.v99.v : 0, vb ? vb.v99.v : null, (v) => v == null ? "–" : fmt(v, 0))}
+    ${row("Capital used", a.capital, b.capital, (v) => fmt(v, 0), b.capital > CAPITAL_BUDGET)}
+    <tr><td>Largest country</td><td class="n">${ca ? `${ca[0]} ${fmt(ca[1], 0)}%` : "–"}</td><td class="n">${cb ? `${cb[0]} ${fmt(cb[1], 0)}%` : "–"}</td><td></td></tr></tbody></table>
+    ${b.capital > CAPITAL_BUDGET ? `<p class="note neg">Above the club's capital budget of EUR ${fmt(CAPITAL_BUDGET, 0)}.</p>` : ""}`;
+}
+
 function renderTicket() {
   if (state.mode !== "single") return renderStratTicket();
   const s = state.sel, body = $("#tktBody");
@@ -1869,7 +2096,8 @@ function renderTicket() {
         <dt>Bid / Offer</dt><dd class="big">${fmt(b.bid, 3)} / ${fmt(b.ask, 3)}${b.firm ? "" : ` <span class="ind" title="indicative">IND</span>`}</dd><dt>Bid-offer</dt><dd>${fmt((b.ask - b.bid) * 100, 1)} cents</dd>
         ${isFrn ? `<dt title="discount margin: the spread over the Euribor forwards (Eurex futures) that prices the FRN">Discount margin (mid)</dt><dd>${fmt(b.z, 0)} bp</dd>
         <dt>Rates / spread duration</dt><dd>${fmt(b.mdur, 2)} / ${fmt(b.sdur, 2)}</dd>`
-        : `<dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp <span class="muted">vs ${b.ccy === "USD" ? "US Treasury" : "ECB AAA"}</span></dd><dt title="Z-spread minus the issuer's fitted spread curve">Rich / cheap</dt><dd>${b.rv == null ? "– (no issuer curve)" : `${fmtS(b.rv, 1)} bp ${b.rv > 0 ? "cheap" : "rich"}`}</dd>
+        : `<dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp <span class="muted">vs ${b.ccy === "USD" ? "US Treasury" : "ECB AAA"}</span></dd>
+        ${b.yh != null ? `<dt title="yield for a euro investor hedging the dollars with rolling EUR/USD forwards: YTM − the implied rate differential from the Eurex EUR/USD futures (${fmt(DATA.fxh?.diff, 2)}%)">YTM hedged to EUR</dt><dd>${fmt(b.yh, 2)}%</dd>` : ""}<dt title="Z-spread minus the issuer's fitted spread curve">Rich / cheap</dt><dd>${b.rv == null ? "– (no issuer curve)" : `${fmtS(b.rv, 1)} bp ${b.rv > 0 ? "cheap" : "rich"}`}</dd>
         <dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd>`}<dt>Roll-down 3M</dt><dd>${b.roll == null ? "–" : fmtS(b.roll, 1) + " bp"}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
         ${b.dq ? `<dt>Quote check</dt><dd class="amb">${dqText(b.dq)}</dd>` : ""}
         <dt title="Euronext ESG bond list">ESG label</dt><dd>${b.esg ? ESG_NAME[b.esg] : "–"}</dd>
@@ -1884,7 +2112,7 @@ function renderTicket() {
         <dt>DV01${isFrn ? " / CS01" : ""}</dt><dd class="${cls(state.side)}">${fmtS(state.side * n * dirty / 100 / fx * b.mdur * 1e-4, 0)}${isFrn ? " / " + fmtS(state.side * n * dirty / 100 / fx * b.sdur * 1e-4, 0) : ""} EUR/bp</dd>
         ${(() => { const c = carryRoll3m(b, state.side * n); return `<dt title="coupon accrual minus funding at ${fmt(repoRate(state.side * n, b), 3)}% ${b.ccy === "USD" ? "SOFR" : "repo"}">Carry 3M</dt><dd class="${cls(c.carry)}">${fmtS(c.carry, 0)} EUR</dd>
         <dt title="price gain from rolling down the curve, unchanged curve">Roll-down 3M</dt><dd class="${cls(c.roll)}">${fmtS(c.roll, 0)} EUR</dd>`; })()}
-        ${n % b.unit ? `<dt></dt><dd class="neg">not a multiple of the ${fmt(b.unit, 0)} denomination</dd>` : ""}</dl>`,
+        ${n % b.unit ? `<dt></dt><dd class="neg">not a multiple of the ${fmt(b.unit, 0)} denomination</dd>` : ""}</dl>` + impactHtml(n > 0 ? [{ kind: "bond", isin: b.isin, qty: state.side * n, price: px, date: tradeDay() }] : []),
         order: { kind: "bond", isin: b.isin, qty: state.side * n, price: px, settle: valSettle() }, ok: n > 0 && !(n % b.unit) && isFinite(fx), desc: `${b.ccy} ${fmt(n, 0)} ${b.name}` }; };
   } else {
     const f = FUT.get(s.id), d = f.type === "credit" ? indexDur(f.code) : null;
@@ -1898,11 +2126,20 @@ function renderTicket() {
       <div class="chips">${[1, 5, 10, 25].map(v => `<button data-lots="${v}" aria-pressed="${state.lots === v}">${v}</button>`).join("")}</div>`;
     calc = () => { const n = state.lots, per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
       return { px: f.last, html: `<dl class="kv"><dt>Price (last)</dt><dd class="big">${fmt(f.last, 3)}</dd><dt>Notional</dt><dd>${fmt(n * f.last * f.mult, 0)} ${f.ccy}</dd>
-        <dt>${f.type === "credit" ? "CS01 / DV01" : "DV01"}</dt><dd class="${cls(state.side)}">${per != null ? fmtS(state.side * n * per, 0) + " EUR/bp" : "–"}</dd></dl>`,
+        <dt>${f.type === "credit" ? "CS01 / DV01" : "DV01"}</dt><dd class="${cls(state.side)}">${per != null ? fmtS(state.side * n * per, 0) + " EUR/bp" : "–"}</dd></dl>` + impactHtml(n > 0 ? [{ kind: "future", code: f.code, contract: f.contract, qty: state.side * n, price: f.last }] : []),
         order: { kind: "future", code: f.code, contract: f.contract, qty: state.side * n, price: f.last }, ok: n > 0, desc: `${n} ${f.code} ${mmmYY(f.contract)}` }; };
   }
-  body.innerHTML = modeBar() + head + `<div class="sect">${sideBtns}${sizeField}<div id="tkCalc"></div>
-    <button class="btn solid" id="tkBook" style="padding:5px">${state.canWrite ? "BOOK TRADE" : "SIGN IN TO BOOK"}</button></div>`;
+  const mktPx = s.kind === "bond" ? (state.side > 0 ? BY_ISIN.get(s.id).ask : BY_ISIN.get(s.id).bid) : FUT.get(s.id).last;
+  if (state.ordLimit == null || state.ordFor !== `${s.id}${state.side}`) { state.ordLimit = mktPx; state.ordFor = `${s.id}${state.side}`; }
+  const ordUi = `<div class="row" style="margin-top:6px"><span class="lbl">ORDER</span><span class="chips" id="ordType">${[["mkt", "MARKET"], ["lmt", "LIMIT"]].map(([k, l]) => `<button data-ot="${k}" aria-pressed="${state.ordType === k}">${l}</button>`).join("")}</span></div>
+    ${state.ordType === "lmt" ? `<div class="row"><label class="lbl" for="ordLimit">LIMIT</label><input id="ordLimit" class="num" style="width:7em" inputmode="decimal" value="${fmt(state.ordLimit, s.kind === "bond" ? 3 : 4)}">
+      <span class="chips" id="ordTif">${[["day", "DAY"], ["week", "1 WEEK"]].map(([k, l]) => `<button data-tif="${k}" aria-pressed="${state.ordTif === k}">${l}</button>`).join("")}</span></div>
+      <p class="note">${state.side > 0 ? "Buys if the offer comes down to" : "Sells if the bid comes up to"} the limit (bonds: a firm quote at or through it; futures: a trade through it). Checked each evening against the day's minute data; unfilled orders expire.</p>` : ""}`;
+  const aFields = s.kind === "bond" ? [["z", "Z-spread / DM"], ["ytm", "yield"], ["mid", "price"]] : [["last", "price"]];
+  const alertUi = `<div class="sect"><div class="lbl">ALERT <span class="muted">(this browser)</span></div><div class="row"><select id="aF">${aFields.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>
+    <select id="aOp"><option>&gt;</option><option>&lt;</option></select><input id="aLv" class="num" style="width:6em" inputmode="decimal"><button class="btn" id="aAdd">SET</button></div></div>`;
+  body.innerHTML = modeBar() + head + `<div class="sect">${sideBtns}${sizeField}${ordUi}<div id="tkCalc"></div>
+    <button class="btn solid" id="tkBook" style="padding:5px">${!state.canWrite ? "SIGN IN TO BOOK" : state.ordType === "lmt" ? "PLACE LIMIT ORDER" : "BOOK TRADE"}</button></div>` + alertUi;
   bindMode();
   if (s.kind === "bond") fillHist("tkHist", s.id, async (w) => spark((await histOf(s.id))?.map(x => ({ d: x.d, v: x.v[HK.z] })).filter(x => x.v != null) ?? null, { w, label: "Z-spread" }));
   const upd = () => { const c = calc(); $("#tkCalc").innerHTML = c.html; return c; };
@@ -1917,10 +2154,23 @@ function renderTicket() {
     const c = upd();
     if (!c.ok) { toast(s.kind === "bond" && state.nominal > 0 ? "The nominal must be a multiple of the minimum denomination" : "Enter a size greater than zero"); return; }
     const btn = $("#tkBook"); btn.disabled = true;
+    const lim = state.ordLimit, now = c.px;
+    if (state.ordType === "lmt" && !(isFinite(lim) && lim > 0)) { toast("Enter a limit price"); btn.disabled = false; return; }
+    // a limit that is marketable now trades at once, at the market price (never worse than the limit)
+    if (state.ordType === "lmt" && !(state.side > 0 ? now <= lim : now >= lim)) {
+      const { price, settle, ...o } = c.order;
+      await placeOrder({ ...o, limit: lim }, `${state.side > 0 ? "buy" : "sell"} ${c.desc}`);
+      btn.disabled = false; return;
+    }
     const ok = await addPositions([c.order]);
     btn.disabled = false;
     if (ok) toast(`${state.side > 0 ? "BOUGHT" : "SOLD"} ${c.desc} @ ${fmt(c.px, 3)}`);
   };
+  $("#aAdd").onclick = () => { const v = $("#aLv").value, lv = Number(v.replace(",", ".")); if (v === "" || !isFinite(lv)) return toast("Enter a level");
+    addWatch({ kind: s.kind === "bond" ? "bond" : "fut", id: s.id, f: $("#aF").value, op: $("#aOp").value, lv }); $("#aLv").value = ""; };
+  body.querySelectorAll("[data-ot]").forEach(b => b.onclick = () => { state.ordType = b.dataset.ot; renderTicket(); });
+  body.querySelectorAll("[data-tif]").forEach(b => b.onclick = () => { state.ordTif = b.dataset.tif; renderTicket(); });
+  if ($("#ordLimit")) $("#ordLimit").oninput = e => { state.ordLimit = Number(e.target.value.replace(",", ".")); };
 }
 
 function renderStratTicket() {
@@ -1955,7 +2205,8 @@ function renderStratTicket() {
       <dt>Gross DV01</dt><dd>${fmt(st.legs.reduce((a, x) => a + Math.abs(x.qty * x.dv01), 0), 0)} EUR/bp</dd>
       <dt title="half the bid-offer on each bond leg">Cost vs mid</dt><dd class="neg">${fmt(-st.cost, 0)} EUR</dd>
       <dt>Carry 3M</dt><dd class="${cls(st.cr.carry)}">${fmtS(st.cr.carry, 0)} EUR</dd><dt>Roll-down 3M</dt><dd class="${cls(st.cr.roll)}">${fmtS(st.cr.roll, 0)} EUR</dd></dl>
-      <label class="lbl" for="tkName">STRATEGY NAME</label><input id="tkName" style="width:100%" maxlength="60" value="${esc(state.stratName)}">`;
+      <label class="lbl" for="tkName">STRATEGY NAME</label><input id="tkName" style="width:100%" maxlength="60" value="${esc(state.stratName)}">` +
+      impactHtml(st.legs.map(x => x.kind === "bond" ? { kind: "bond", isin: x.id, qty: x.qty, price: x.px } : { kind: "future", code: x.id, contract: x.f.contract, qty: x.qty, price: x.px }));
     ok = true;
   }
   body.innerHTML = modeBar() + `<div class="sect"><div class="legs">${slots}</div>${dir}${sizeField}<div id="tkCalc">${calc}</div>
@@ -2060,6 +2311,8 @@ async function init() {
   applyCvd();
   state.canWrite = !!(gh.token && gh.login);
   setView(state.view);
+  const hits = state.watch.filter(watchHit);
+  if (hits.length) toast(`${hits.length} alert${hits.length > 1 ? "s" : ""} hit: ${hits.slice(0, 3).map(watchName).join(", ")}${hits.length > 3 ? " …" : ""} (Dashboard)`);
   await loadPositions();
   pollLive();
   // reload when the tab becomes visible again (at most every 2 minutes, for GitHub's rate limit)

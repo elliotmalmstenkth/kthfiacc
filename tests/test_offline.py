@@ -343,7 +343,7 @@ def test_eurex_daily(tmp_path):
     rows = {r[1]: r for r in eurex.build_daily("2026-10-02", arch, db)}
     b = rows["FGBL"]
     assert (b[4], b[5], b[6]) == (3, 40, 500)                     # trades, on-book lots, block lots
-    assert b[7:11] == (121.0, 121.5, 121.0, 121.5)                # open, high, low, last
+    assert b[7:11] == [121.0, 121.5, 121.0, 121.5]                # open, high, low, last
     assert b[12] == pytest.approx((121.0 * 10 + 121.5 * 30) / 40)
     assert rows["FEHY"][2] == "2026-12-18" and rows["FEHY"][10] == 309.0
 
@@ -780,3 +780,66 @@ def test_country_of_risk_priority():
                                        ("JAPAN BK INTL C/4 NT", "AGENCY")])
 def test_dollar_issuer_rules(fisn, want):
     assert classify.sector_of(R2("DBFTFB", fisn, "", ""), {})[0] == want
+
+
+def test_calendar_spread_pairs_trades_close_in_time():
+    def t(ts, px):
+        return {"tradingDateAndTime": f"2026-10-02T{ts}.000000Z", "price": px}
+    near = [t("08:00:00", 1.1290), t("10:00:00", 1.1300)]
+    far = [t("08:00:30", 1.1336), t("10:00:10", 1.1347), t("12:00:00", 1.2000)]   # the last has no near trade
+    spread, n = eurex.calendar_spread(near, far)
+    assert n == 2 and spread == pytest.approx(0.00465, abs=1e-9)
+
+
+# ---------------------------------------------------------------- limit orders
+def test_limit_orders_fill_expire_and_become_positions(tmp_path):
+    import orders
+    f = tmp_path / "pre.json.gz"
+    msgs = [{"instrumentIdentificationCode": "B1", "updateDateAndTime": "2026-10-02T08:00:00.000Z", "bestBid": 99.0, "bestBidQty": 1e5, "bestAsk": 99.4, "bestAskQty": 1e5},
+            {"instrumentIdentificationCode": "B1", "updateDateAndTime": "2026-10-02T09:00:00.000Z", "bestAsk": 99.2, "bestAskQty": 0},      # indicative: no fill
+            {"instrumentIdentificationCode": "B1", "updateDateAndTime": "2026-10-02T10:00:00.000Z", "bestAsk": 99.15, "bestAskQty": 5e4},   # firm, crosses 99.2
+            {"instrumentIdentificationCode": "B2", "updateDateAndTime": "2026-10-02T10:00:00.000Z", "bestBid": 101.0, "bestBidQty": 1e5}]
+    with gzip.open(f, "wt") as fh:
+        fh.write("\n".join(json.dumps(m) for m in msgs))
+    trades = [{"instrumentIdentificationCode": eurex.PRODUCTS["FGBL"][0], "contractDate": "2026-12-08", "price": p, "mmtTradingMode": "2",
+               "tradingDateAndTime": f"2026-10-02T1{i}:00:00.000Z"} for i, p in enumerate([121.0, 120.95, 120.89])]
+    base = dict(by="t", at="2026-10-02T07:00:00Z", day="2026-10-02", status="working")
+    doc = {"positions": [], "orders": [
+        dict(base, id="o1", kind="bond", isin="B1", qty=100000, limit=99.2, expires="2026-10-02"),
+        dict(base, id="o2", kind="bond", isin="B2", qty=-100000, limit=101.5, expires="2026-10-02"),      # bid never reaches: expires
+        dict(base, id="o3", kind="bond", isin="B2", qty=-100000, limit=101.5, expires="2026-10-09"),      # still working
+        dict(base, id="o4", kind="future", code="FGBL", contract="2026-12-08", qty=5, limit=120.90, expires="2026-10-02"),
+        dict(base, id="o5", kind="bond", isin="B1", qty=100000, limit=99.2, at="2026-10-02T11:00:00Z", expires="2026-10-02")]}  # placed after the cross
+    new, nf, ne = orders.run(doc, "2026-10-02", [(None, str(f))], trades)
+    st = {o["id"]: o["status"] for o in new["orders"]}
+    assert st == {"o1": "filled", "o2": "expired", "o3": "working", "o4": "filled", "o5": "expired"} and (nf, ne) == (2, 2)
+    pos = {p["order"]: p for p in new["positions"]}
+    assert pos["o1"]["price"] == 99.15 and pos["o1"]["settle"] == "2026-10-06" and pos["o4"]["price"] == 120.90   # futures fill at the limit
+
+
+def test_fx_hedge_from_the_eurusd_calendar_spread():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    fut = [dict(code="FCEU", contract="2026-12-14", last=1.1294, cal=[dict(contract="2027-03-15", spread=0.004615, pairs=10)])]
+    mkt = {"SOFR": {"v": [3.87]}, "ESTR": {"v": [2.442]}}
+    h = build.fx_hedge(fut, mkt)
+    assert h["days"] == 91 and h["diff"] == pytest.approx(0.004615 / 1.1294 * 360 / 91 * 100, abs=1e-4)
+    assert h["basis"] == pytest.approx((h["diff"] - (3.87 - 2.442)) * 100, abs=0.1)
+    assert build.fx_hedge([dict(code="FCEU", contract="2026-12-14", last=1.13, cal=[])], mkt) is None
+
+
+def test_pnl_history_marks_open_and_realized(tmp_path):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    h = tmp_path / "hist"; h.mkdir()
+    for d, mid, fe in (("2026-10-01", 100.0, 169.0), ("2026-10-02", 101.0, 170.69)):
+        with gzip.open(h / f"{d}.csv.gz", "wt") as f:
+            f.write(f"id,mid,ytm,z,rv,ecb\nB1,{mid},,,,\nU1,{mid},,,,\nFUT:FECX,{fe},,,,\n")
+    pos = tmp_path / "p.json"
+    pos.write_text(json.dumps({"positions": [{"kind": "bond", "isin": "B1", "qty": 1000000, "price": 100.0, "date": "2026-10-01"},
+                                             {"kind": "bond", "isin": "U1", "qty": 1000000, "price": 100.0, "date": "2026-10-02"}],
+                               "closed": [{"kind": "bond", "isin": "B1", "qty": 1, "price": 100.0, "date": "2026-10-01", "closed": "2026-10-02", "tot": -500}]}))
+    out = build.pnl_history(str(h), str(pos), {"EURUSD": {"d": ["2026-10-01", "2026-10-02"], "v": [1.1, 1.25]}}, {"U1"})
+    assert out["d"] == ["2026-10-01", "2026-10-02"] and out["pnl"][0] == 0
+    assert out["pnl"][1] == pytest.approx(10000 + 8000 - 500, abs=1)        # B1 +1 pt, U1 +1 pt in USD at 1.25, realized
+    assert out["bench"][1] == pytest.approx(1.0, abs=1e-6)
