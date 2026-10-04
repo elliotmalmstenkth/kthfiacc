@@ -1,5 +1,5 @@
 """Offline tests (no network access): synthetic data in place of ECB/ESMA/Deutsche Börse."""
-import datetime as dt, gzip, io, json, os, sys, types, zipfile
+import datetime as dt, gzip, io, json, math, os, sys, types, zipfile
 from collections import namedtuple
 
 import pytest
@@ -368,7 +368,7 @@ def test_build_day_and_log(tmp_path, monkeypatch):
     assets, row = ci.build_day("2026-10-02", arch, dist, str(tmp_path / "m.sqlite"))
     names = sorted(os.path.basename(x) for x in assets)
     assert names == ["DEUR-posttrade-2026-10-02.tar", "DFRA-pretrade-bonds-2026-10-02.tar",
-                     "dfra_quotes-2026-10-02.csv.gz", "eurex_futures_daily-2026-10-02.csv"]
+                     "dfra_quotes-2026-10-02.csv.gz", "eurex_futures_daily-2026-10-02.csv", "eurex_options-2026-10-02.csv.gz"]
     assert (row["isin_close"], row["two_sided_firm_close"], row["FEHY"], row["FGBL"]) == (2, 2, 309.0, None)
     log = str(tmp_path / "log.csv")
     ci.append_log(row, log); ci.append_log(row, log)  # the same day is overwritten
@@ -630,3 +630,43 @@ def test_build_reclassify_and_quote_flags():
     assert build.quote_flags(99.0, 98.9, 99.1, 80) == []
     assert build.quote_flags(60.0, 55.0, 65.0, 900) == ["wide"]
     assert build.quote_flags(8.0, 7.9, 8.1, None) == ["price", "spread"]
+
+
+# ---------------------------------------------------------------- eurex_options
+def test_black76_implied_vol_round_trip_and_bounds():
+    import eurex_options as eo
+    for cp, k in (("C", 123.0), ("P", 118.0)):
+        px = eo.black76(121.0, k, 30 / 365.25, 0.082, cp)
+        assert eo.implied_vol(px, 121.0, k, 30 / 365.25, cp) == pytest.approx(0.082, abs=1e-5)
+    assert eo.implied_vol(0.5, 121.0, 118.0, 0.1, "C") is None      # below intrinsic value (3.0)
+    # put-call parity without discounting: C - P = F - K
+    c, p = eo.black76(121.0, 120.0, 0.2, 0.08, "C"), eo.black76(121.0, 120.0, 0.2, 0.08, "P")
+    assert c - p == pytest.approx(1.0, abs=1e-9)
+
+
+def test_option_underlying_and_futures_price_matching():
+    import eurex_options as eo
+    series = {("FGBL", "2026-12-08"): [], ("FGBL", "2027-03-08"): [], ("FGBM", "2026-12-08"): []}
+    assert eo.underlying("FGBL", "2026-11-20", series) == "2026-12-08"
+    assert eo.underlying("FGBL", "2026-12-23", series) == "2027-03-08"   # January options: on the March future
+    t0 = dt.datetime(2026, 10, 2, 8, 0, tzinfo=dt.timezone.utc)
+    pts = [(t0, 121.0), (t0 + dt.timedelta(minutes=10), 121.2)]
+    assert eo.future_at(pts, t0 + dt.timedelta(minutes=5)) == 121.0
+    assert eo.future_at(pts, t0 - dt.timedelta(minutes=2)) == 121.0     # first trade within 5 minutes after
+    assert eo.future_at(pts, t0 - dt.timedelta(minutes=20)) is None
+
+
+def test_option_atm_vol_and_summary():
+    import eurex_options as eo
+    f, rows = 121.0, []
+    for k in (116, 117, 118, 119, 120, 122, 123, 124, 125):     # smile 8% + 2 m + 60 m^2, m = ln(K/F)
+        m = math.log(k / f)
+        rows.append(dict(code="FGBL", expiry="2026-10-23", cp="C" if k > f else "P", strike=k, price=0, qty=10,
+                         time="2026-10-02T09:00:00", fut_contract="2026-12-08", fut=f, t=21 / 365.25, k=m, iv=0.08 + 2 * m + 60 * m * m))
+    v, fit = eo.atm_vol(rows)
+    assert v == pytest.approx(0.08, abs=1e-6) and fit[2] == pytest.approx(60, rel=1e-4)
+    rows2 = [dict(r, expiry="2026-11-20", t=49 / 365.25, iv=r["iv"] - 0.002) for r in rows]
+    s = eo.summary(rows + rows2, "2026-10-02", {"FGBL": 7.74})["FGBL"]
+    assert [e["expiry"] for e in s["expiries"]] == ["2026-10-23", "2026-11-20"]
+    assert 0.078 < s["atm1m"] < 0.08                             # 30 days lies between the two expiries
+    assert s["bp1m"] == pytest.approx(s["atm1m"] / 7.74 * 1e4 / math.sqrt(252), abs=0.01)

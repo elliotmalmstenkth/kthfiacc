@@ -235,8 +235,15 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
 .dqf { color: var(--amber); margin-right: 4px; cursor: help; }
 #v-week { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 270px repeat(3, 300px); overflow: auto;
   grid-template-areas: "sum sum club" "new new next" "wide tight iss" "rat rv rv"; }
-#v-mkt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr);
-  grid-template-areas: "rates credit" "rates money" "macro fut"; }
+#v-mkt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto minmax(380px, auto); overflow: auto;
+  grid-template-areas: "rates credit" "rates money" "macro fut" "vol vol"; }
+.volg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.volg > div { min-width: 0; }
+.volg > div:first-child { overflow-x: auto; }
+svg.chart .call { fill: var(--amber); stroke: #000; stroke-width: .5; fill-opacity: .8; }
+svg.chart .put { fill: #4fa3ff; stroke: #000; stroke-width: .5; fill-opacity: .8; }
+svg.chart .atm { stroke: var(--fg-3); stroke-dasharray: 3 3; }
+@media (max-width: 900px) { .volg { grid-template-columns: minmax(0, 1fr); } }
 #v-desk { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr);
   grid-template-areas: "scr tkt" "fut tkt"; }
 @media (max-width: 1000px) {
@@ -246,7 +253,7 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
   #v-dash { grid-template-areas: "kpi" "hold" "mkt" "buck" "sect" "curve"; }
   #v-hold { grid-template-areas: "kpi" "blot" "strat" "attr" "sum"; }
   #v-risk { grid-template-areas: "kpi" "krd" "cs" "var" "hedge" "meth"; }
-  #v-mkt { grid-template-areas: "rates" "credit" "money" "fut" "macro"; }
+  #v-mkt { grid-template-areas: "rates" "credit" "money" "fut" "macro" "vol"; }
   #v-guide { grid-template-areas: "start" "gloss" "data" "status" "limits"; }
   #v-week { grid-template-areas: "sum" "club" "new" "next" "wide" "tight" "iss" "rat" "rv"; }
   #v-desk { grid-template-areas: "tkt" "scr" "fut"; }
@@ -1154,6 +1161,52 @@ async function refreshLive() {   // newer ECB / NY Fed fixings than the build, f
   state.liveAt = new Date();
   if (state.view === "mkt") renderMkt();
 }
+// ------------------------------------------------------------------ rates volatility
+// eurex_options.py: implied vol of the options on the Schatz, Bobl and Bund futures, per expiry (ATM from a
+// quadratic smile in log-moneyness) and a 30-day constant-maturity ATM vol. Yield vol (bp/day) = price vol /
+// the future's modified duration / sqrt(252).
+const VOL_NAME = { FGBS: "Schatz (2Y)", FGBM: "Bobl (5Y)", FGBL: "Bund (10Y)" };
+function volPanel() {
+  const V = DATA.vol;
+  if (!V) return `<div class="empty">No option data in this build. The evening run adds it from the next trading day.</div>`;
+  const codes = ["FGBS", "FGBM", "FGBL"].filter(c => V[c]);
+  if (!state.volCode || !V[state.volCode]) state.volCode = codes.includes("FGBL") ? "FGBL" : codes[0];
+  const X = V[state.volCode], exps = X.expiries;
+  if (!exps.some(e => e.expiry === state.volExp)) state.volExp = (exps.filter(e => e.atm).sort((a, b) => b.trades - a.trades)[0] || exps[0])?.expiry;
+  const top = `<table class="t"><thead><tr><th>FUTURE</th><th class="n" title="30-day constant-maturity at-the-money implied volatility, % of the futures price per year">1M ATM VOL</th><th class="n" title="the same in yield terms: expected daily move of the yield, 1 standard deviation">BP / DAY</th><th class="n">BP / YEAR</th><th class="n">TRADES</th><th class="n">LOTS</th><th>1M ATM VOL HISTORY</th></tr></thead><tbody>` +
+    codes.map(c => { const x = V[c], n = x.expiries.reduce((s, e) => s + e.trades, 0), l = x.expiries.reduce((s, e) => s + e.lots, 0);
+      return `<tr class="click${c === state.volCode ? " sel" : ""}" data-vc="${c}"><td><span class="amb">${c}</span> <span class="muted">${VOL_NAME[c]}</span></td><td class="n">${x.atm1m ? fmt(x.atm1m * 100, 2) + "%" : "–"}</td><td class="n">${fmt(x.bp1m, 1)}</td><td class="n">${x.bp1m ? fmt(x.bp1m * Math.sqrt(252), 0) : "–"}</td><td class="n">${fmt(n, 0)}</td><td class="n">${fmt(l, 0)}</td><td id="volH-${c}"></td></tr>`; }).join("") + `</tbody></table>`;
+  const term = `<table class="t"><thead><tr><th>${state.volCode} EXPIRY</th><th class="n">DAYS</th><th>ON FUTURE</th><th class="n">ATM VOL</th><th class="n">BP / DAY</th><th class="n">TRADES</th><th class="n">LOTS</th></tr></thead><tbody>` +
+    exps.map(e => `<tr class="click${e.expiry === state.volExp ? " sel" : ""}" data-ve="${e.expiry}"><td>${dTerm(e.expiry)}</td><td class="n">${fmt(e.days, 0)}</td><td class="dim">${mmmYY(e.contract)} @ ${fmt(e.fut, 2)}</td><td class="n">${e.atm ? fmt(e.atm * 100, 2) + "%" : "–"}</td><td class="n">${fmt(e.bp, 1)}</td><td class="n">${fmt(e.trades, 0)}</td><td class="n">${fmt(e.lots, 0)}</td></tr>`).join("") + `</tbody></table>`;
+  const note = `<p class="note pad"><b>Implied volatility</b> is the volatility that makes the Black-76 price equal the traded option price: the market's expected size of moves. Bund 1M ATM ${X.atm1m && state.volCode === "FGBL" ? fmt(X.atm1m * 100, 1) + "%" : ""} means a one-standard-deviation move of about that much of the futures price over a year; BP / DAY is the same in yield terms. ATM vol per expiry comes from a quadratic smile fitted to that expiry's trades. Only out-of-the-money options in standard on-book trades are used, each priced against the future's last trade before it. The rates equivalent of VIX: MOVE (US) and the euro swaption vols are licensed, these are free.</p>`;
+  return `<div class="volg"><div>${top}${term}</div><div class="sect"><div class="lbl" id="volLbl"></div><div id="volSmile"></div></div></div>${note}`;
+}
+function smileChart(e, w) {
+  if (!e || !e.smile.length) return `<div class="muted">No trades for this expiry.</div>`;
+  const h = 230, L = 40, R = 10, T = 10, B = 26, pts = e.smile, ks = pts.map(p => p.strike), ivs = pts.map(p => p.iv * 100);
+  const k0 = Math.min(...ks, e.fut), k1 = Math.max(...ks, e.fut), padK = (k1 - k0) * 0.05 || 0.5;
+  let v0 = Math.min(...ivs), v1 = Math.max(...ivs); const padV = (v1 - v0) * 0.15 || 0.5; v0 -= padV; v1 += padV;
+  const X = (k) => L + (k - (k0 - padK)) / (k1 - k0 + 2 * padK) * (w - L - R), Y = (v) => T + (v1 - v) / (v1 - v0) * (h - T - B);
+  const maxL = Math.max(...pts.map(p => p.lots));
+  let g = "";
+  for (let i = 0; i <= 4; i++) { const v = v0 + (v1 - v0) * i / 4; g += `<line class="grid" x1="${L}" x2="${w - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${fmt(v, 1)}</text>`; }
+  const step = Math.max(0.5, Math.ceil((k1 - k0) / 6 * 2) / 2);
+  for (let k = Math.ceil(k0 / step) * step; k <= k1; k += step) g += `<text x="${X(k)}" y="${h - 12}" text-anchor="middle">${fmt(k, 1)}</text>`;
+  let curve = "";
+  if (e.fit) { const [a, b, c] = e.fit, xs = []; for (let i = 0; i <= 60; i++) { const k = k0 + (k1 - k0) * i / 60, m = Math.log(k / e.fut), v = (a + b * m + c * m * m) * 100; if (v > v0 && v < v1) xs.push(`${xs.length ? "L" : "M"}${X(k).toFixed(1)},${Y(v).toFixed(1)}`); } curve = `<path class="curve" d="${xs.join("")}"/>`; }
+  const dots = pts.map(p => `<circle class="${p.cp === "C" ? "call" : "put"}" cx="${X(p.strike).toFixed(1)}" cy="${Y(p.iv * 100).toFixed(1)}" r="${(2 + 5 * Math.sqrt(p.lots / maxL)).toFixed(1)}"><title>${p.cp === "C" ? "Call" : "Put"} ${fmt(p.strike, 2)}: ${fmt(p.iv * 100, 2)}% · ${fmt(p.lots, 0)} lots in ${p.n} trades</title></circle>`).join("");
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Volatility smile">${g}<line class="atm" x1="${X(e.fut)}" x2="${X(e.fut)}" y1="${T}" y2="${h - B}"/><text x="${X(e.fut) + 3}" y="${T + 8}">F ${fmt(e.fut, 2)}</text>${curve}${dots}
+    <text x="${L}" y="${h - 1}">x: strike · y: implied vol % · blue = puts, amber = calls · size = lots · line = fitted smile</text></svg>`;
+}
+function volWire() {
+  const V = DATA.vol; if (!V) return;
+  const X = V[state.volCode], e = X?.expiries.find(x => x.expiry === state.volExp), box = $("#volSmile");
+  if (box) { $("#volLbl").textContent = `${state.volCode} ${e ? dTerm(e.expiry) : ""} SMILE · IMPLIED VOL BY STRIKE`; box.innerHTML = smileChart(e, Math.max(280, box.clientWidth || 420)); }
+  for (const c of ["FGBS", "FGBM", "FGBL"]) if (V[c]) fillHist(`volH-${c}`, `IV:${c}`, async () => { const h = await histOf(`IV:${c}`); if (!h || !h.length) return `<span class="muted">starts next build</span>`; return h.length > 1 ? miniSpark(h.map(x => x.v[0])) : `<span class="muted">from ${dTerm(h[0].d).slice(0, 6)}</span>`; });
+  document.querySelectorAll("[data-vc]").forEach(r => r.onclick = () => { state.volCode = r.dataset.vc; state.volExp = null; renderMkt(); });
+  document.querySelectorAll("[data-ve]").forEach(r => r.onclick = () => { state.volExp = r.dataset.ve; renderMkt(); });
+}
+
 function renderMkt() {
   const M = DATA.mkt || {}, F = (c) => FUT.get(c);
   if (!state.liveAt && !state.liveBusy) { state.liveBusy = true; refreshLive(); setInterval(refreshLive, 15 * 60 * 1000); }
@@ -1175,8 +1228,10 @@ function renderMkt() {
     panel("rates", "Government yields", rates, { sub: "spot % (Svensson, cont.), changes in bp" }) +
     panel("credit", "Credit", credit, { sub: "OAS in bp" }) +
     panel("money", "Money markets", money, { sub: live }) +
+    panel("vol", "Rates volatility (Eurex options)", volPanel(), { sub: DATA.vol ? `implied from option trades ${dTerm(DATA.asof)} · Black-76 on the future` : "not in this build" }) +
     panel("fut", "Rates futures (Eurex)", fut, { sub: `last on-book trade ${dTerm(DATA.asof)}` }) +
     panel("macro", "Macro and volatility", macro + `<p class="note pad">All series are end of day. Tick-by-tick data needs a paid feed (Bloomberg, LSEG, ICE); Deutsche Börse's free minute files cannot be read from a browser (no CORS) and the site has no server.</p>`, { sub: "VIX: CBOE close via FRED · EUR/USD: ECB reference rate" });
+  volWire();
 }
 
 // ------------------------------------------------------------------ THIS WEEK
@@ -1289,6 +1344,8 @@ const GLOSSARY = [
   ["RV BP", "Rich/cheap: Z-spread minus a curve fitted to the same issuer's other bonds. + cheap, − rich."],
   ["Carry", "Coupon income minus funding at the repo rate. Shorts pay the coupon and earn repo less the specialness."],
   ["Roll-down", "Price gain from the bond ageing along an unchanged curve (3 months shown)."],
+  ["Implied vol", "The volatility that makes an option's model price (Black-76) equal its traded price: the market's expected size of moves. Markets: Bund, Bobl, Schatz options, also in bp of yield per day."],
+  ["Smile", "Implied vol by strike. Options far below the future (puts) often cost more vol than at the money: protection against a sell-off is in demand."],
   ["Firm two-way", "Bid and offer both with size: you could have traded. Otherwise the quote is indicative (dotted)."],
   ["Benchmark", "Issue size at least EUR 500m and senior: the institutional, index-eligible universe."],
   ["CTD", "Cheapest-to-deliver: the bond a futures seller delivers (lowest gross basis). Futures DV01 = DV01(CTD) / CF."],
@@ -1341,7 +1398,7 @@ function renderGuide() {
     ["Curves", "ECB AAA and all-govt Svensson curves", "daily, published at noon the next business day"],
     ["€STR, EUR/USD", "ECB data portal", "daily"], ["SOFR", "New York Fed", "daily"],
     ["Credit indices, VIX", "FRED (ICE BofA OAS, CBOE)", "daily"],
-    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"]];
+    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"], ["Rates implied vol", "Eurex option trades (DEUR post-trade)", "daily, evening run"]];
   const data = `<table class="t"><thead><tr><th>DATA</th><th>SOURCE</th><th>UPDATED</th></tr></thead><tbody>${src.map(r => `<tr><td>${r[0]}</td><td class="dim">${r[1]}</td><td class="dim">${r[2]}</td></tr>`).join("")}</tbody></table>
     <p class="note pad">GitHub Actions collects the files every business day (22:37 UTC, retry 05:17 UTC), builds the analytics and publishes this site. The Deutsche Börse files are free for non-commercial use.</p>`;
   const L = D.log || [], ok = (x, lo) => +x >= lo ? "" : "neg";

@@ -10,6 +10,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 |---|---|---|
 | `mfs.py` | Deutsche Börse MiFID II files (mfs.deutsche-boerse.com) | Archives the per-minute pre-/post-trade files before they expire and builds daily bid/offer marks per ISIN |
 | `eurex.py` | Eurex post-trade (DEUR-posttrade via `mfs.py`) | Daily OHLC, VWAP, volume and block volume for government bond and credit index futures, keyed by product ISIN |
+| `eurex_options.py` | Eurex post-trade (DEUR-posttrade) | Implied volatility of the Schatz/Bobl/Bund futures options (OGBS/OGBM/OGBL) per trade (Black-76 on the future, undiscounted as the options are margined futures-style); per expiry ATM vol from a quadratic smile, 1-month constant-maturity ATM vol, and the same in bp of yield per day (price vol / futures duration / √252). Shown on MARKETS; `IV:<code>` in the history |
 | `firds.py` | ESMA FIRDS (FULINS) | Reference data per ISIN → SQLite (`--cat D` debt, `--cat F` futures) |
 | `classify.py` | FIRDS + DFRA pre-trade | Sector classification (sovereign, covered, financial/non-financial corporate …) and coverage summary |
 | `ecb_curve.py` | ECB YC (data-api.ecb.europa.eu) | Archives the ECB Svensson parameters (AAA and all euro area) since 2004; spot, forward, par and discount factors |

@@ -14,6 +14,7 @@ is therefore not redistributed publicly. Assets per day:
   dfra_quotes-<date>.csv.gz          bid/offer per bond at 12:00, 17:25 and close (mfs.py marks)
   bonds_classified-<date>.csv.gz     classification against FIRDS (classify.py), plus issuer list
   eurex_futures_daily-<date>.csv     government bond and credit index futures (eurex.py daily)
+  eurex_options-<date>.csv.gz        Bund/Bobl/Schatz option trades with implied volatility (eurex_options.py)
   DFRA-pretrade-bonds-<date>.tar     raw minute files, bond rows only (priceNotation 2)
   DFRA-posttrade-<date>.tar          raw minute files
   DEUR-posttrade-<date>.tar          raw minute and daily files
@@ -23,7 +24,7 @@ schedule alive: GitHub disables schedules in public repos after 60 days without 
 """
 import argparse, csv, datetime as dt, gzip, json, os, shutil, sqlite3, subprocess, sys, tarfile
 
-import eurex, mfs
+import eurex, eurex_options, mfs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -88,6 +89,10 @@ def build_day(day, archive, dist, db, firds_db=None):
         w = csv.writer(f); w.writerow([c[0] for c in cur.description]); w.writerows(cur)
 
     assets = [quotes, fut]
+    try:   # implied volatility from the Bund/Bobl/Schatz options; the day still publishes without it
+        assets.append(eurex_options.write(eurex_options.build(day, archive), os.path.join(dist, f"eurex_options-{day}.csv.gz")))
+    except Exception as e:
+        print(f"{day}: options skipped: {e}", file=sys.stderr)
     if firds_db and os.path.exists(firds_db):  # classification against FIRDS (sector, coupon, maturity ...)
         pre = [p for _, p in mfs.day_files(archive, "DFRA-pretrade", day)]
         out = os.path.join(dist, "bonds_classified.csv")
@@ -215,11 +220,12 @@ def cmd_site(a):
     dl = os.path.join(a.dist, "site-input", day)
     os.makedirs(dl, exist_ok=True)
     gh("release", "download", f"data-{day}", "-D", dl, "--clobber",
-       "-p", "dfra_quotes-*", "-p", "eurex_futures_daily-*", "-p", "bonds_classified-*", check=False)
+       "-p", "dfra_quotes-*", "-p", "eurex_futures_daily-*", "-p", "bonds_classified-*", "-p", "eurex_options-*", check=False)
     files = {f.split("-")[0]: os.path.join(dl, f) for f in os.listdir(dl)}
     bonds = files.get("bonds_classified") or os.path.join(HERE, "data", day, "bonds_classified.csv.gz")
     quotes = files.get("dfra_quotes") or os.path.join(HERE, "data", day, "dfra_quotes.csv.gz")
     fut = files.get("eurex_futures_daily") or os.path.join(HERE, "data", day, "eurex_futures_daily.csv")
+    opts = files.get("eurex_options") or os.path.join(HERE, "data", day, "eurex_options.csv.gz")
     missing = [p for p in (bonds, quotes, fut) if not os.path.exists(p)]
     if missing:
         print(f"{day}: missing {missing}", file=sys.stderr)
@@ -228,7 +234,7 @@ def cmd_site(a):
     ecb_curve.update(a.ecb_db, full=not os.path.exists(a.ecb_db), raw_dir=os.path.join(a.dist, "ecb_raw"))
     os.makedirs(a.out, exist_ok=True)
     subprocess.run([sys.executable, os.path.join(HERE, "site", "build.py"), "--day", day, "--ecb-db", a.ecb_db,
-                    "--bonds", bonds, "--quotes", quotes, "--futures", fut,
+                    "--bonds", bonds, "--quotes", quotes, "--futures", fut, "--options", opts,
                     "--history", os.path.join(HERE, "data", "history"),
                     "--out", os.path.join(a.out, "index.html")], check=True)
     return 0

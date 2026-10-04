@@ -13,7 +13,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import analytics as an, classify, ecb_collateral, ecb_curve, eurex, green, market  # noqa: E402
+import analytics as an, classify, ecb_collateral, ecb_curve, eurex, eurex_options, green, market  # noqa: E402
 
 SECTORS = ["CORP_NONFIN", "CORP_FIN", "COVERED", "SOV", "SUBSOV", "AGENCY", "SUPRA"]
 STRIP_RE = r"Kupons|Kapitalanteil|\bDBRS\b|\bDBRR\b|STRIP|I/L|Inflat|\bDBRI\b|\bOBLI\b|\bBTPS?I\b|\bOATI\b|\bOATE\b"
@@ -150,7 +150,7 @@ def add_green(rows, cols):
     return dict(n=sum(1 for row in rows if row[-1])) if g is not None else None
 
 
-def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
+def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, options_csv=None):
     ddir = os.path.join(ROOT, "data", day)
     b = pd.read_csv(bonds_csv or os.path.join(ddir, "bonds_classified.csv.gz"), index_col="isin", low_memory=False)
     ecbq, ecbday = load_ecb()
@@ -234,10 +234,21 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None):
             print(f"€STR unavailable: {ex}", file=sys.stderr)
 
     mkt = market.build(day, ecb_db)
+    vol = load_vol(options_csv or os.path.join(ddir, "eurex_options.csv.gz"), day, futures)
 
     return dict(asof=day, settle=settle.isoformat(), estr=estr, mkt=mkt, ecb=ecb, esg=esg, dq=dq, log=read_log(), built=dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
                 curve=dict(date=curve.date, b0=curve.b0, b1=curve.b1, b2=curve.b2, b3=curve.b3, t1=curve.t1, t2=curve.t2),
-                cols=cols, bonds=rows, futures=futures)
+                cols=cols, bonds=rows, futures=futures, vol=vol)
+
+
+def load_vol(path, day, futures):
+    """Implied volatility of the Bund/Bobl/Schatz options (eurex_options.py), or None without the file. The
+    future's modified duration, for the yield volatility, is its DV01 over its price value: DV01 / (F × 0.1)."""
+    if not os.path.exists(path):
+        print(f"no options file {path}; no implied volatility", file=sys.stderr)
+        return None
+    dur = {f["code"]: f["dv01"] / (f["last"] * f["mult"] * 1e-4) for f in futures if f.get("dv01") and f.get("last")}
+    return eurex_options.summary(eurex_options.read(path), day, dur)
 
 
 def read_log(path=os.path.join(ROOT, "data", "log.csv"), n=15):
@@ -279,6 +290,9 @@ def write_history(data, hist_dir):
                         b[c["ecb"]] if "ecb" in c else None])
         for fu in data["futures"]:
             w.writerow([f"FUT:{fu['code']}", fu["last"], (fu.get("ctd") or {}).get("ytm"), None, None, None])
+        for code, v in (data.get("vol") or {}).items():   # 1M ATM implied vol: % of price (mid), bp/day (ytm)
+            if v.get("atm1m"):
+                w.writerow([f"IV:{code}", r(v["atm1m"] * 100, 3), v.get("bp1m"), None, None, None])
     return path
 
 
@@ -411,6 +425,7 @@ if __name__ == "__main__":
     ap.add_argument("--bonds", help="bonds_classified.csv(.gz); default data/<date>/")
     ap.add_argument("--quotes", help="dfra_quotes csv; default data/<date>/")
     ap.add_argument("--futures", help="eurex_futures_daily csv; default data/<date>/")
+    ap.add_argument("--options", help="eurex_options csv (eurex_options.py); default data/<date>/")
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "elliotmalmstenkth/kthfiacc"))
     ap.add_argument("--branch", default=os.environ.get("PORTFOLIO_BRANCH", "claude/compassionate-edison-wxgg9h"))
     ap.add_argument("--positions", default="portfolio/positions.json")
@@ -418,7 +433,7 @@ if __name__ == "__main__":
     ap.add_argument("--out", default=os.path.join(ROOT, "site", "portfolio.html"))
     ap.add_argument("--history", help="history folder (data/history): writes the day's file and builds hist/ shards next to --out")
     a = ap.parse_args()
-    data = build(a.day, a.ecb_db, a.bonds, a.quotes, a.futures)
+    data = build(a.day, a.ecb_db, a.bonds, a.quotes, a.futures, a.options)
     if a.history:
         write_history(data, a.history)
         data["week"] = weekly(data, a.history)
