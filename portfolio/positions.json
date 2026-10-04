@@ -1,14 +1,3 @@
 {
- "positions": [
-  {
-   "id": "musshkigq9evk",
-   "kind": "bond",
-   "isin": "NL0009446418",
-   "qty": 1000000,
-   "price": 99.39,
-   "date": "2026-10-02",
-   "by": "elliotmalmstenkth",
-   "at": "2026-10-03T19:33:02.104Z"
-  }
- ]
+ "positions": []
 }
