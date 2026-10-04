@@ -83,9 +83,14 @@ table.t { border-collapse: collapse; width: 100%; }
 .t tbody tr.sel td.nm { color: #ffc56b; }
 .t td.amb, .t .amb { color: var(--amber); } .t td.dim { color: var(--fg-2); }
 .t td.desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
-.t.vt { table-layout: fixed; min-width: calc(104ch + 163px); }   /* screener: fixed columns */
+.t.vt { table-layout: fixed; min-width: calc(110ch + 176px); }   /* screener: fixed columns */
 .t.vt td { overflow: hidden; text-overflow: ellipsis; }
 .t.vt td.nm { max-width: none; }
+/* column filters: an amber input under each header (Bloomberg SRCH) */
+.t.vt tr.cf th { top: var(--hh, 21px); padding: 0; background: var(--field); border-right: 1px solid #b06a00; }
+.t.vt tr.cf input { width: 100%; border: 0; padding: 1px 5px; font: inherit; font-size: 12px; background: var(--field); }
+.t.vt tr.cf th.n input { text-align: right; }
+.t.vt tr.cf input.bad { background: #ff8a8a; }
 .t tr.sp td { padding: 0; border: 0; }
 .t tbody tr.sp:hover td { background: none; }
 .t tfoot td { border-top: 1px solid var(--line); color: #fff; background: var(--band-2); }
@@ -135,10 +140,6 @@ input.cmd:hover { border-color: var(--fg-3); }
 .atabs button[aria-selected="true"] .ct { color: #333; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .filters input[type="search"] { flex: 1 1 220px; min-width: 0; }
-.rng { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--line); background: var(--band-2); }
-.rng[hidden] { display: none; }
-.rng label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.rng input.num { width: 5.5em; }
 .more { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 3px 8px; border-top: 1px solid var(--line); color: var(--fg-3); }
 
 /* ---- bars / chart ---- */
@@ -302,7 +303,7 @@ const BONDS = DATA.bonds.map(r => Object.fromEntries(DATA.cols.map((c, i) => [c,
 const BY_ISIN = new Map(BONDS.map(b => [b.isin, b]));
 const FUT = new Map(DATA.futures.map(f => [f.code, f]));
 const SETTLE = new Date(DATA.settle + "T12:00:00");
-for (const b of BONDS) { b.mid = (b.bid + b.ask) / 2; b.yrs = (new Date(b.mat + "T12:00:00") - SETTLE) / 3.15576e10; }
+for (const b of BONDS) { b.mid = (b.bid + b.ask) / 2; b.ba = b.bid && b.ask ? b.ask - b.bid : null; b.yrs = (new Date(b.mat + "T12:00:00") - SETTLE) / 3.15576e10; }
 
 const nf = (d) => new Intl.NumberFormat("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
 const F = new Proxy({}, { get: (c, d) => c[d] ??= nf(+d) });
@@ -610,7 +611,7 @@ const state = {
   view: store("view") || "dash",
   q: "", tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", off: new Set(store("subOff") || []), bench: store("bench") ?? true,
   firm: store("firm") ?? false, esgOnly: store("esgOnly") ?? false, hideDq: store("hideDq") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: (store("sort")?.[0] === "isin" ? null : store("sort")) || ["amt", -1],
-  dur: store("dur") || {}, rng: store("rng") || {}, rngOpen: store("rngOpen") ?? false, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
+  dur: store("dur") || {}, cf: store("cf") || {}, noSlb: store("noSlb") ?? false, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
   repo: store("repo") ?? DATA.estr?.rate ?? 2.0, special: store("special") ?? 0, stratSel: null, stratName: "",
@@ -730,7 +731,7 @@ function applyLive(j) {
     b.eod ??= { mid: b.mid, ytm: b.ytm, z: b.z };
     const [bid, ask, bq, aq, t] = q;
     if (bid == null || ask == null || ask < bid) continue;   // one-sided now: keep the last two-way mark
-    Object.assign(b, { bid, ask, mid: (bid + ask) / 2, firm: bq > 0 && aq > 0 ? 1 : 0, live: t });
+    Object.assign(b, { bid, ask, mid: (bid + ask) / 2, ba: ask - bid, firm: bq > 0 && aq > 0 ? 1 : 0, live: t });
     // first-order repricing from the end-of-day analytics: Δy = −Δprice / (dirty × modified duration)
     const dy = -(b.mid - b.eod.mid) / (b.eod.mid + b.acc) / b.mdur * 100;
     b.ytm = b.eod.ytm + dy;
@@ -1311,7 +1312,7 @@ function renderGuide() {
       <li><b>Dashboard</b>: book KPIs, holdings, market monitor, DV01 by bucket, curve.</li>
       <li><b>Holdings &amp; P&amp;L</b>: blotter, strategies, attribution, sector summary, funding assumptions.</li>
       <li><b>Risk analytics</b>: key-rate DV01, credit spread risk, hedge proposal, VaR / expected shortfall.</li>
-      <li><b>Trade</b>: bond screener (CORP / GOVT / SSA / COVERED), Eurex futures, ticket for outright, pair and fly trades. <b>RANGES</b> opens min / max filters on duration, Z-spread, yield, RV, coupon, years, size and bid-offer.</li>
+      <li><b>Trade</b>: bond screener (CORP / GOVT / SSA / COVERED), Eurex futures, ticket for outright, pair and fly trades. Filter in the amber row under the column headers: <code>4.5-5.5</code>, <code>&gt;60</code>, <code>&lt;0.2</code>, <code>&gt;4 &lt;6</code>; text columns match on contains, MATURITY on years (<code>2030-2032</code>).</li>
       <li><b>Markets</b>: yields, credit spreads, money markets, futures, VIX and EUR/USD.</li>
       <li><b>This week</b>: new issues, spread movers, ECB credit quality changes, rich/cheap flips, next week.</li>
       <li><b>Guide</b>: this page.</li></ol>
@@ -1362,7 +1363,7 @@ function renderGuide() {
 
 // ------------------------------------------------------------------ TRADE
 const BCOLS = [["name", "BOND"], ["sector", "SECTOR"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
-  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"],
+  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ba", "B-O", 3, "Bid-offer in price points (offer − bid)"], ["ytm", "YTM", 2], ["z", "Z BP", 0], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"],
   ["ecb", "ECB", undefined, "Eurosystem credit quality from the ECB list of eligible collateral: ≥A− (steps 1–2), BBB (step 3), – not on the list"], ["mdur", "MOD DUR", 2]];
 // ECB credit quality: the class of a bond for the filter chips and its label
 const ECB_CLS = (b) => b.ecb === "1-2" ? "a" : b.ecb === "3" ? "bbb" : "ne";
@@ -1376,23 +1377,43 @@ const esgTag = (b) => b.esg ? `<span class="esg${b.esg === "SLB" ? " slb" : ""}"
 let VISIBLE = [], ROW_H = 20, DRAWN = "";
 const SCR = {};
 // fixed column widths (characters) so the columns stay put while scrolling; the bond name takes the rest
-const BW = { sector: 11, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ytm: 7, z: 7, rv: 7, ecb: 5, mdur: 9 };
+const BW = { sector: 11, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ba: 6, ytm: 7, z: 7, rv: 7, ecb: 5, mdur: 9 };
 
 const curTab = () => TABS.find(t => t.k === state.tab);
-// numeric range filters (Bloomberg SRCH style): [key, label, value of a bond, input step]
-const RNG = [["mdur", "MOD DUR", b => b.mdur], ["z", "Z BP", b => b.z], ["ytm", "YTM %", b => b.ytm], ["rv", "RV BP", b => b.rv],
-  ["cpn", "CPN %", b => b.cpn], ["yrs", "YEARS", b => b.yrs], ["amt", "SIZE M", b => b.amt], ["ba", "BID-OFFER PTS", b => b.bid && b.ask ? b.ask - b.bid : null]];
-const rngOn = () => RNG.filter(([k]) => state.rng[k] && (state.rng[k][0] != null || state.rng[k][1] != null));
-function rngMatch() {
-  const on = rngOn().map(([k, , f]) => [f, state.rng[k][0], state.rng[k][1]]), noSlb = state.rng.noSlb;
-  return b => (!noSlb || b.esg !== "SLB") && on.every(([f, lo, hi]) => { const v = f(b); return v != null && isFinite(v) && (lo == null || v >= lo) && (hi == null || v <= hi); });
+// Column filters, typed in the amber row under the headers. Numbers: 4.5-5.5 (range), >60, <=0.2, ">4 <6", or a
+// number (equal at the decimals typed). MATURITY takes years the same way (2030-2032, >2031). Text: contains.
+function numPred(t) {
+  const parts = t.replace(/,/g, ".").replace(/−/g, "-").trim().split(/\s+(?=[<>=])|\s*&\s*/).filter(Boolean), tests = [];
+  const N = "(-?\\d*\\.?\\d+)";
+  for (const x of parts) {
+    let m = x.match(new RegExp(`^${N}\\s*(?:\\.\\.|–|-|to)\\s*${N}$`));
+    if (m) { const lo = Math.min(+m[1], +m[2]), hi = Math.max(+m[1], +m[2]); tests.push(v => v >= lo && v <= hi); continue; }
+    m = x.match(new RegExp(`^(>=|<=|>|<|=)?\\s*${N}$`));
+    if (!m) return null;
+    const c = +m[2], d = (m[2].split(".")[1] || "").length;
+    tests.push({ ">": v => v > c, "<": v => v < c, ">=": v => v >= c, "<=": v => v <= c }[m[1]] || (v => Math.abs(v - c) < 0.5 * 10 ** -d + 1e-9));
+  }
+  return tests.length ? v => v != null && isFinite(v) && tests.every(f => f(v)) : null;
+}
+const CF_VAL = { name: b => `${b.name} ${b.issuer}`, sector: b => SECT[b.sector], ecb: b => ECB_LBL[b.ecb] || "–", mat: b => +b.mat.slice(0, 4) };
+const CF_TEXT = new Set(["name", "sector", "ecb"]);
+// {key: predicate} for the filters that parse; a filter that does not parse is ignored (and shown in red)
+function colPreds() {
+  const out = [];
+  for (const [k, t] of Object.entries(state.cf)) {
+    if (!t || !t.trim()) continue;
+    const val = CF_VAL[k] || (b => b[k]);
+    if (CF_TEXT.has(k)) { const q = t.trim().toLowerCase(); out.push(b => String(val(b)).toLowerCase().includes(q)); continue; }
+    const f = numPred(t); if (f) out.push(b => f(val(b)));
+  }
+  return out;
 }
 
 // search, maturity, benchmark and firm filters (everything except the tab and its sector chips)
 function matcher() {
   const q = state.q.trim().toLowerCase();
-  const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat], rm = rngMatch();
-  return b => rm(b) && (!state.bench || b.bench) && (!state.firm || b.firm) && (!state.esgOnly || b.esg) && (!state.hideDq || !b.dq) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi
+  const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat], cp = colPreds();
+  return b => (!state.noSlb || b.esg !== "SLB") && cp.every(f => f(b)) && (!state.bench || b.bench) && (!state.firm || b.firm) && (!state.esgOnly || b.esg) && (!state.hideDq || !b.dq) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi
     && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q));
 }
 
@@ -1415,7 +1436,7 @@ function renderDesk() {
   if (!el.dataset.built) {
     el.dataset.built = 1;
     el.innerHTML =
-      `<div class="panel" style="grid-area:scr"><div class="ph"><h2>Bond screener</h2><span class="sub" id="scrCount"></span><span class="tools"><button class="btn" id="csvScr">EXPORT CSV</button></span></div>
+      `<div class="panel" style="grid-area:scr"><div class="ph"><h2>Bond screener</h2><span class="sub" id="scrCount"></span><span class="tools"><button class="btn" id="cfClr" title="Clear the column filters" hidden>CLEAR FILTERS</button><button class="btn" id="csvScr">EXPORT CSV</button></span></div>
         <div class="atabs" id="atabs" role="tablist" aria-label="Asset class">${TABS.map(t => `<button role="tab" data-tab="${t.k}" title="${t.t}">${t.l}<span class="ct"></span></button>`).join("")}</div>
         <div class="filters">
           <input type="search" id="q" class="cmd" placeholder="/  issuer, ticker, ISIN" aria-label="Search bonds">
@@ -1425,11 +1446,9 @@ function renderDesk() {
           <button class="tog" id="firm" title="Bid and offer both with size">FIRM TWO-WAY</button>
           <button class="tog" id="esgf" title="Green, social, sustainability and sustainability-linked bonds (Euronext ESG bond list)">ESG LABELLED</button>
           <button class="tog" id="dqf" title="Hide bonds whose closing quote fails a quality check (very wide bid-offer, implausible price, extreme spread, far off the issuer curve)">HIDE FLAGGED QUOTES</button>
-          <button class="tog" id="rngT" title="Min / max filters on duration, spread, yield, size and bid-offer">RANGES</button>
+          <button class="tog" id="noSlb" title="Exclude sustainability-linked bonds (the coupon steps up if targets are missed)">EXCL. SLB</button>
           <div class="chips" id="ecbf" aria-label="ECB credit quality" title="Eurosystem collateral list: credit quality step 1–2 (A− or better), step 3 (BBB), or not on the list (high yield, or an issuer the ECB does not accept)">${[["a", "≥A−"], ["bbb", "BBB"], ["ne", "NOT ON ECB LIST"]].map(([k, l]) => `<button data-q="${k}">${l}</button>`).join("")}</div>
         </div>
-        <div class="rng" id="rng" hidden>${RNG.map(([k, l]) => `<label>${l}<input class="num" data-r="${k}" data-i="0" placeholder="min" inputmode="decimal" aria-label="${l} min">–<input class="num" data-r="${k}" data-i="1" placeholder="max" inputmode="decimal" aria-label="${l} max"></label>`).join("")}
-          <button class="tog" id="noSlb" title="Exclude sustainability-linked bonds (the coupon steps up if targets are missed)">EXCL. SLB</button><button class="btn" id="rngClr">CLEAR</button></div>
         <div class="pb" id="scrBody" tabindex="0" aria-label="Bond list, use arrow keys to select"></div>
         <div class="more" id="scrMore"></div></div>` +
       `<div class="panel" style="grid-area:fut"><div class="ph"><h2>Eurex futures</h2><span class="sub">last on-book trade ${dTerm(DATA.asof)}, not the official settlement price</span></div><div class="pb" id="futBody"></div></div>` +
@@ -1443,13 +1462,10 @@ function renderDesk() {
     $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); renderScreener(true); };
     $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); renderScreener(true); };
     $("#esgf").onclick = () => { state.esgOnly = !state.esgOnly; store("esgOnly", state.esgOnly); renderScreener(true); };
-    const rngIn = (e) => { const k = e.target.dataset.r; if (!k) return; const i = +e.target.dataset.i, t = e.target.value.trim().replace(",", "."), v = t === "" ? null : Number(t);
-      if (t !== "" && !isFinite(v)) return; const r = state.rng[k] = (state.rng[k] || [null, null]).slice(); r[i] = v; store("rng", state.rng); renderScreener(true); };
-    $("#rng").addEventListener("input", rngIn);
-    $("#rngT").onclick = () => { state.rngOpen = !state.rngOpen; store("rngOpen", state.rngOpen); renderScreener(); };
-    $("#noSlb").onclick = () => { state.rng.noSlb = !state.rng.noSlb; store("rng", state.rng); renderScreener(true); };
-    $("#rngClr").onclick = () => { state.rng = {}; store("rng", {}); document.querySelectorAll("#rng input").forEach(x => x.value = ""); renderScreener(true); };
-    document.querySelectorAll("#rng input").forEach(x => { const v = state.rng[x.dataset.r]?.[+x.dataset.i]; if (v != null) x.value = v; });
+    $("#noSlb").onclick = () => { state.noSlb = !state.noSlb; store("noSlb", state.noSlb); renderScreener(true); };
+    // typing in a column filter re-filters without rebuilding the table, so the input keeps focus
+    $("#scrBody").addEventListener("input", e => { const k = e.target.dataset?.f; if (!k) return; state.cf[k] = e.target.value; store("cf", state.cf); refilter(); });
+    $("#cfClr").onclick = () => { state.cf = {}; store("cf", {}); renderScreener(true); };
     $("#dqf").onclick = () => { state.hideDq = !state.hideDq; store("hideDq", state.hideDq); renderScreener(true); };
     $("#ecbf").onclick = e => { const k = e.target.dataset.q; if (!k) return; state.ecbOff.has(k) ? state.ecbOff.delete(k) : state.ecbOff.add(k); store("ecbOff", [...state.ecbOff]); renderScreener(true); };
     let raf = 0;
@@ -1473,25 +1489,40 @@ function renderScreener(reset = false) {
   document.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
   $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm); $("#esgf").setAttribute("aria-pressed", state.esgOnly); $("#dqf").setAttribute("aria-pressed", state.hideDq);
   document.querySelectorAll("#ecbf button").forEach(b => b.setAttribute("aria-pressed", !state.ecbOff.has(b.dataset.q)));
-  const nr = rngOn().length + (state.rng.noSlb ? 1 : 0);
-  $("#rngT").setAttribute("aria-pressed", state.rngOpen); $("#rngT").textContent = nr ? `RANGES (${nr})` : "RANGES"; $("#rng").hidden = !state.rngOpen;
-  $("#noSlb").setAttribute("aria-pressed", !!state.rng.noSlb);
+  $("#noSlb").setAttribute("aria-pressed", state.noSlb);
   const xs = filtered(), [sk, sd] = state.sort, box = $("#scrBody");
   const top = reset ? 0 : box.scrollTop;
   VISIBLE = xs; SCR.tab = tab; SCR.counts = counts; DRAWN = "";
   const head = BCOLS.map(([k, l, d, t]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}"${t ? ` title="${esc(t)}"` : ""}>${l}${sk === k ? (sd > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
   const cols = BCOLS.map(([k]) => BW[k] ? `<col style="width:calc(${BW[k]}ch + 13px)">` : "<col>").join("");
-  box.innerHTML = `<table class="t vt"><colgroup>${cols}</colgroup><thead><tr>${head}</tr></thead><tbody id="scrRows"></tbody></table>`;
+  const ph = { name: "issuer / name", mat: "2030-2032", mdur: "4.5-5.5", z: ">60", ba: "<0.2" };
+  const frow = BCOLS.map(([k, , d]) => `<th class="${d !== undefined ? "n" : ""}"><input data-f="${k}" value="${esc(state.cf[k] || "")}" placeholder="${ph[k] || ""}" aria-label="Filter ${k}" title="${CF_TEXT.has(k) ? "contains" : "4.5-5.5 · >60 · <=0.2 · >4 <6 · a number"}${k === "mat" ? " (years)" : ""}" autocomplete="off" spellcheck="false"></th>`).join("");
+  box.innerHTML = `<table class="t vt"><colgroup>${cols}</colgroup><thead><tr>${head}</tr><tr class="cf">${frow}</tr></thead><tbody id="scrRows"></tbody></table>`;
+  box.style.setProperty("--hh", box.querySelector("thead tr").offsetHeight + "px");
+  markFilters();
   drawRows(top);
   box.scrollTop = top;
   $("#scrCount").textContent = `${tab.t} · ${fmt(xs.length, 0)} bonds · mid-based analytics`;
   document.querySelectorAll("#scrBody th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["name", "mat", "sector"].includes(k) ? 1 : -1)]; store("sort", state.sort); renderScreener(true); });
 }
 
+// the filters changed: new row set, same table (keeps the focus in the filter being typed)
+function refilter() {
+  const counts = tabCounts();
+  document.querySelectorAll("#atabs button").forEach(b => b.querySelector(".ct").textContent = fmt(counts[b.dataset.tab], 0));
+  VISIBLE = filtered(); SCR.counts = counts; DRAWN = "";
+  $("#scrBody").scrollTop = 0; drawRows(0); markFilters();
+  $("#scrCount").textContent = `${SCR.tab.t} · ${fmt(VISIBLE.length, 0)} bonds · mid-based analytics`;
+}
+function markFilters() {
+  document.querySelectorAll("#scrBody tr.cf input").forEach(x => { const t = x.value.trim(); x.classList.toggle("bad", !!t && !CF_TEXT.has(x.dataset.f) && !numPred(t)); });
+  $("#cfClr").hidden = !Object.values(state.cf).some(t => t && t.trim());
+}
+
 const bondRow = (b, selIsin) => `<tr class="click${b.isin === selIsin ? " sel" : ""}" data-pick="${b.isin}" data-kind="bond">
       <td class="nm">${dqTag(b)}${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}${esgTag(b)}</td><td class="dim">${SECT[b.sector]}</td>
       <td class="n">${fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
-      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td>
+      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td><td class="n dim">${fmt(b.ba, 3)}</td>
       <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="${b.ecb === "3" ? "amb" : b.ecb ? "" : "muted"}">${ECB_LBL[b.ecb] || "–"}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
 
 // Infinite scroll: the screener holds every matching bond but draws only the rows around the viewport, with
