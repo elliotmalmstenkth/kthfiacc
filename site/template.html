@@ -1495,8 +1495,7 @@ function renderScreener(reset = false) {
   VISIBLE = xs; SCR.tab = tab; SCR.counts = counts; DRAWN = "";
   const head = BCOLS.map(([k, l, d, t]) => `<th class="sort${d !== undefined ? " n" : ""}" data-k="${k}"${t ? ` title="${esc(t)}"` : ""}>${l}${sk === k ? (sd > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
   const cols = BCOLS.map(([k]) => BW[k] ? `<col style="width:calc(${BW[k]}ch + 13px)">` : "<col>").join("");
-  const ph = { name: "issuer / name", mat: "2030-2032", mdur: "4.5-5.5", z: ">60", ba: "<0.2" };
-  const frow = BCOLS.map(([k, , d]) => `<th class="${d !== undefined ? "n" : ""}"><input data-f="${k}" value="${esc(state.cf[k] || "")}" placeholder="${ph[k] || ""}" aria-label="Filter ${k}" title="${CF_TEXT.has(k) ? "contains" : "4.5-5.5 · >60 · <=0.2 · >4 <6 · a number"}${k === "mat" ? " (years)" : ""}" autocomplete="off" spellcheck="false"></th>`).join("");
+  const frow = BCOLS.map(([k, , d]) => `<th class="${d !== undefined ? "n" : ""}"><input data-f="${k}" value="${esc(state.cf[k] || "")}" aria-label="Filter ${k}" title="${CF_TEXT.has(k) ? "contains" : "4.5-5.5 · >60 · <=0.2 · >4 <6 · a number"}${k === "mat" ? " (years)" : ""}" autocomplete="off" spellcheck="false"></th>`).join("");
   box.innerHTML = `<table class="t vt"><colgroup>${cols}</colgroup><thead><tr>${head}</tr><tr class="cf">${frow}</tr></thead><tbody id="scrRows"></tbody></table>`;
   box.style.setProperty("--hh", box.querySelector("thead tr").offsetHeight + "px");
   markFilters();
