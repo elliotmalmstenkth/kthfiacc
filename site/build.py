@@ -501,6 +501,20 @@ def pnl_history(hist_dir, positions_path, mkt, ccy_of=None):
         fecx0 = fecx0 or fe
         out["d"].append(d); out["pnl"].append(r(pnl, 0)); out["gross"].append(r(gross, 0))
         out["bench"].append(r((fe / fecx0 - 1) * 100, 4) if fe and fecx0 else None)
+    out["twr"] = time_weighted(out["pnl"], out["gross"])
+    return out
+
+
+def time_weighted(pnl, gross):
+    """Cumulative time-weighted return in % per day: each day's P&L over the capital at work that day, chained, so
+    buying or selling does not move the return. Capital at work = the larger of the previous and the day's gross
+    bond market value (a bond bought today counts in full, so its entry cost is not magnified; one sold today still
+    counts for the P&L it made); a day with no bonds held returns 0."""
+    out, acc = [], 1.0
+    for i, v in enumerate(pnl):
+        base = max(gross[i - 1] if i else 0, gross[i])
+        acc *= 1 + ((v - (pnl[i - 1] if i else 0)) / base if base > 0 else 0)
+        out.append(round((acc - 1) * 100, 4))
     return out
 
 

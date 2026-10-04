@@ -1181,13 +1181,13 @@ function perfPanel() {
   const daily = pnl.map((v, i) => i ? v - pnl[i - 1] : v);
   let peak = -Infinity, dd = 0; for (const v of pnl) { peak = Math.max(peak, v); dd = Math.min(dd, v - peak); }
   const mean = daily.reduce((a, b) => a + b, 0) / n, sd = Math.sqrt(daily.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1));
-  const ret = avgG ? pnl.at(-1) / avgG * 100 : null, bench = H.bench.at(-1);
+  const ret = H.twr ? H.twr.at(-1) : avgG ? pnl.at(-1) / avgG * 100 : null, bench = H.bench.at(-1);
   const best = Math.max(...daily), worst = Math.min(...daily);
   return `<div class="sect"><div class="lbl">BOOK P&amp;L, EUR (CLEAN + REALIZED)</div><div class="hist" id="perfHist"></div></div>
     <dl class="kv pad"><dt>Days</dt><dd>${n} (${dTerm(H.d[0])} – ${dTerm(H.d.at(-1))})</dd><dt>P&amp;L</dt><dd class="${cls(pnl.at(-1))}">${fmtS(pnl.at(-1), 0)} EUR</dd>
-      <dt title="P&L over the average gross bond market value">Return on gross</dt><dd class="${cls(ret)}">${ret == null ? "–" : fmtS(ret, 2) + "%"}</dd>
+      <dt title="time-weighted: each day's P&L over the bonds held that day, chained, so buying or selling does not move it">Return (time-weighted)</dt><dd class="${cls(ret)}">${ret == null ? "–" : fmtS(ret, 2) + "%"}</dd>
       <dt title="the FECX future's price change over the same days">FECX index</dt><dd class="${cls(bench)}">${bench == null ? "–" : fmtS(bench, 2) + "%"}</dd>
-      <dt title="return on gross minus the index">Excess return</dt><dd class="${cls(ret - bench)}">${ret == null || bench == null ? "–" : fmtS(ret - bench, 2) + "%"}</dd>
+      <dt title="time-weighted return minus the index">Excess return</dt><dd class="${cls(ret - bench)}">${ret == null || bench == null ? "–" : fmtS(ret - bench, 2) + "%"}</dd>
       <dt title="mean daily P&L / its standard deviation × √252; shown from 10 days">Sharpe ratio</dt><dd>${n >= 10 && sd > 0 ? fmt(mean / sd * Math.sqrt(252), 2) : "– (needs 10 days)"}</dd>
       <dt>Max drawdown</dt><dd class="${cls(dd)}">${fmtS(dd, 0)} EUR</dd><dt>Best / worst day</dt><dd>${fmtS(best, 0)} / ${fmtS(worst, 0)}</dd></dl>
     <p class="note pad">A fund like AMF's is judged against an index, not in euros: excess return and drawdown are the numbers to beat. Carry is left out of the history; the evening marks are mids.</p>`;

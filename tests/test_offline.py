@@ -845,6 +845,16 @@ def test_pnl_history_marks_open_and_realized(tmp_path):
     assert out["bench"][1] == pytest.approx(1.0, abs=1e-6)
 
 
+def test_time_weighted_return_ignores_new_money():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    # 1M earns 1% on day 2; 4M more is bought on day 3 at no cost and the 5M book earns 1% on day 4
+    twr = build.time_weighted([0, 10000, 10000, 60000], [1e6, 1.01e6, 5.01e6, 5.06e6])
+    assert twr[1] == pytest.approx(1 / 1.01, rel=1e-3) and twr[2] == twr[1]          # buying adds nothing
+    assert twr[3] == pytest.approx(((1 + 0.01 / 1.01) * (1 + 50000 / 5.06e6) - 1) * 100, abs=1e-4)
+    assert build.time_weighted([0, 0], [0, 0]) == [0, 0]                           # futures only: no bond capital
+
+
 def test_nelson_siegel_fit_and_points_curve():
     import govt_curves as gc
     true = (0.6, -0.5, 0.8, 3.0)
