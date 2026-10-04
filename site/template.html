@@ -291,7 +291,7 @@ const DATA = /*__DATA__*/null;
 // ------------------------------------------------------------------ data
 const SECT = { CORP_NONFIN: "Corporates", CORP_FIN: "Financials", COVERED: "Covered", SOV: "Sovereigns",
                SUBSOV: "Sub-sovereigns", AGENCY: "Agencies", SUPRA: "Supranationals" };
-// screener tabs by asset class (Bloomberg SECF: Corp, Govt …); s = sectors in the tab, with chip labels
+// screener tabs by asset class (Bloomberg SECF: Corp, Govt …); s = sectors in the tab
 const TABS = [
   { k: "corp", l: "CORP", t: "Corporates: financials and non-financials", s: [["CORP_FIN", "FIN"], ["CORP_NONFIN", "NON-FIN"]] },
   { k: "govt", l: "GOVT", t: "Sovereigns", s: [["SOV", "SOVEREIGNS"]] },
@@ -609,7 +609,7 @@ function hedgeCalc(bk) {
 // ------------------------------------------------------------------ state
 const state = {
   view: store("view") || "dash",
-  q: "", tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", off: new Set(store("subOff") || []), bench: store("bench") ?? true,
+  tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", bench: store("bench") ?? true,
   firm: store("firm") ?? false, esgOnly: store("esgOnly") ?? false, hideDq: store("hideDq") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: (store("sort")?.[0] === "isin" ? null : store("sort")) || ["amt", -1],
   dur: store("dur") || {}, cf: store("cf") || {}, noSlb: store("noSlb") ?? false, hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
@@ -1331,7 +1331,7 @@ function renderGuide() {
       <tr><td><code>5</code></td><td>equal at the decimals typed</td><td>MOD DUR <code>5</code> = 4.5 to 5.5; <code>4.9</code> = 4.85 to 4.95</td></tr>
       <tr><td><code>-10-10</code></td><td>negative numbers work</td><td>RV BP: within 10 bp of the issuer curve</td></tr>
       <tr><td><code>2030-2032</code></td><td>MATURITY takes years</td><td>bonds maturing 2030 to 2032</td></tr>
-      <tr><td><code>heidel</code></td><td>text columns: contains</td><td>BOND (name or issuer), SECTOR, ECB (<code>BBB</code>)</td></tr>
+      <tr><td><code>heidel</code></td><td>text columns: contains</td><td>BOND (name, issuer or ISIN), SECTOR, ECB (<code>BBB</code>)</td></tr>
     </tbody></table>
     <h3>KEYS</h3><p class="note"><kbd>1</kbd>–<kbd>7</kbd> workspace · <kbd>/</kbd> search · <kbd>[</kbd> <kbd>]</kbd> screener tab · <kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Enter</kbd> ticket size · <kbd>Esc</kbd> close</p></div>`;
   const gloss = `<div class="sect"><dl class="gl">${GLOSSARY.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`;
@@ -1406,7 +1406,7 @@ function numPred(t) {
   }
   return tests.length ? v => v != null && isFinite(v) && tests.every(f => f(v)) : null;
 }
-const CF_VAL = { name: b => `${b.name} ${b.issuer}`, sector: b => SECT[b.sector], ecb: b => ECB_LBL[b.ecb] || "–", mat: b => +b.mat.slice(0, 4) };
+const CF_VAL = { name: b => `${b.name} ${b.issuer} ${b.isin}`, sector: b => SECT[b.sector], ecb: b => ECB_LBL[b.ecb] || "–", mat: b => +b.mat.slice(0, 4) };
 const CF_TEXT = new Set(["name", "sector", "ecb"]);
 // {key: predicate} for the filters that parse; a filter that does not parse is ignored (and shown in red)
 function colPreds() {
@@ -1420,12 +1420,10 @@ function colPreds() {
   return out;
 }
 
-// search, maturity, benchmark and firm filters (everything except the tab and its sector chips)
+// column filters and the buttons above the table (everything except the tab)
 function matcher() {
-  const q = state.q.trim().toLowerCase();
   const [mlo, mhi] = { all: [0, 1e9], "0-3": [0, 3], "3-7": [3, 7], "7-15": [7, 15], "15+": [15, 1e9] }[state.mat], cp = colPreds();
-  return b => (!state.noSlb || b.esg !== "SLB") && cp.every(f => f(b)) && (!state.bench || b.bench) && (!state.firm || b.firm) && (!state.esgOnly || b.esg) && (!state.hideDq || !b.dq) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi
-    && (!q || b.isin.toLowerCase().includes(q) || b.name.toLowerCase().includes(q) || b.issuer.toLowerCase().includes(q));
+  return b => (!state.noSlb || b.esg !== "SLB") && cp.every(f => f(b)) && (!state.bench || b.bench) && (!state.firm || b.firm) && (!state.esgOnly || b.esg) && (!state.hideDq || !b.dq) && !state.ecbOff.has(ECB_CLS(b)) && b.yrs >= mlo && b.yrs < mhi;
 }
 
 function tabCounts() {
@@ -1435,7 +1433,7 @@ function tabCounts() {
 }
 
 function filtered() {
-  const ok = matcher(), secs = curTab().s.map(([s]) => s).filter(s => !state.off.has(s));
+  const ok = matcher(), secs = curTab().s.map(([s]) => s);
   const xs = BONDS.filter(b => secs.includes(b.sector) && ok(b));
   const [k, dir] = state.sort;
   xs.sort((a, b) => { const x = a[k], y = b[k]; if (x == null) return 1; if (y == null) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
@@ -1450,8 +1448,6 @@ function renderDesk() {
       `<div class="panel" style="grid-area:scr"><div class="ph"><h2>Bond screener</h2><span class="sub" id="scrCount"></span><span class="tools"><button class="btn" id="cfClr" title="Clear the column filters" hidden>CLEAR FILTERS</button><button class="btn" id="csvScr">EXPORT CSV</button></span></div>
         <div class="atabs" id="atabs" role="tablist" aria-label="Asset class">${TABS.map(t => `<button role="tab" data-tab="${t.k}" title="${t.t}">${t.l}<span class="ct"></span></button>`).join("")}</div>
         <div class="filters">
-          <input type="search" id="q" class="cmd" placeholder="/  issuer, ticker, ISIN" aria-label="Search bonds">
-          <div class="chips" id="sectors" aria-label="Sector"></div>
           <div class="chips" id="mat" aria-label="Maturity">${[["all", "ALL"], ["0-3", "0-3Y"], ["3-7", "3-7Y"], ["7-15", "7-15Y"], ["15+", "15Y+"]].map(([k, l]) => `<button data-m="${k}">${l}</button>`).join("")}</div>
           <button class="tog" id="bench" title="Issue size at least EUR 500m, senior (no subordinated, hybrid or perpetual)">BENCHMARK ≥€500M SENIOR</button>
           <button class="tog" id="firm" title="Bid and offer both with size">FIRM TWO-WAY</button>
@@ -1464,11 +1460,7 @@ function renderDesk() {
         <div class="more" id="scrMore"></div></div>` +
       `<div class="panel" style="grid-area:fut"><div class="ph"><h2>Eurex futures</h2><span class="sub">last on-book trade ${dTerm(DATA.asof)}, not the official settlement price</span></div><div class="pb" id="futBody"></div></div>` +
       `<div class="panel" style="grid-area:tkt"><div class="ph"><h2>Trade ticket</h2><span class="sub" id="tktSub"></span></div><div class="pb" id="tktBody"></div></div>`;
-    const qi = $("#q"); qi.value = state.q;
-    qi.oninput = () => { state.q = qi.value; renderScreener(true); };
-    qi.addEventListener("search", qi.oninput);   // Esc clears a search box without an input event
     $("#atabs").onclick = e => { const k = e.target.closest("button")?.dataset.tab; if (k) setTab(k); };
-    $("#sectors").onclick = e => { const s = e.target.dataset.s; if (!s) return; state.off.has(s) ? state.off.delete(s) : state.off.add(s); store("subOff", [...state.off]); renderScreener(true); };
     $("#mat").onclick = e => { const m = e.target.dataset.m; if (!m) return; state.mat = m; store("mat", m); renderScreener(true); };
     $("#bench").onclick = () => { state.bench = !state.bench; store("bench", state.bench); renderScreener(true); };
     $("#firm").onclick = () => { state.firm = !state.firm; store("firm", state.firm); renderScreener(true); };
@@ -1494,9 +1486,6 @@ function setTab(k) { state.tab = k; store("tab", k); renderScreener(true); }
 function renderScreener(reset = false) {
   const tab = curTab(), counts = tabCounts();
   document.querySelectorAll("#atabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.tab === state.tab); b.querySelector(".ct").textContent = fmt(counts[b.dataset.tab], 0); });
-  // sector chips only when the tab holds more than one sector
-  $("#sectors").innerHTML = tab.s.length > 1 ? tab.s.map(([s, l]) => `<button data-s="${s}" title="${SECT[s]}" aria-pressed="${!state.off.has(s)}">${l}</button>`).join("") : "";
-  $("#sectors").hidden = tab.s.length < 2;
   document.querySelectorAll("#mat button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === state.mat));
   $("#bench").setAttribute("aria-pressed", state.bench); $("#firm").setAttribute("aria-pressed", state.firm); $("#esgf").setAttribute("aria-pressed", state.esgOnly); $("#dqf").setAttribute("aria-pressed", state.hideDq);
   document.querySelectorAll("#ecbf button").forEach(b => b.setAttribute("aria-pressed", !state.ecbOff.has(b.dataset.q)));
@@ -1512,7 +1501,7 @@ function renderScreener(reset = false) {
   markFilters();
   drawRows(top);
   box.scrollTop = top;
-  $("#scrCount").textContent = `${tab.t} · ${fmt(xs.length, 0)} bonds · mid-based analytics`;
+  $("#scrCount").textContent = `${tab.t} · ${fmt(xs.length, 0)} bond${xs.length === 1 ? "" : "s"} · mid-based analytics`;
   document.querySelectorAll("#scrBody th.sort").forEach(th => th.onclick = () => { const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["name", "mat", "sector"].includes(k) ? 1 : -1)]; store("sort", state.sort); renderScreener(true); });
 }
 
@@ -1522,7 +1511,7 @@ function refilter() {
   document.querySelectorAll("#atabs button").forEach(b => b.querySelector(".ct").textContent = fmt(counts[b.dataset.tab], 0));
   VISIBLE = filtered(); SCR.counts = counts; DRAWN = "";
   $("#scrBody").scrollTop = 0; drawRows(0); markFilters();
-  $("#scrCount").textContent = `${SCR.tab.t} · ${fmt(VISIBLE.length, 0)} bonds · mid-based analytics`;
+  $("#scrCount").textContent = `${SCR.tab.t} · ${fmt(VISIBLE.length, 0)} bond${VISIBLE.length === 1 ? "" : "s"} · mid-based analytics`;
 }
 function markFilters() {
   document.querySelectorAll("#scrBody tr.cf input").forEach(x => { const t = x.value.trim(); x.classList.toggle("bad", !!t && !CF_TEXT.has(x.dataset.f) && !numPred(t)); });
@@ -1572,7 +1561,6 @@ function showRow(i) {
 
 function emptyMsg(tab, counts) {
   const other = TABS.filter(t => t.k !== tab.k && counts[t.k]).map(t => `${t.l} ${fmt(counts[t.k], 0)}`);
-  if (counts[tab.k]) return "No bonds match: every sector chip in this tab is off.";
   return `No ${tab.l} bonds match these filters.${other.length ? ` Matches in other tabs: ${other.join(", ")}.` : " Turn off the benchmark filter or widen the maturity range."}`;
 }
 
@@ -1797,7 +1785,7 @@ document.addEventListener("keydown", e => {
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $("#login").open) return;
   const views = { 1: "dash", 2: "hold", 3: "risk", 4: "desk", 5: "mkt", 6: "week", 7: "guide" };
   if (views[e.key]) { e.preventDefault(); setView(views[e.key]); return; }
-  if (e.key === "/") { e.preventDefault(); setView("desk"); $("#q").focus(); return; }
+  if (e.key === "/") { e.preventDefault(); setView("desk"); $('#scrBody input[data-f="name"]')?.focus(); return; }
   if (state.view === "desk" && (e.key === "ArrowDown" || e.key === "ArrowUp") && VISIBLE.length) {
     e.preventDefault();
     let i = state.sel?.kind === "bond" ? VISIBLE.findIndex(b => b.isin === state.sel.id) : -1;
