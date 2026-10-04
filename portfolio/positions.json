@@ -21,6 +21,17 @@
    "date": "2026-10-02",
    "by": "elliotmalmstenkth",
    "at": "2026-10-04T20:21:12.485Z"
+  },
+  {
+   "id": "muu9ra6byqaru",
+   "kind": "future",
+   "code": "FECX",
+   "contract": "2026-12-18",
+   "qty": -13,
+   "price": 169.17,
+   "date": "2026-10-02",
+   "by": "elliotmalmstenkth",
+   "at": "2026-10-04T20:24:14.915Z"
   }
  ],
  "closed": [],
