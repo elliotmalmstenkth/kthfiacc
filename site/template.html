@@ -83,7 +83,7 @@ table.t { border-collapse: collapse; width: 100%; }
 .t tbody tr.sel td.nm { color: #ffc56b; }
 .t td.amb, .t .amb { color: var(--amber); } .t td.dim { color: var(--fg-2); }
 .t td.desc { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
-.t.vt { table-layout: fixed; min-width: calc(114ch + 189px); }   /* screener: fixed columns */
+.t.vt { table-layout: fixed; min-width: calc(132ch + 228px); }   /* screener: fixed columns */
 .t.vt td { overflow: hidden; text-overflow: ellipsis; }
 .t.vt td.nm { max-width: none; }
 /* column filters: an amber input under each header (Bloomberg SRCH) */
@@ -117,8 +117,12 @@ a.btn { text-decoration: none; display: inline-block; }
 .btn:disabled { opacity: .35; cursor: not-allowed; }
 .btn:disabled:hover { background: #2e2e2e; color: var(--fg); }
 /* Bloomberg "amber fields": editable inputs are amber with black text */
-input, select { background: var(--field); color: var(--field-ink); border: 1px solid var(--field); padding: 1px 6px; caret-color: #000; }
-input:hover, select:hover { border-color: #ffd08a; }
+input, select, textarea { background: var(--field); color: var(--field-ink); border: 1px solid var(--field); padding: 1px 6px; caret-color: #000; font: inherit; }
+input:hover, select:hover, textarea:hover { border-color: #ffd08a; }
+textarea { width: 100%; resize: vertical; box-sizing: border-box; }
+.jf input.jcat { width: 100%; box-sizing: border-box; }
+.jstat { display: inline-block; min-width: 5.5em; }
+.jtxt { max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 input::placeholder { color: #6b3f00; }
 input.num { text-align: right; width: 8.5em; }
 input.cmd { background: #000; color: var(--amber); border: 1px solid var(--line); caret-color: var(--amber); }   /* command line */
@@ -241,8 +245,8 @@ svg.hist2 line { stroke: var(--fg-2); stroke-width: 1; } svg.hist2 text { fill: 
   grid-template-areas: "gov money" "gov fut"; }
 #v-ecb { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-areas: "stir" "vol"; }
 #v-global { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .85fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "ust cmp emsov" "macro cmp emsov"; }
-#v-credit { grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); grid-template-rows: minmax(0, .9fr) minmax(0, 1.1fr);
-  grid-template-areas: "spreads banks" "sov frn"; }
+#v-credit { grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); grid-template-rows: minmax(0, .9fr) minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-areas: "spreads banks" "sov frn" "newiss curves"; }
 .volg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .volg > div { min-width: 0; }
 .volg > div:first-child { overflow-x: auto; }
@@ -272,7 +276,7 @@ svg.chart .atm { stroke: var(--fg-3); stroke-dasharray: 3 3; }
   #v-risk { grid-template-areas: "kpi" "krd" "cs" "cty" "stress" "var" "hedge" "meth"; }
   #v-rates { grid-template-areas: "gov" "money" "fut"; }
   #v-ecb { grid-template-areas: "stir" "vol"; }
-  #v-credit { grid-template-areas: "spreads" "banks" "sov" "frn"; }
+  #v-credit { grid-template-areas: "spreads" "banks" "sov" "frn" "newiss" "curves"; }
   #v-global { grid-template-areas: "ust" "cmp" "emsov" "macro"; }
   #v-guide { grid-template-areas: "start" "gloss" "data" "status" "limits"; }
   #v-week { grid-template-areas: "sum" "club" "new" "next" "wide" "tight" "iss" "rat" "rv"; }
@@ -316,6 +320,7 @@ svg.chart .atm { stroke: var(--fg-3); stroke-dasharray: 3 3; }
 </div>
 
 <dialog id="login"><form id="loginForm" method="dialog"></form></dialog>
+<dialog id="jdlg"><form id="jdlgForm" method="dialog"></form></dialog>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script>
@@ -336,7 +341,16 @@ const BONDS = DATA.bonds.map(r => Object.fromEntries(DATA.cols.map((c, i) => [c,
 const BY_ISIN = new Map(BONDS.map(b => [b.isin, b]));
 const FUT = new Map(DATA.futures.map(f => [f.code, f]));
 const SETTLE = new Date(DATA.settle + "T12:00:00");
-for (const b of BONDS) { b.mid = (b.bid + b.ask) / 2; b.ba = b.bid && b.ask ? b.ask - b.bid : null; b.yrs = (new Date(b.mat + "T12:00:00") - SETTLE) / 3.15576e10; b.ccy ??= "EUR"; }
+// Spread terms, as credit traders quote them: the bid-offer in bp of spread, and the breakeven, the spread widening
+// over a year that a year's spread carry pays for (spread / spread duration).
+function spreadTerms(b) {
+  const sd = b.sdur ?? b.mdur, dirty = b.mid + (b.acc || 0);
+  b.babp = b.ba != null && sd > 0 && dirty > 0 ? b.ba / (dirty * sd) * 1e4 : null;
+  b.be = b.z != null && sd > 0 ? b.z / sd : null;
+}
+for (const b of BONDS) { b.mid = (b.bid + b.ask) / 2; b.ba = b.bid && b.ask ? b.ask - b.bid : null; b.yrs = (new Date(b.mat + "T12:00:00") - SETTLE) / 3.15576e10; b.ccy ??= "EUR"; spreadTerms(b); }
+// issuers whose fitted credit curve is inverted (long end more than 10 bp below the short end, site/build.py)
+const INV = (b) => b.cinv === 1;
 // Bonds in other currencies: valued in EUR at the ECB reference rates; funded in their own currency, so only the
 // P&L, not the principal, carries currency risk (match-funded, as a desk would).
 const FX = DATA.mkt?.EURUSD?.v.at(-1) ?? null, SOFR = DATA.mkt?.SOFR?.v.at(-1) ?? null;
@@ -720,7 +734,7 @@ const state = {
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
   repo: store("repo") ?? DATA.estr?.rate ?? 2.0, special: store("special") ?? 0, stratSel: null, stratName: "",
-  positions: [], closed: [], orders: [], watch: store("watch") || [], expo: store("expo") || "buck", ordType: "mkt", ordLimit: null, ordTif: "day", blotTab: store("blotTab") || "open", dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
+  positions: [], closed: [], orders: [], watch: store("watch") || [], expo: store("expo") || "buck", ordType: "mkt", ordLimit: null, ordTif: "day", blotTab: store("blotTab") || "open", jd: {}, dbState: "loading", canWrite: false, loadedAt: 0, msg: "",
 };
 
 // ------------------------------------------------------------------ GitHub storage
@@ -793,7 +807,13 @@ function closeRec(p) {
   const exit = p.kind === "bond" ? (p.qty >= 0 ? r.b.bid : r.b.ask) || r.b.mid : r.f.last;
   const pnl = p.kind === "bond" ? p.qty * (exit - p.price) / 100 / fxOf(r.b) : p.qty * (exit - p.price) * r.f.mult / (FXR[r.f.ccy] || 1);   // EUR
   const carry = p.kind === "bond" ? r.carry : 0;
-  return { ...rec, exit, pnl: r2(pnl), carry: r2(carry), tot: r2(pnl + carry) };
+  // first-order P&L split for the journal: spread = −CS01 × (Z now − Z at entry), rates = the rest of the clean P&L
+  let attr = null;
+  if (p.kind === "bond" && p.ez != null && r.b.z != null && r.cs01) {
+    const spread = -r.cs01 * (r.b.z - p.ez);
+    attr = { spread: r2(spread), rates: r2(pnl - spread), carry: r2(carry) };
+  } else if (p.kind !== "bond") attr = { spread: r.f?.type === "credit" ? r2(pnl) : 0, rates: r.f?.type === "credit" ? 0 : r2(pnl), carry: 0 };
+  return { ...rec, exit, pnl: r2(pnl), carry: r2(carry), tot: r2(pnl + carry), attr };
 }
 // Limit orders: stored in the portfolio file and matched each evening against the day's minute files (orders.py).
 // A limit that can trade now (a buy at or above the offer, a sell at or below the bid) is executed at once.
@@ -817,23 +837,23 @@ async function cancelOrder(id, btn) {
   } catch (e) { if (btn) btn.disabled = false; writeError(e); }
 }
 
-async function closeWhere(pred, what, btn) {
+async function closeWhere(pred, what, btn, review = null) {
   const recs = state.positions.filter(pred).map(closeRec), tot = recs.reduce((s, x) => s + x.tot, 0);
   try {
     // re-price against the file as saved (someone may have changed it), at the prices shown now
-    setDoc(await gh.save(d => ({ ...d, positions: d.positions.filter(x => !pred(x)), closed: [...d.closed, ...d.positions.filter(pred).map(closeRec)] }),
+    setDoc(await gh.save(d => ({ ...d, positions: d.positions.filter(x => !pred(x)), closed: [...d.closed, ...d.positions.filter(pred).map(p => review ? { ...closeRec(p), review } : closeRec(p))] }),
       `Portfolio: close ${what}, realized ${fmtS(tot, 0)} EUR (${gh.login})`));
     if (state.stratSel && !state.positions.some(x => x.strat?.id === state.stratSel)) state.stratSel = null;
     render(); toast(`Closed: realized ${fmtS(tot, 0)} EUR`);
   } catch (e) { if (btn) btn.disabled = false; writeError(e); }
 }
-const closePosition = (id, btn) => {
+const closePosition = (id, btn, review) => {
   const pos = state.positions.find(x => x.id === id), x = pos && closeRec(pos);
-  return closeWhere(p => p.id === id, `${describe(pos)} at ${x?.exit != null ? fmt(x.exit, 3) : "no price"}`, btn);
+  return closeWhere(p => p.id === id, `${describe(pos)} at ${x?.exit != null ? fmt(x.exit, 3) : "no price"}`, btn, review);
 };
-const closeStrategy = (sid, btn) => {
+const closeStrategy = (sid, btn, review) => {
   const legs = state.positions.filter(x => x.strat?.id === sid);
-  return closeWhere(p => p.strat?.id === sid, `${legs[0]?.strat?.name || "strategy"}: ${legs.map(describe).join(", ")}`, btn);
+  return closeWhere(p => p.strat?.id === sid, `${legs[0]?.strat?.name || "strategy"}: ${legs.map(describe).join(", ")}`, btn, review);
 };
 function writeError(e) {
   if (e?.status === 401) { toast("Your GitHub token is no longer valid. Please sign in again."); gh.token = null; store("ghToken", null); state.canWrite = false; render(); }
@@ -864,6 +884,7 @@ function applyLive(j) {
     const dy = -(b.mid - b.eod.mid) / (b.eod.mid + b.acc) / (b.sdur ?? b.mdur) * 100;
     b.ytm = b.eod.ytm + dy;
     if (b.eod.z != null) b.z = b.eod.z + dy * 100;
+    spreadTerms(b);
   }
   for (const [code, x] of Object.entries(j.fut || {})) {
     const f = FUT.get(code);
@@ -976,7 +997,7 @@ document.addEventListener("click", e => {
   if (del) {
     if (!del.classList.contains("armed")) { const pos = state.positions.find(x => x.id === del.dataset.del), x = pos && closeRec(pos);
       del.classList.add("armed"); del.textContent = x?.exit != null ? `CONFIRM ${pos.qty >= 0 ? "SELL" : "BUY"} @ ${fmt(x.exit, 3)}` : "CONFIRM"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "CLOSE"; }, 4000); return; }
-    del.disabled = true; closePosition(del.dataset.del, del);
+    del.disabled = true; reviewThenClose({ id: del.dataset.del }, del);
   }
   const cx = e.target.closest("[data-cancel]");
   if (cx) {
@@ -986,13 +1007,185 @@ document.addEventListener("click", e => {
   const ds = e.target.closest("[data-delstrat]");
   if (ds) {
     if (!ds.classList.contains("armed")) { ds.classList.add("armed"); ds.textContent = "CONFIRM"; setTimeout(() => { ds.classList.remove("armed"); ds.textContent = "CLOSE"; }, 4000); return; }
-    ds.disabled = true; closeStrategy(ds.dataset.delstrat, ds); return;
+    ds.disabled = true; reviewThenClose({ sid: ds.dataset.delstrat }, ds); return;
   }
+  const aj = e.target.closest("[data-addj]");
+  if (aj) { addThesis(aj.dataset.addj); return; }
   const st = e.target.closest("[data-strat]");
   if (st && !e.target.closest("button, input")) { state.stratSel = st.dataset.strat; render(); return; }
   const pick = e.target.closest("[data-pick]");
   if (pick && !e.target.closest("button, input")) { if (state.view !== "desk") setView("desk"); select(pick.dataset.kind, pick.dataset.pick); }
 });
+
+// ------------------------------------------------------------------ trade journal
+// Every trade carries its thesis: why, a target and a stop in the trade's own unit, and the catalyst; at the close
+// a short review. Kept with the trades in the portfolio file (public, like the trades).
+const JU = { z: ["Z-spread", "bp", 0], y: ["yield", "%", 3], px: ["price", "", 3], lvl: ["level", "bp", 1] };
+// the unit a trade is judged by, its current value and the direction that makes money (−1: profits when it falls)
+function jMetric(kind, x, qty) {
+  if (kind === "bond") {
+    const credit = !noCredit(x) && x.z != null;
+    return { unit: credit ? "z" : "y", val: credit ? x.z : x.ytm, dir: qty > 0 ? -1 : 1 };
+  }
+  return { unit: "px", val: x.last, dir: qty > 0 ? 1 : -1 };   // futures: price
+}
+const jOf = (p) => p.strat ? p.strat.j : p.j;
+function stratLegsNow(sid) {
+  return state.positions.filter(x => x.strat?.id === sid).sort((a, b) => (a.strat.leg ?? 0) - (b.strat.leg ?? 0))
+    .map(x => { const r = risk(x); return { qty: x.qty, y: r.y ?? null, z: null }; });
+}
+// current value of a position (or its strategy) in the unit of its journal
+function jVal(p, j) {
+  if (j.unit === "lvl") return levelOf(p.strat.type, stratLegsNow(p.strat.id), "y");
+  if (p.kind === "bond") { const b = BY_ISIN.get(p.isin); return !b ? null : j.unit === "z" ? b.z : j.unit === "y" ? b.ytm : b.mid; }
+  return FUT.get(p.code)?.last ?? null;
+}
+function jStatus(j, val) {
+  if (!j || j.auto || j.target == null || val == null) return null;
+  const reached = (val - j.target) * j.dir >= 0, stopped = (val - j.stop) * j.dir <= 0;
+  return { st: reached ? "TARGET" : stopped ? "STOPPED" : "OPEN", prog: (val - j.entry) / (j.target - j.entry) };
+}
+const jFmt = (unit, v) => v == null ? "–" : fmt(v, JU[unit][2]) + (JU[unit][1] ? " " + JU[unit][1] : "");
+// d: the draft (state.jd for the ticket, a separate one in the dialog); x: id prefix, so the dialog's fields never
+// clash with the ticket's
+function jForm(m, d = state.jd, x = "j") {
+  const [nm] = JU[m.unit];
+  return `<div class="sect jf"><div class="lbl">TRADE JOURNAL <span class="muted">· judged on ${nm}, now ${jFmt(m.unit, m.val)} · profits if it ${m.dir < 0 ? "falls" : "rises"}</span></div>
+    <textarea id="${x}Thesis" rows="2" maxlength="400" placeholder="Thesis: why this trade, what the market has wrong">${esc(d.thesis || "")}</textarea>
+    <div class="row"><label class="lbl" for="${x}Target">TARGET</label><input id="${x}Target" class="num" style="width:6em" inputmode="decimal" value="${esc(d.target ?? "")}" placeholder="${JU[m.unit][1] || "price"}">
+      <label class="lbl" for="${x}Stop">STOP</label><input id="${x}Stop" class="num" style="width:6em" inputmode="decimal" value="${esc(d.stop ?? "")}" placeholder="${JU[m.unit][1] || "price"}">
+      <label class="lbl" for="${x}Hz">BY</label><input id="${x}Hz" type="date" value="${esc(d.hz || "")}" title="optional horizon"></div>
+    <input id="${x}Cat" class="jcat" maxlength="160" placeholder="Catalyst: what makes it happen (results, ECB, supply, rating…)" value="${esc(d.cat || "")}">
+    <p class="note" id="${x}Msg"></p></div>`;
+}
+function jRead(m, d = state.jd) {
+  const num = (v) => v === "" || v == null ? NaN : Number(String(v).replace(",", "."));
+  const t = num(d.target), sp = num(d.stop), dec = JU[m.unit][2];
+  if (!d.thesis || d.thesis.trim().length < 10) return { msg: "Write the thesis (a sentence at least)." };
+  if (!isFinite(t) || !isFinite(sp)) return { msg: "Set a target and a stop." };
+  if (m.val == null) return { msg: "No current value to judge the trade by." };
+  if ((t - m.val) * m.dir <= 0) return { msg: `The target must be on the profitable side: ${m.dir < 0 ? "below" : "above"} ${fmt(m.val, dec)}.` };
+  if ((sp - m.val) * m.dir >= 0) return { msg: `The stop must be on the losing side: ${m.dir < 0 ? "above" : "below"} ${fmt(m.val, dec)}.` };
+  if (!d.cat || d.cat.trim().length < 3) return { msg: "Name the catalyst." };
+  return { j: { thesis: d.thesis.trim(), catalyst: d.cat.trim(), unit: m.unit, dir: m.dir, entry: Math.round(m.val * 1e4) / 1e4, target: t, stop: sp,
+                horizon: d.hz || null }, rr: Math.abs(t - m.val) / Math.abs(sp - m.val) };
+}
+// live check of the form; the book button stays disabled until the journal is complete
+function bindJ(m, btn, d = state.jd, x = "j") {
+  const upd = () => {
+    const r = jRead(m, d), el = $("#" + x + "Msg");
+    if (el) { el.textContent = r.msg || `Reward / risk ${fmt(r.rr, 1)} : 1`; el.className = r.msg ? "note neg" : "note"; }
+    if (btn && state.canWrite) btn.disabled = !!r.msg;
+    return r;
+  };
+  for (const [id, k] of [["Thesis", "thesis"], ["Target", "target"], ["Stop", "stop"], ["Hz", "hz"], ["Cat", "cat"]]) {
+    const el = $("#" + x + id);
+    if (el) el.oninput = () => { d[k] = el.value; upd(); };
+  }
+  return upd();
+}
+function jCell(p) {
+  if (p.strat && (p.strat.leg ?? 0) !== 0) return `<span class="muted">↑ ${esc(p.strat.name)}</span>`;
+  const j = jOf(p);
+  if (!j) return state.canWrite ? `<button class="btn" data-addj="${esc(p.strat ? "s:" + p.strat.id : p.id)}">ADD THESIS</button>` : `<span class="muted">no thesis</span>`;
+  if (j.auto) return `<span class="muted">${esc(j.thesis)}</span>`;
+  const v = jVal(p, j), s = jStatus(j, v);
+  return `<span title="${esc(j.thesis)}&#10;Catalyst: ${esc(j.catalyst)}${j.horizon ? `&#10;By ${j.horizon}` : ""}${j.added ? "&#10;(added after the trade)" : ""}"><span class="jstat ${s?.st === "STOPPED" ? "neg" : s?.st === "TARGET" ? "pos" : ""}">${s?.st || "OPEN"}</span>
+    <span class="dim">${jFmt(j.unit, v)} → ${jFmt(j.unit, j.target)} · stop ${jFmt(j.unit, j.stop)}</span></span>`;
+}
+// thesis for a trade booked before the journal existed (marked "added later"; entry = the value now)
+function addThesis(key) {
+  const sid = key.startsWith("s:") ? key.slice(2) : null, p = sid ? state.positions.find(x => x.strat?.id === sid && (x.strat.leg ?? 0) === 0) : state.positions.find(x => x.id === key);
+  if (!p) return;
+  const m = sid ? { unit: "lvl", val: levelOf(p.strat.type, stratLegsNow(sid), "y"), dir: profitsIf(p.strat.type, stratLegsNow(sid)) === "falls" ? -1 : 1 }
+    : jMetric(p.kind === "bond" ? "bond" : "fut", p.kind === "bond" ? BY_ISIN.get(p.isin) : FUT.get(p.code), p.qty);
+  const dlg = $("#jdlg"), f = $("#jdlgForm"), dd = {};
+  f.innerHTML = `<div class="ph"><h2>Add thesis</h2></div><div class="pb"><p class="note">${esc(sid ? p.strat.name : describe(p))} · booked ${esc(p.date || "")} without a thesis. It is marked as added afterwards.</p>${jForm(m, dd, "dj")}
+    <div class="row"><button class="btn solid" type="button" id="jSave">SAVE</button><button class="btn" type="button" id="jCancel">CANCEL</button></div></div>`;
+  $("#jCancel").onclick = () => dlg.close();
+  bindJ(m, $("#jSave"), dd, "dj");
+  $("#jSave").onclick = async () => {
+    const r = jRead(m, dd); if (r.msg) return;
+    const j = { ...r.j, added: tradeDay() }, hit = (x) => sid ? x.strat?.id === sid : x.id === key;
+    try {
+      setDoc(await gh.save(d => ({ ...d, positions: d.positions.map(x => !hit(x) ? x : sid ? { ...x, strat: { ...x.strat, j } } : { ...x, j }) }), `Portfolio: thesis for ${sid ? p.strat.name : describe(p)} (${gh.login})`));
+      dlg.close(); render(); toast("Thesis saved");
+    } catch (e) { writeError(e); }
+  };
+  dlg.showModal();
+}
+// closing asks for a short review (not for hedges booked from the Risk view)
+function reviewThenClose(t, btn) {
+  const p = t.sid ? state.positions.find(x => x.strat?.id === t.sid && (x.strat.leg ?? 0) === 0) : state.positions.find(x => x.id === t.id);
+  const go = (rv) => t.sid ? closeStrategy(t.sid, btn, rv) : closePosition(t.id, btn, rv);
+  const j = p && jOf(p);
+  if (!p || j?.auto) return go(null);
+  const v = j ? jVal(p, j) : null, s = j ? jStatus(j, v) : null;
+  const dlg = $("#jdlg"), f = $("#jdlgForm");
+  f.innerHTML = `<div class="ph"><h2>Close and review</h2></div><div class="pb">
+    <p class="note"><b>${esc(t.sid ? p.strat.name : describe(p))}</b>${j ? `<br>Thesis: ${esc(j.thesis)}<br>Catalyst: ${esc(j.catalyst)}<br>Entry ${jFmt(j.unit, j.entry)} · target ${jFmt(j.unit, j.target)} · stop ${jFmt(j.unit, j.stop)} · now <b>${jFmt(j.unit, v)}</b> (${s?.st || "–"})` : "<br>No thesis was recorded for this trade."}</p>
+    <div class="row"><span class="lbl">THE THESIS WAS</span><span class="chips" id="jVer">${[["right", "RIGHT"], ["partly", "PARTLY"], ["wrong", "WRONG"]].map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="false">${l}</button>`).join("")}</span></div>
+    <label class="lbl" for="jLesson">LESSON (ONE LINE)</label><input id="jLesson" maxlength="240" placeholder="What did the market do, and what would you do differently?" style="width:100%;box-sizing:border-box">
+    <p class="note" id="jRvMsg"></p>
+    <div class="row"><button class="btn solid" type="button" id="jClose" disabled>CLOSE TRADE</button><button class="btn" type="button" id="jCancel">CANCEL</button></div></div>`;
+  let verdict = null;
+  const ok = () => { const good = verdict && $("#jLesson").value.trim().length >= 5; $("#jClose").disabled = !good; $("#jRvMsg").textContent = good ? "" : "Pick a verdict and write the lesson."; };
+  $("#jVer").onclick = e => { const v2 = e.target.dataset.v; if (!v2) return; verdict = v2; document.querySelectorAll("#jVer button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v2)); ok(); };
+  $("#jLesson").oninput = ok; ok();
+  $("#jCancel").onclick = () => { dlg.close(); if (btn) { btn.disabled = false; btn.classList.remove("armed"); btn.textContent = "CLOSE"; } };
+  $("#jClose").onclick = () => { dlg.close(); go({ verdict, lesson: $("#jLesson").value.trim(), exitVal: v, st: s?.st || null, at: tradeDay() }); };
+  dlg.showModal();
+}
+// closed trades grouped (a strategy's legs are one trade)
+function jTrades() {
+  const m = new Map();
+  for (const x of state.closed) {
+    const k = x.strat ? "s:" + x.strat.id : x.id, b = x.kind === "bond" ? BY_ISIN.get(x.isin) : null, f = x.kind !== "bond" ? FUT.get(x.code) : null;
+    let t = m.get(k);
+    if (!t) m.set(k, t = { k, name: x.strat ? x.strat.name : b ? b.name : x.kind === "bond" ? x.isin : `${x.code} ${mmmYY(x.contract)}`,
+      type: x.strat ? x.strat.type : x.kind === "bond" ? (b && noCredit(b) ? "govt bond" : "credit bond") : (f?.type === "credit" ? "credit future" : "govt future"),
+      sector: x.strat ? "strategy" : b ? (SECT[b.sector] || b.sector) : (f?.type === "credit" ? "Credit fut." : "Govt fut."),
+      by: x.by || "–", opened: x.date || (x.at || "").slice(0, 10), closed: x.closed, tot: 0, j: x.strat ? x.strat.j : x.j, review: x.review, attr: null });
+    t.tot += x.tot || 0;
+    if (x.attr) { t.attr ??= { spread: 0, rates: 0, carry: 0 }; for (const q in t.attr) t.attr[q] += x.attr[q] || 0; }
+  }
+  return [...m.values()].sort((a, b) => (b.closed || "").localeCompare(a.closed || ""));
+}
+function jStats(ts) {
+  const W = ts.filter(t => t.tot > 0), L = ts.filter(t => t.tot < 0), sum = (xs) => xs.reduce((a, t) => a + t.tot, 0);
+  const judged = ts.filter(t => t.review?.st), days = ts.map(t => (dParse(t.closed) - dParse(t.opened)) / DAY).filter(isFinite);
+  return { n: ts.length, hit: ts.length ? W.length / ts.length : null, avgW: W.length ? sum(W) / W.length : null, avgL: L.length ? sum(L) / L.length : null,
+           pf: L.length ? sum(W) / -sum(L) : null, tot: sum(ts), tgt: judged.length ? judged.filter(t => t.review.st === "TARGET").length / judged.length : null,
+           past: judged.length ? judged.filter(t => t.review.st === "STOPPED").length / judged.length : null, judged: judged.length,
+           right: ts.filter(t => t.review?.verdict === "right").length, days: days.length ? days.reduce((a, b) => a + b, 0) / days.length : null };
+}
+function journalHtml() {
+  const all = jTrades(), ts = all.filter(t => !t.j?.auto), pct = (x) => x == null ? "–" : fmt(x * 100, 0) + "%";
+  const row = (l, s_) => `<tr><td>${esc(l)}</td><td class="n">${s_.n}</td><td class="n">${pct(s_.hit)}</td><td class="n pos">${fmtS(s_.avgW, 0)}</td><td class="n neg">${fmtS(s_.avgL, 0)}</td>
+    <td class="n">${s_.avgW != null && s_.avgL ? fmt(s_.avgW / -s_.avgL, 2) : "–"}</td><td class="n">${s_.pf == null ? "–" : fmt(s_.pf, 2)}</td><td class="n ${cls(s_.tot)}">${fmtS(s_.tot, 0)}</td>
+    <td class="n">${pct(s_.tgt)}</td><td class="n">${pct(s_.past)}</td><td class="n">${s_.n ? fmt(s_.right, 0) : "–"}</td><td class="n">${fmt(s_.days, 0)}</td></tr>`;
+  const grp = (f) => { const m = new Map(); for (const t of ts) { const k = f(t); (m.get(k) || m.set(k, []).get(k)).push(t); } return [...m.entries()].sort((a, b) => b[1].length - a[1].length); };
+  const stats = `<table class="t"><thead><tr><th>CLOSED TRADES</th><th class="n">#</th><th class="n" title="share of trades with a realized profit">HIT RATE</th><th class="n">AVG WIN</th><th class="n">AVG LOSS</th><th class="n" title="average win / average loss">WIN/LOSS</th><th class="n" title="gross profit / gross loss">PROFIT FACTOR</th><th class="n">REALIZED</th><th class="n" title="closed with the target reached (trades with a review)">AT TARGET</th><th class="n" title="closed beyond the stop: held through it">PAST STOP</th><th class="n">THESIS RIGHT</th><th class="n">AVG DAYS</th></tr></thead><tbody>` +
+    row("All", jStats(ts)) + grp(t => "Trader: " + t.by).map(([k, v]) => row(k, jStats(v))).join("") + grp(t => "Type: " + t.type).map(([k, v]) => row(k, jStats(v))).join("") +
+    grp(t => "Sector: " + t.sector).map(([k, v]) => row(k, jStats(v))).join("") + `</tbody></table>`;
+  const open = [], seen = new Set();
+  for (const p of state.positions) {
+    const k = p.strat ? "s:" + p.strat.id : p.id, j = jOf(p);
+    if (seen.has(k) || !j || j.auto) continue;
+    seen.add(k);
+    const v = jVal(p, j), s_ = jStatus(j, v);
+    open.push(`<tr><td class="nm">${esc(p.strat ? p.strat.name : describe(p))}</td><td class="who">${esc(p.by || "")}</td><td class="jtxt" title="${esc(j.thesis)}">${esc(j.thesis)}</td><td class="jtxt" title="${esc(j.catalyst)}">${esc(j.catalyst)}</td>
+      <td class="n">${jFmt(j.unit, j.entry)}</td><td class="n">${jFmt(j.unit, j.target)}</td><td class="n">${jFmt(j.unit, j.stop)}</td><td class="n">${jFmt(j.unit, v)}</td>
+      <td class="${s_?.st === "STOPPED" ? "neg" : s_?.st === "TARGET" ? "pos" : ""}">${s_?.st || "–"}</td><td class="n">${s_ ? fmt((s_.prog * 100) || 0, 0) + "%" : "–"}</td><td class="dim">${j.horizon ? dTerm(j.horizon) : ""}${j.added ? " · added later" : ""}</td></tr>`);
+  }
+  const openT = `<table class="t"><thead><tr><th>OPEN THESES</th><th>BY</th><th>THESIS</th><th>CATALYST</th><th class="n">ENTRY</th><th class="n">TARGET</th><th class="n">STOP</th><th class="n">NOW</th><th>STATUS</th><th class="n" title="share of the way from entry to target">PROGRESS</th><th>BY DATE</th></tr></thead><tbody>${open.join("") || `<tr><td colspan="11" class="muted">No open trades with a thesis.</td></tr>`}</tbody></table>`;
+  const closedT = `<table class="t"><thead><tr><th>CLOSED</th><th>TRADE</th><th>BY</th><th class="n">REALIZED</th><th class="n" title="first-order: −CS01 × ΔZ">SPREAD</th><th class="n">RATES</th><th class="n">CARRY</th><th>THESIS</th><th>VERDICT</th><th>LESSON</th></tr></thead><tbody>` +
+    (all.map(t => `<tr><td class="dim">${t.closed ? dTerm(t.closed).slice(0, 6) : ""}</td><td class="nm">${esc(t.name)}</td><td class="who">${esc(t.by)}</td><td class="n ${cls(t.tot)}">${fmtS(t.tot, 0)}</td>
+      <td class="n">${t.attr ? fmtS(t.attr.spread, 0) : "–"}</td><td class="n">${t.attr ? fmtS(t.attr.rates, 0) : "–"}</td><td class="n">${t.attr ? fmtS(t.attr.carry, 0) : "–"}</td>
+      <td class="jtxt" title="${esc(t.j?.thesis || "")}">${t.j ? esc(t.j.thesis) : `<span class="muted">none</span>`}</td><td class="${t.review?.verdict === "right" ? "pos" : t.review?.verdict === "wrong" ? "neg" : ""}">${(t.review?.verdict || "–").toUpperCase()}${t.review?.st ? ` <span class="muted">${t.review.st}</span>` : ""}</td>
+      <td class="jtxt" title="${esc(t.review?.lesson || "")}">${esc(t.review?.lesson || "")}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">No closed trades yet.</td></tr>`) + `</tbody></table>`;
+  return stats + openT + closedT + `<p class="note pad">Every trade is booked with a thesis, target, stop and catalyst, and closed with a review. Hedges from the Risk view are left out of the statistics. Spread / rates split is first-order (−CS01 × ΔZ for bonds). The journal is stored with the trades in the public repo.</p>`;
+}
 
 // ------------------------------------------------------------------ shared components
 const panel = (area, title, body, opts = {}) =>
@@ -1033,7 +1226,7 @@ function emptyBook(compact) {
 }
 
 const instr = (p, r) => p.kind === "bond"
-  ? (r.b ? `${esc(r.b.name)}` : `${esc(p.isin)} <span class="neg">NO PX</span>`)
+  ? (r.b ? `${esc(r.b.name)}${INV(r.b) ? ` <span class="neg" title="the issuer's credit curve is inverted (${fmt(r.b.cslope, 0)} bp long − short)">INV</span>` : ""}` : `${esc(p.isin)} <span class="neg">NO PX</span>`)
   : `${esc(p.code)} ${r.f ? mmmYY(r.f.contract) : ""}`;
 const sideTag = (q) => q >= 0 ? `<span class="tag l">LONG</span>` : `<span class="tag s">SHORT</span>`;
 
@@ -1108,11 +1301,12 @@ function creditAvg(bk, k) {
 function renderHold() {
   const bk = book();
   const showClosed = state.blotTab === "closed", C = state.closed.slice().sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
+  const showJournal = state.blotTab === "journal";
   const showOrders = state.blotTab === "orders", O = state.orders.slice().sort((a, b) => (a.status === "working" ? 0 : 1) - (b.status === "working" ? 0 : 1) || (b.at || "").localeCompare(a.at || ""));
   const nWork = O.filter(o => o.status === "working").length;
-  const tools = `<span class="chips" id="blotTab"><button data-bt="open" aria-pressed="${!showClosed && !showOrders}">OPEN ${bk.rows.length}</button><button data-bt="orders" aria-pressed="${showOrders}">ORDERS ${nWork}</button><button data-bt="closed" aria-pressed="${showClosed}">CLOSED ${C.length}</button></span>` +
-    `<button class="btn" id="csvBook" ${(showClosed ? C.length : bk.rows.length) ? "" : "disabled"}>EXPORT CSV</button><a class="btn" href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>`;
-  const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">TOTAL</th><th class="n">YTM</th><th class="n" title="Z-spread vs the ECB AAA curve (FRNs: discount margin); credit futures: the index's">Z BP</th><th class="n">MOD DUR</th><th class="n" title="spread duration; credit futures: the index's">SPR DUR</th><th class="n" title="duration times spread = spread duration × Z-spread / 100 (years × %); credit futures: the index's. DTS-neutral hedge: contracts = MV × DTS / (futures price × multiplier × index DTS)">DTS</th><th class="n">DV01</th><th class="n">CS01</th><th>STRATEGY</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
+  const tools = `<span class="chips" id="blotTab"><button data-bt="open" aria-pressed="${!showClosed && !showOrders && !showJournal}">OPEN ${bk.rows.length}</button><button data-bt="orders" aria-pressed="${showOrders}">ORDERS ${nWork}</button><button data-bt="closed" aria-pressed="${showClosed}">CLOSED ${C.length}</button><button data-bt="journal" aria-pressed="${showJournal}" title="theses, reviews and hit-rate statistics">JOURNAL</button></span>` +
+    `<button class="btn" id="csvBook" ${(showClosed || showJournal ? C.length : bk.rows.length) ? "" : "disabled"}>EXPORT CSV</button><a class="btn" href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>`;
+  const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">TOTAL</th><th class="n">YTM</th><th class="n" title="Z-spread vs the ECB AAA curve (FRNs: discount margin); credit futures: the index's">Z BP</th><th class="n">MOD DUR</th><th class="n" title="spread duration; credit futures: the index's">SPR DUR</th><th class="n" title="duration times spread = spread duration × Z-spread / 100 (years × %); credit futures: the index's. DTS-neutral hedge: contracts = MV × DTS / (futures price × multiplier × index DTS)">DTS</th><th class="n" title="breakeven: spread / spread duration, bp of widening a year's spread carry pays for">BE BP</th><th class="n" title="bid-offer in bp of spread">B-O BP</th><th class="n">DV01</th><th class="n">CS01</th><th title="journal: status, now → target · stop">THESIS</th><th>STRATEGY</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
     bk.rows.map(({ p, r }) => `<tr class="click" data-pick="${esc(p.kind === "bond" ? p.isin : p.code)}" data-kind="${p.kind === "bond" ? "bond" : "fut"}">
       <td>${sideTag(p.qty)}</td><td class="nm">${instr(p, r)}</td><td class="dim">${esc(p.kind === "bond" ? p.isin : (p.contract || ""))}</td>
       <td class="dim">${p.kind === "bond" ? esc(SECT[r.b?.sector] || "–") : (r.f?.type === "credit" ? "Credit fut." : "Govt fut.")}</td>
@@ -1122,15 +1316,15 @@ function renderHold() {
       <td class="n">${p.kind === "bond" && bk.gross ? fmt(r.mv / bk.gross * 100, 1) + "%" : "–"}</td>
       <td class="n ${cls(r.pnl)}">${fmtS(r.pnl, 0)}</td><td class="n ${cls(r.carry)}">${fmtS(r.carry, 0)}</td><td class="n ${cls(r.tot)}">${fmtS(r.tot, 0)}</td>
       <td class="n">${fmt(r.y, 2)}</td><td class="n">${fmt(r.z, r.f ? 1 : 0)}</td><td class="n">${p.kind === "bond" ? fmt(r.dur, 2) : "–"}</td>
-      <td class="n">${fmt(r.sdur, 2)}</td><td class="n">${fmt(r.dts, 2)}</td>
-      <td class="n ${cls(r.dv01)}">${fmtS(r.dv01, 0)}</td><td class="n ${cls(r.cs01)}">${fmtS(r.cs01, 0)}</td>
+      <td class="n">${fmt(r.sdur, 2)}</td><td class="n">${fmt(r.dts, 2)}</td><td class="n">${r.b && r.dts != null ? fmt(r.b.be, 0) : "–"}</td><td class="n dim">${r.b ? fmt(r.b.babp, 1) : "–"}</td>
+      <td class="n ${cls(r.dv01)}">${fmtS(r.dv01, 0)}</td><td class="n ${cls(r.cs01)}">${fmtS(r.cs01, 0)}</td><td>${jCell(p)}</td>
       <td class="strat-tag">${esc(p.strat?.name || "")}</td><td class="who">${esc(p.by || "")}</td><td class="dim">${esc((p.at || "").slice(0, 10))}</td>
       <td>${state.canWrite && !p.strat ? `<button class="btn x" data-del="${esc(p.id)}">CLOSE</button>` : ""}</td></tr>`).join("") +
     `</tbody><tfoot><tr><td colspan="8">TOTAL</td><td class="n">${fmt(bk.mv, 0)}</td><td class="n">100%</td><td class="n ${cls(bk.pnl)}">${fmtS(bk.pnl, 0)}</td>
       <td class="n ${cls(bk.carry)}">${fmtS(bk.carry, 0)}</td><td class="n ${cls(bk.tot)}">${fmtS(bk.tot, 0)}</td>
       <td class="n">${fmt(bk.wavg("y"), 2)}</td><td class="n">${fmt(bk.wavg("z"), 0)}</td><td class="n">${fmt(bk.wavg("dur"), 2)}</td>
-      <td class="n" title="credit bonds, gross market-value weighted">${fmt(creditAvg(bk, "sdur"), 2)}</td><td class="n" title="credit bonds, gross market-value weighted">${fmt(creditAvg(bk, "dts"), 2)}</td>
-      <td class="n ${cls(bk.dv01)}">${fmtS(bk.dv01, 0)}</td><td class="n ${cls(bk.cs01)}">${fmtS(bk.cs01, 0)}</td><td colspan="4"></td></tr></tfoot></table>` : emptyBook();
+      <td class="n" title="credit bonds, gross market-value weighted">${fmt(creditAvg(bk, "sdur"), 2)}</td><td class="n" title="credit bonds, gross market-value weighted">${fmt(creditAvg(bk, "dts"), 2)}</td><td></td><td></td>
+      <td class="n ${cls(bk.dv01)}">${fmtS(bk.dv01, 0)}</td><td class="n ${cls(bk.cs01)}">${fmtS(bk.cs01, 0)}</td><td colspan="5"></td></tr></tfoot></table>` : emptyBook();
 
   const cname = (x) => x.kind === "bond" ? esc(BY_ISIN.get(x.isin)?.name || x.isin) : `${esc(x.code)} ${mmmYY(x.contract)}`;
   const closedTbl = C.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th class="n">NOMINAL / LOTS</th><th class="n">ENTRY PX</th><th class="n" title="long: sold at the bid; short: bought back at the offer; futures: last price">EXIT PX</th><th class="n">ΔPX</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">REALIZED</th><th>STRATEGY</th><th>TRADER</th><th>OPENED</th><th>CLOSED</th><th>CLOSED BY</th></tr></thead><tbody>` +
@@ -1176,7 +1370,7 @@ function renderHold() {
     `</tbody></table>` : `<div class="empty">No bond positions.</div>`;
 
   $("#v-hold").innerHTML = kpiStrip(bk) +
-    panel("blot", showClosed ? "Closed trades" : showOrders ? "Orders" : "Position blotter", showClosed ? closedTbl : showOrders ? ordTbl : blot, { sub: showOrders ? `${nWork} working` : showClosed ? `${C.length} trades · realized ${fmtS(bk.real, 0)} EUR` : `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${LIVE.data ? `${dTerm(LIVE.data.day)} ${utcToCet(LIVE.data.msg)} CET intraday` : dTerm(DATA.asof)}`, tools }) +
+    panel("blot", showJournal ? "Trade journal" : showClosed ? "Closed trades" : showOrders ? "Orders" : "Position blotter", showJournal ? journalHtml() : showClosed ? closedTbl : showOrders ? ordTbl : blot, { sub: showJournal ? "thesis, target, stop and catalyst at the trade; review at the close" : showOrders ? `${nWork} working` : showClosed ? `${C.length} trades · realized ${fmtS(bk.real, 0)} EUR` : `${bk.rows.length} positions${bk.missing ? ` · ${bk.missing} without a price today` : ""} · marks ${LIVE.data ? `${dTerm(LIVE.data.day)} ${utcToCet(LIVE.data.msg)} CET intraday` : dTerm(DATA.asof)}`, tools }) +
     panel("strat", "Strategies", stratTbl, { sub: `${strats.length} pairs / flies · level = long − short (pair), 2 × body − wings (fly)` }) +
     panel("perf", "Performance vs benchmark", perfPanel(), { sub: "daily, evening marks" }) +
     panel("attr", "P&amp;L attribution", attr, { sub: "EUR, total P&L by strategy and position" }) +
@@ -1187,7 +1381,10 @@ function renderHold() {
   $("#repo").onchange = e => { const v = num(e.target.value); if (isFinite(v)) { state.repo = v; store("repo", v); } render(); };
   $("#special").onchange = e => { const v = num(e.target.value); if (isFinite(v)) { state.special = v; store("special", v); } render(); };
   $("#blotTab").onclick = e => { const t = e.target.closest("button")?.dataset.bt; if (t) { state.blotTab = t; store("blotTab", t); render(); } };
-  $("#csvBook")?.addEventListener("click", () => showClosed ? csv(`kthficc-closed-${DATA.asof}.csv`,
+  $("#csvBook")?.addEventListener("click", () => showJournal ? csv(`kthficc-journal-${DATA.asof}.csv`,
+    ["closed", "trade", "type", "sector", "trader", "opened", "realized", "spread_pnl", "rates_pnl", "carry", "thesis", "catalyst", "unit", "entry", "target", "stop", "exit_value", "status_at_close", "verdict", "lesson"],
+    jTrades().map(t => [t.closed, t.name, t.type, t.sector, t.by, t.opened, t.tot, t.attr?.spread, t.attr?.rates, t.attr?.carry, t.j?.thesis, t.j?.catalyst, t.j?.unit, t.j?.entry, t.j?.target, t.j?.stop, t.review?.exitVal, t.review?.st, t.review?.verdict, t.review?.lesson]))
+    : showClosed ? csv(`kthficc-closed-${DATA.asof}.csv`,
     ["side", "kind", "instrument", "isin_or_contract", "qty", "entry_px", "exit_px", "clean_pnl", "carry", "realized_pnl", "strategy", "trader", "opened", "closed", "closed_by"],
     C.map(x => [x.qty >= 0 ? "long" : "short", x.kind, x.kind === "bond" ? BY_ISIN.get(x.isin)?.name : x.code, x.kind === "bond" ? x.isin : x.contract, x.qty, x.price, x.exit, x.pnl, x.carry, x.tot, x.strat?.name, x.by, x.at, x.closedAt, x.closedBy])) : csv(`kthficc-book-${DATA.asof}.csv`,
     ["side", "kind", "instrument", "isin_or_contract", "sector", "qty", "trade_px", "mark", "market_value", "clean_pnl", "carry", "total_pnl", "ytm", "z_bp", "mod_dur", "spread_dur", "dts", "dv01", "cs01", "strategy", "trader", "trade_time"],
@@ -1327,7 +1524,7 @@ function renderRisk() {
   $("#hPct").onchange = e => setHedgePct(Number(String(e.target.value).replace(",", ".")) || 0);
   document.querySelectorAll("[data-hp]").forEach(b => b.onclick = () => setHedgePct(+b.dataset.hp));
   $("#addHedge").onclick = async () => {
-    const ok = await addPositions(h.trades.map(t => ({ kind: "future", code: t.code, contract: FUT.get(t.code).contract, qty: t.n, price: FUT.get(t.code).last })));
+    const ok = await addPositions(h.trades.map(t => ({ kind: "future", code: t.code, contract: FUT.get(t.code).contract, qty: t.n, price: FUT.get(t.code).last, j: { thesis: "Hedge (Risk view)", auto: true } })));
     if (ok) toast("Hedge booked");
   };
 }
@@ -1675,7 +1872,37 @@ function renderCredit() {
     panel("spreads", "Credit indices", spreads, { sub: "OAS in bp" }) +
     panel("banks", "Banks: credit and equity", banksPanel(), { sub: "median Z of euro bank bonds · EURO STOXX Banks future" }) +
     panel("sov", "Euro-area sovereign spreads", sovSpreads(), { sub: "vs Germany, bp, firm quotes" }) +
-    panel("frn", "Floating-rate notes", frnPanel(), { sub: "discount margin over Euribor, bp" });
+    panel("frn", "Floating-rate notes", frnPanel(), { sub: "discount margin over Euribor, bp" }) +
+    panel("newiss", "New issues (30 days)", newIssPanel(), { sub: "premium vs the issuer curve from the first quote" }) +
+    panel("curves", "Issuer credit curves", curvesPanel(), { sub: "fitted Z, longest − shortest firm quote" });
+}
+
+// New issues against the issuer's own curve (site/build.py new_issues): the premium (rich/cheap vs the fitted
+// curve) at the first quote and now. Not the new-issue concession at pricing: reoffer spreads are not free data.
+function newIssPanel() {
+  const N = DATA.newiss;
+  if (!N) return `<div class="empty">Not in this build (needs the history folder).</div>`;
+  const rows = N.rows || [];
+  const head = `<p class="note pad">${fmt(N.n, 0)} bonds issued or first quoted since ${dTerm(N.start)}${N.prem0 != null ? ` · median premium at the first quote <b>${fmtS(N.prem0, 1)} bp</b>` : ""}${N.dz != null ? ` · median Z move since <b>${fmtS(N.dz, 1)} bp</b>` : ""}. History from ${N.history_from ? dTerm(N.history_from) : "–"}; first quotes before that are not known.</p>`;
+  if (!rows.length) return head + `<div class="empty">No new issues in the window yet.</div>`;
+  return head + `<table class="t"><thead><tr><th>BOND</th><th>ISSUER</th><th>ISSUED</th><th title="first day with a Z-spread in the history, and days after issue">FIRST QUOTE</th><th class="n">SIZE M</th><th class="n">Z FIRST</th><th class="n" title="rich/cheap vs the issuer curve at the first quote: + = came cheap">PREM FIRST</th><th class="n">Z NOW</th><th class="n">PREM NOW</th><th class="n">ΔZ</th></tr></thead><tbody>` +
+    rows.map(x => `<tr class="click" data-pick="${x.isin}" data-kind="bond"><td class="nm">${esc(x.name)}</td><td class="dim">${esc(x.issuer)}</td><td>${x.iss ? dTerm(x.iss).slice(0, 6) : "–"}</td>
+      <td>${x.first ? `${dTerm(x.first).slice(0, 6)}${x.lag != null ? ` <span class="muted">+${x.lag}d</span>` : ""}` : `<span class="muted" title="issued before the history starts">before history</span>`}</td><td class="n">${fmt(x.amt, 0)}</td><td class="n">${fmt(x.z0, 0)}</td><td class="n">${fmtS(x.rv0, 1)}</td>
+      <td class="n">${fmt(x.z, 0)}</td><td class="n">${fmtS(x.rv, 1)}</td><td class="n ${x.dz > 0 ? "neg" : x.dz < 0 ? "pos" : ""}">${fmtS(x.dz, 1)}</td></tr>`).join("") +
+    `</tbody></table><p class="note pad">Premium = Z-spread minus the issuer's fitted curve on Börse Frankfurt quotes. True new-issue concession is measured at pricing against the reoffer spread, which the free data does not have, and Börse Frankfurt often starts quoting a few days after issue, when part of the concession has gone.</p>`;
+}
+
+// Issuer credit curves (site/build.py issuer_curves): slope = fitted Z at the longest minus the shortest firm quote,
+// issuers with 3+ firm quotes over 3+ years. Inverted (long end more than 10 bp below the short end) = stress.
+function curvesPanel() {
+  const C = DATA.icurves || [];
+  if (!C.length) return `<div class="empty">No issuer curves in this build.</div>`;
+  const inv = C.filter(x => x.inv), steep = C.slice().sort((a, b) => b.slope - a.slope).slice(0, 15);
+  const tbl = (xs, lbl) => `<table class="t"><thead><tr><th>${lbl}</th><th>SECTOR</th><th>CTY</th><th class="n">BONDS</th><th class="n">SPAN Y</th><th class="n">SHORT Z</th><th class="n">LONG Z</th><th class="n">SLOPE BP</th></tr></thead><tbody>` +
+    (xs.length ? xs.map(x => `<tr><td class="nm">${esc(x.issuer)}${x.sub ? ` <span class="amb">SUB</span>` : ""}${x.ccy !== "EUR" ? ` <span class="muted">${x.ccy}</span>` : ""}</td><td class="dim">${SECT[x.sector] || x.sector}</td><td class="dim">${x.cty || ""}</td><td class="n">${x.n}</td>
+      <td class="n">${fmt(x.t0, 1)}–${fmt(x.t1, 1)}</td><td class="n">${fmt(x.z0, 0)}</td><td class="n">${fmt(x.z1, 0)}</td><td class="n ${x.inv ? "neg" : ""}">${fmtS(x.slope, 0)}</td></tr>`).join("") : `<tr><td colspan="8" class="muted">none</td></tr>`) + `</tbody></table>`;
+  return `<p class="note pad">${fmt(C.length, 0)} issuer curves measured · <b>${inv.length} inverted</b>. An inverted credit curve (short bonds wider than long) means the market prices default risk sooner rather than later, a classic stress signal. Flagged only for corporates and sovereigns with a credit spread, and only when the bonds agree with the fitted line. Bank curves can still mix senior preferred, non-preferred and Tier 2 debt that FIRDS does not tell apart, and thin curves or stale quotes give false signals: check the bonds.</p>` +
+    tbl(inv.slice(0, 30), "INVERTED") + tbl(steep, "STEEPEST");
 }
 
 // ------------------------------------------------------------------ THIS WEEK
@@ -1808,6 +2035,11 @@ const GLOSSARY = [
   ["Pair / fly", "Relative-value trades. Pair: long one bond, short another for zero DV01. Fly: body against two wings (50/50 DV01)."],
   ["Level", "Strategy level in bp of yield: pair = long − short; fly = 2 × body − wings."],
   ["VaR / ES", "Value at risk: the loss not exceeded on 99% of the last 500 days. Expected shortfall (CVaR): the average loss beyond it."],
+  ["Trade journal", "Every trade is booked with a thesis, a target and a stop (in Z-spread, yield, price or strategy level) and a catalyst, and closed with a review: right / partly / wrong and one lesson. Holdings → JOURNAL shows hit rate, average win and loss, profit factor and how often stops were held through."],
+  ["BE BP", "Breakeven = spread / spread duration: how many bp the spread can widen over a year before a year's spread carry is gone."],
+  ["B-O BP", "Bid-offer in bp of spread = (offer − bid) / (dirty price × spread duration) × 10,000: what crossing the market costs, in the unit traders think in."],
+  ["CRV BP / INV", "Issuer credit curve slope: fitted Z-spread at the longest minus the shortest firm quote. INV = inverted (short bonds wider than long): the market prices default risk sooner rather than later, a classic stress signal."],
+  ["New-issue premium", "A new bond's Z-spread above its issuer's fitted curve from its first quote on. Not the new-issue concession at pricing (the reoffer spread is not in the free data)."],
   ["DTS", "Duration times spread = spread duration × spread / 100 (years × %; spread = Z-spread vs the ECB AAA curve, for bonds and index alike). Spreads move in proportion to their level, so a 300 bp bond moves more than a 60 bp one. DTS-neutral hedge: contracts = market value × DTS / (futures price × multiplier × index DTS)."],
   ["ECB ≥A− / BBB", "Eurosystem credit quality step from the ECB collateral list: steps 1–2 (A− or better) or 3 (BBB). Not on the list ≠ high yield."],
   ["GRN / SOC / SUS / SLB", "Green, social, sustainability, sustainability-linked bond (Euronext ESG list)."],
@@ -1891,7 +2123,7 @@ function renderGuide() {
 
 // ------------------------------------------------------------------ TRADE
 const BCOLS = [["name", "BOND"], ["sector", "SECTOR"], ["cty", "CTY", undefined, "Country of risk: guarantor or parent where known (ECB list, GLEIF), else the issuer's country"], ["cpn", "CPN", 3], ["mat", "MATURITY"], ["amt", "SIZE M", 0],
-  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ba", "B-O", 3, "Bid-offer in price points (offer − bid)"], ["ytm", "YTM", 2], ["z", "Z BP", 0, "Z-spread over the ECB AAA curve (EUR) or the US Treasury curve (USD); for FRNs the discount margin over the Euribor forwards"], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"],
+  ["bid", "BID", 3], ["ask", "OFFER", 3], ["ba", "B-O", 3, "Bid-offer in price points (offer − bid)"], ["babp", "B-O BP", 1, "Bid-offer in bp of spread: (offer − bid) / (dirty price × spread duration) × 10,000"], ["ytm", "YTM", 2], ["z", "Z BP", 0, "Z-spread over the ECB AAA curve (EUR) or the US Treasury curve (USD); for FRNs the discount margin over the Euribor forwards"], ["be", "BE BP", 0, "Breakeven: spread / spread duration = bp of spread widening over a year that a year's spread carry pays for"], ["cslope", "CRV BP", 0, "Issuer credit curve slope: fitted Z at the issuer's longest minus shortest firm quote (bp, ≥3 bonds over ≥3 years). INV = inverted, a stress signal"], ["rv", "RV BP", 1, "Rich/cheap: Z-spread minus the issuer's fitted spread curve. + cheap, − rich"],
   ["ecb", "ECB", undefined, "Eurosystem credit quality from the ECB list of eligible collateral: ≥A− (steps 1–2), BBB (step 3), – not on the list"], ["mdur", "MOD DUR", 2]];
 // ECB credit quality: the class of a bond for the filter chips and its label
 const ECB_CLS = (b) => b.ecb === "1-2" ? "a" : b.ecb === "3" ? "bbb" : "ne";
@@ -1905,7 +2137,7 @@ const esgTag = (b) => b.esg ? `<span class="esg${b.esg === "SLB" ? " slb" : ""}"
 let VISIBLE = [], ROW_H = 20, DRAWN = "";
 const SCR = {};
 // fixed column widths (characters) so the columns stay put while scrolling; the bond name takes the rest
-const BW = { sector: 11, cty: 4, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ba: 6, ytm: 7, z: 7, rv: 7, ecb: 5, mdur: 9 };
+const BW = { sector: 11, cty: 4, cpn: 7, mat: 10, amt: 8, bid: 8, ask: 8, ba: 6, babp: 6, ytm: 7, z: 7, be: 6, cslope: 6, rv: 7, ecb: 5, mdur: 9 };
 
 const curTab = () => TABS.find(t => t.k === state.tab);
 // Column filters, typed in the amber row under the headers. Numbers: 4.5-5.5 (range), >60, <=0.2, ">4 <6", or a
@@ -2043,10 +2275,10 @@ function markFilters() {
 }
 
 const bondRow = (b, selIsin) => `<tr class="click${b.isin === selIsin ? " sel" : ""}" data-pick="${b.isin}" data-kind="bond">
-      <td class="nm">${dqTag(b)}${esc(b.name)}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}${b.frn != null ? ` <span class="esg frn" title="floating-rate note on 3-month Euribor: Z BP is the discount margin">FRN</span>` : ""}${esgTag(b)}</td><td class="dim">${SECT[b.sector]}</td><td class="dim">${b.cty || ""}</td>
+      <td class="nm">${dqTag(b)}${esc(b.name)}${INV(b) ? ` <span class="neg" title="the issuer's credit curve is inverted (${fmt(b.cslope, 0)} bp long − short): a stress signal">INV</span>` : ""}${b.sub ? ` <span class="amb" title="subordinated">SUB</span>` : ""}${b.frn != null ? ` <span class="esg frn" title="floating-rate note on 3-month Euribor: Z BP is the discount margin">FRN</span>` : ""}${esgTag(b)}</td><td class="dim">${SECT[b.sector]}</td><td class="dim">${b.cty || ""}</td>
       <td class="n">${b.frn != null ? `<span title="3M Euribor + ${fmt(b.frn, 0)} bp">E+${fmt(b.frn, 0)}</span>` : fmt(b.cpn, 3)}</td><td>${b.mat}</td><td class="n">${fmt(b.amt, 0)}</td><td class="n">${fmt(b.bid, 3)}</td>
-      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td><td class="n dim">${fmt(b.ba, 3)}</td>
-      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="${b.ecb === "3" ? "amb" : b.ecb ? "" : "muted"}">${b.ccy !== "EUR" ? "n/a" : ECB_LBL[b.ecb] || "–"}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
+      <td class="n">${b.firm ? fmt(b.ask, 3) : `<span class="ind" title="Indicative: no size on one side">${fmt(b.ask, 3)}</span>`}</td><td class="n dim">${fmt(b.ba, 3)}</td><td class="n dim">${fmt(b.babp, 1)}</td>
+      <td class="n">${fmt(b.ytm, 2)}</td><td class="n">${fmt(b.z, 0)}</td><td class="n">${fmt(b.be, 0)}</td><td class="n ${INV(b) ? "neg" : ""}">${fmtS(b.cslope, 0)}</td><td class="n">${fmtS(b.rv, 1)}</td><td class="${b.ecb === "3" ? "amb" : b.ecb ? "" : "muted"}">${b.ccy !== "EUR" ? "n/a" : ECB_LBL[b.ecb] || "–"}</td><td class="n">${fmt(b.mdur, 2)}</td></tr>`;
 
 // Infinite scroll: the screener holds every matching bond but draws only the rows around the viewport, with
 // spacer rows for the rest, so the scrollbar spans the full list. Rows are one line at a fixed height.
@@ -2185,7 +2417,10 @@ function renderTicket() {
         <dt>Rates / spread duration</dt><dd>${fmt(b.mdur, 2)} / ${fmt(b.sdur, 2)}</dd>`
         : `<dt>YTM / Z-spread (mid)</dt><dd>${fmt(b.ytm, 2)}% / ${fmt(b.z, 0)} bp <span class="muted">vs ${CURVE_NAME[b.ccy]}</span></dd>
         ${b.yh != null ? `<dt title="yield for a euro investor hedging the dollars with rolling EUR/USD forwards: YTM − the implied rate differential from the Eurex EUR/USD futures (${fmt(DATA.fxh?.diff, 2)}%)">YTM hedged to EUR</dt><dd>${fmt(b.yh, 2)}%</dd>` : ""}<dt title="Z-spread minus the issuer's fitted spread curve">Rich / cheap</dt><dd>${b.rv == null ? "– (no issuer curve)" : `${fmtS(b.rv, 1)} bp ${b.rv > 0 ? "cheap" : "rich"}`}</dd>
-        <dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd>`}<dt>Roll-down 3M</dt><dd>${b.roll == null ? "–" : fmtS(b.roll, 1) + " bp"}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
+        <dt>Mod duration</dt><dd>${fmt(b.mdur, 2)}</dd>`}<dt>Roll-down 3M</dt><dd>${b.roll == null ? "–" : fmtS(b.roll, 1) + " bp"}</dd>
+        <dt title="spread / spread duration: bp of widening a year's spread carry pays for">Breakeven</dt><dd>${b.be == null ? "–" : fmt(b.be, 0) + " bp / yr"}</dd>
+        <dt title="(offer − bid) / (dirty × spread duration)">Bid-offer in spread</dt><dd>${b.babp == null ? "–" : fmt(b.babp, 1) + " bp"}</dd>
+        <dt title="the issuer's fitted credit curve, longest minus shortest firm quote">Issuer curve</dt><dd class="${INV(b) ? "neg" : ""}">${b.cslope == null ? "–" : `${fmtS(b.cslope, 0)} bp${INV(b) ? " · INVERTED" : ""}`}</dd><dt>Accrued</dt><dd>${fmt(b.acc, 4)}</dd>
         ${b.dq ? `<dt>Quote check</dt><dd class="amb">${dqText(b.dq)}</dd>` : ""}
         <dt title="Euronext ESG bond list">ESG label</dt><dd>${b.esg ? ESG_NAME[b.esg] : "–"}</dd>
         <dt title="Eurosystem collateral list ${DATA.ecb ? dTerm(DATA.ecb.date) : ""}">ECB credit quality</dt><dd>${b.ccy !== "EUR" ? "n/a (euro bonds only)" : b.ecb === "1-2" ? "step 1–2 (A− or better)" : b.ecb === "3" ? "step 3 (BBB+ to BBB−)" : b.ecb ? "eligible, step not shown" : "not on the ECB list"}</dd>
@@ -2217,6 +2452,8 @@ function renderTicket() {
         order: { kind: "future", code: f.code, contract: f.contract, qty: state.side * n, price: f.last }, ok: n > 0, desc: `${n} ${f.code} ${mmmYY(f.contract)}` }; };
   }
   const mktPx = s.kind === "bond" ? (state.side > 0 ? BY_ISIN.get(s.id).ask : BY_ISIN.get(s.id).bid) : FUT.get(s.id).last;
+  const jx = s.kind === "bond" ? BY_ISIN.get(s.id) : FUT.get(s.id), jm = jMetric(s.kind === "bond" ? "bond" : "fut", jx, state.side);
+  if (state.jdFor !== s.id) { state.jd = {}; state.jdFor = s.id; }   // a new instrument starts a new journal entry
   if (state.ordLimit == null || state.ordFor !== `${s.id}${state.side}`) { state.ordLimit = mktPx; state.ordFor = `${s.id}${state.side}`; }
   const ordUi = `<div class="row" style="margin-top:6px"><span class="lbl">ORDER</span><span class="chips" id="ordType">${[["mkt", "MARKET"], ["lmt", "LIMIT"]].map(([k, l]) => `<button data-ot="${k}" aria-pressed="${state.ordType === k}">${l}</button>`).join("")}</span></div>
     ${state.ordType === "lmt" ? `<div class="row"><label class="lbl" for="ordLimit">LIMIT</label><input id="ordLimit" class="num" style="width:7em" inputmode="decimal" value="${fmt(state.ordLimit, s.kind === "bond" ? 3 : 4)}">
@@ -2225,12 +2462,13 @@ function renderTicket() {
   const aFields = s.kind === "bond" ? [["z", "Z-spread / DM"], ["ytm", "yield"], ["mid", "price"]] : [["last", "price"]];
   const alertUi = `<div class="sect"><div class="lbl">ALERT <span class="muted">(this browser)</span></div><div class="row"><select id="aF">${aFields.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>
     <select id="aOp"><option>&gt;</option><option>&lt;</option></select><input id="aLv" class="num" style="width:6em" inputmode="decimal"><button class="btn" id="aAdd">SET</button></div></div>`;
-  body.innerHTML = modeBar() + head + `<div class="sect">${sideBtns}${sizeField}${ordUi}<div id="tkCalc"></div>
+  body.innerHTML = modeBar() + head + `<div class="sect">${sideBtns}${sizeField}${ordUi}<div id="tkCalc"></div>${jForm(jm)}
     <button class="btn solid" id="tkBook" style="padding:5px">${!state.canWrite ? "SIGN IN TO BOOK" : state.ordType === "lmt" ? "PLACE LIMIT ORDER" : "BOOK TRADE"}</button></div>` + alertUi;
   bindMode();
   if (s.kind === "bond") fillHist("tkHist", s.id, async (w) => spark((await histOf(s.id))?.map(x => ({ d: x.d, v: x.v[HK.z] })).filter(x => x.v != null) ?? null, { w, label: "Z-spread" }));
   const upd = () => { const c = calc(); $("#tkCalc").innerHTML = c.html; return c; };
   upd();
+  bindJ(jm, $("#tkBook"));
   body.querySelectorAll("[data-side]").forEach(b => b.onclick = () => { state.side = +b.dataset.side; renderTicket(); });
   body.querySelectorAll("[data-nom]").forEach(b => b.onclick = () => { state.nominal = +b.dataset.nom; renderTicket(); });
   body.querySelectorAll("[data-lots]").forEach(b => b.onclick = () => { state.lots = +b.dataset.lots; renderTicket(); });
@@ -2240,18 +2478,22 @@ function renderTicket() {
     if (!state.canWrite) { openLogin(); return; }
     const c = upd();
     if (!c.ok) { toast(s.kind === "bond" && state.nominal > 0 ? "The nominal must be a multiple of the minimum denomination" : "Enter a size greater than zero"); return; }
+    const jr = jRead(jm);
+    if (jr.msg) { toast(jr.msg); $("#jThesis")?.focus(); return; }
+    c.order.j = jr.j;
+    if (s.kind === "bond") { c.order.ez = jx.z; c.order.ey = jx.ytm; }   // entry Z and yield, for the P&L split at the close
     const btn = $("#tkBook"); btn.disabled = true;
     const lim = state.ordLimit, now = c.px;
     if (state.ordType === "lmt" && !(isFinite(lim) && lim > 0)) { toast("Enter a limit price"); btn.disabled = false; return; }
     // a limit that is marketable now trades at once, at the market price (never worse than the limit)
     if (state.ordType === "lmt" && !(state.side > 0 ? now <= lim : now >= lim)) {
       const { price, settle, ...o } = c.order;
-      await placeOrder({ ...o, limit: lim }, `${state.side > 0 ? "buy" : "sell"} ${c.desc}`);
+      if (await placeOrder({ ...o, limit: lim }, `${state.side > 0 ? "buy" : "sell"} ${c.desc}`)) { state.jd = {}; renderTicket(); }
       btn.disabled = false; return;
     }
     const ok = await addPositions([c.order]);
     btn.disabled = false;
-    if (ok) toast(`${state.side > 0 ? "BOUGHT" : "SOLD"} ${c.desc} @ ${fmt(c.px, 3)}`);
+    if (ok) { toast(`${state.side > 0 ? "BOUGHT" : "SOLD"} ${c.desc} @ ${fmt(c.px, 3)}`); state.jd = {}; renderTicket(); }
   };
   $("#aAdd").onclick = () => { const v = $("#aLv").value, lv = Number(v.replace(",", ".")); if (v === "" || !isFinite(lv)) return toast("Enter a level");
     addWatch({ kind: s.kind === "bond" ? "bond" : "fut", id: s.id, f: $("#aF").value, op: $("#aOp").value, lv }); $("#aLv").value = ""; };
@@ -2296,10 +2538,12 @@ function renderStratTicket() {
       impactHtml(st.legs.map(x => x.kind === "bond" ? { kind: "bond", isin: x.id, qty: x.qty, price: x.px } : { kind: "future", code: x.id, contract: x.f.contract, qty: x.qty, price: x.px }));
     ok = true;
   }
-  body.innerHTML = modeBar() + `<div class="sect"><div class="legs">${slots}</div>${dir}${sizeField}<div id="tkCalc">${calc}</div>
+  const jm = ok ? { unit: "lvl", val: levelOf(type, st.legs, "y"), dir: profitsIf(type, st.legs) === "falls" ? -1 : 1 } : null;
+  body.innerHTML = modeBar() + `<div class="sect"><div class="legs">${slots}</div>${dir}${sizeField}<div id="tkCalc">${calc}</div>${jm ? jForm(jm) : ""}
     <button class="btn solid" id="tkBook" style="padding:5px" ${ok ? "" : "disabled"}>${state.canWrite ? `BOOK ${fly ? "BUTTERFLY" : "PAIR"}` : "SIGN IN TO BOOK"}</button></div>
     ${ok ? `<div class="sect"><div class="lbl">LEVEL HISTORY (YIELD), BP</div><div class="hist" id="tkHist"></div></div>` : ""}`;
   bindMode();
+  if (jm) bindJ(jm, $("#tkBook"));
   body.querySelectorAll("[data-slot]").forEach(el => el.onclick = e => { if (e.target.closest("button")) return; state.slot = +el.dataset.slot; renderStratTicket(); });
   body.querySelectorAll("[data-clear]").forEach(el => el.onclick = () => { const i = +el.dataset.clear; state.legs[i] = null; state.slot = i; state.stratName = ""; store("legs", state.legs); renderStratTicket(); });
   $("#tkDir").onclick = e => { const v = +e.target.dataset.dir; if (!v) return; if (fly) state.flyDir = v; else state.pairSide = v; renderStratTicket(); };
@@ -2314,15 +2558,17 @@ function renderStratTicket() {
     if (!state.canWrite) { openLogin(); return; }
     const cur = stratLegs();
     if (!cur.ready) return;
+    const jr = jRead(jm);
+    if (jr.msg) { toast(jr.msg); $("#jThesis")?.focus(); return; }
     const sid = newId(), name = (state.stratName || "").trim() || type.toUpperCase();
-    const strat = (i) => ({ id: sid, name, type, leg: i, y0: levelOf(type, cur.legs, "y"), z0: levelOf(type, cur.legs, "z") });
+    const strat = (i) => ({ id: sid, name, type, leg: i, y0: levelOf(type, cur.legs, "y"), z0: levelOf(type, cur.legs, "z"), j: jr.j });
     const orders = cur.legs.map((x, i) => x.kind === "bond"
-      ? { kind: "bond", isin: x.id, qty: x.qty, price: x.px, settle: valSettle(), strat: strat(i) }
+      ? { kind: "bond", isin: x.id, qty: x.qty, price: x.px, settle: valSettle(), strat: strat(i), ez: x.b.z, ey: x.b.ytm }
       : { kind: "future", code: x.id, contract: x.f.contract, qty: x.qty, price: x.px, strat: strat(i) });
     const btn = $("#tkBook"); btn.disabled = true;
     const done = await addPositions(orders, name);
     btn.disabled = false;
-    if (done) { toast(`${name} booked (${orders.length} legs)`); state.stratName = ""; }
+    if (done) { toast(`${name} booked (${orders.length} legs)`); state.stratName = ""; state.jd = {}; renderStratTicket(); }
   };
 }
 

@@ -120,6 +120,21 @@ Relative value:
   shows the collection log, the sources' latest dates, the quote checks and every reclassification.
 - **Guide** (key 7): workspaces, how to trade, glossary, data sources, data status and known limitations, for new
   members.
+- **Trade journal** (Holdings → JOURNAL): every trade from the ticket (outright, pair, fly, limit order) needs a thesis,
+  a target and a stop in its own unit (credit bond: Z-spread; government bond: yield; future: price; pair/fly: level)
+  and a catalyst; closing asks for a verdict (right / partly / wrong) and a one-line lesson. The tab shows open
+  theses with status (OPEN / TARGET / STOPPED) and statistics per trader, type and sector: hit rate, average win and
+  loss, profit factor, closed at target, closed past the stop, holding days. Bond closes split the P&L to first order
+  into spread (−CS01 × ΔZ) and rates. Hedges booked from the Risk view are marked and left out of the statistics.
+- **Spread terms**: BE BP = spread / spread duration (widening a year's spread carry pays for) and B-O BP =
+  (offer − bid) / (dirty × spread duration) × 10,000, in the screener, blotter and ticket.
+- **Issuer credit curves** (Credit): a line in ln(maturity) through each issuer's firm quotes (1–30y, ≥ EUR 300m,
+  one curve per issuer, currency, seniority and sector); slope = long − short. Inverted (flagged INV) only for
+  corporates and credit-risky sovereigns, by more than 10 bp, when the bonds agree (shortest third wider than the
+  longest third, 4+ bonds). Bank curves can still mix senior and unflagged Tier 2 debt.
+- **New issues (30 days)** (Credit): deals of EUR 250m+ issued (ECB list date) or first quoted in the window; Z-spread
+  and the premium over the issuer curve at the first quote and now. Not the new-issue concession at pricing (no
+  reoffer spreads in the free data).
 - **History**: each site build stores the day's mid, YTM, Z-spread and rich/cheap per bond (and futures with the CTD
   yield) in `data/history/`, and publishes them as time series (Z-spread per bond, level per strategy).
 

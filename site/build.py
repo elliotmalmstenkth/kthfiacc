@@ -74,6 +74,70 @@ def add_relative_value(rows, cols, keys, curves):
                 roll += an.spread_curve_value(coefs[g], t) - an.spread_curve_value(coefs[g], t - 0.25)
         row += [r(v, 1), r(roll, 2)]
     cols += ["rv", "roll"]
+    return issuer_curves(rows, cols, groups, years, z, firm, coefs)
+
+
+def issuer_curves(rows, cols, groups, years, z, firm, coefs=None, min_n=3, min_span=3.0, inv_bp=10.0, min_amt=300):
+    """Shape of each issuer's credit curve: a line in ln(maturity) through the Z-spreads of its firm quotes of
+    1-30 years and at least min_amt million (benchmark-style bonds: small retail and structured notes distort the
+    ends), refitted once without outliers (residual > 3 robust SD, at least 15 bp). For issuers with min_n such
+    bonds spanning min_span years or more: the fitted Z at the shortest and the longest, slope = long − short (bp),
+    inverted when the long end is more than inv_bp below the short end and the bonds agree (shortest third's
+    median Z above the longest third's, 4+ bonds) – a classic sign of credit stress (default risk priced sooner
+    rather than later). Bank curves can still mix senior preferred, non-preferred and unflagged Tier 2 debt. Groups as for rich/cheap (issuer, currency, seniority, sector).
+    Appends 'cslope' (the issuer's slope, None if not measured) and 'cinv' (1 if inverted) to each row; returns
+    one dict per issuer, inverted ones first."""
+    import numpy as np
+    c = {k: i for i, k in enumerate(cols)}
+    pts, first = collections.defaultdict(list), {}
+    for i, g in enumerate(groups):
+        first.setdefault(g, i)
+        amt = rows[i][c["amt"]] if "amt" in c else min_amt
+        # 1-30 years: beyond 30 years it is mostly hybrids priced to their first call, not to maturity; a negative
+        # Z-spread on a non-government bond is a bad quote or a structured note
+        ok_z = z[i] == z[i] and (z[i] > 0 or rows[i][c["sector"]] == "SOV")       # z == z: not NaN
+        if firm[i] and 1 <= years[i] <= 30 and ok_z and (amt or 0) >= min_amt:
+            pts[g].append((years[i], z[i]))
+    out, slope = [], {}
+    for g, p in pts.items():
+        x, y = np.log([t for t, _ in p]), np.array([v for _, v in p], float)
+        keep = np.ones(len(p), bool)
+        for _ in range(2):
+            if keep.sum() < min_n or np.exp(x[keep].max()) - np.exp(x[keep].min()) < min_span:
+                keep = None
+                break
+            coef = np.polyfit(x[keep], y[keep], 1)
+            res = y - np.polyval(coef, x)
+            mad = np.median(np.abs(res[keep] - np.median(res[keep]))) * 1.4826
+            out_ = np.abs(res) > max(3 * mad, 15.0)
+            if not (keep & out_).any():
+                break
+            keep &= ~out_
+        if keep is None or keep.sum() < min_n:
+            continue
+        lo, hi = float(np.exp(x[keep].min())), float(np.exp(x[keep].max()))
+        if hi - lo < min_span:
+            continue
+        zs, zl = float(np.polyval(coef, np.log(lo))), float(np.polyval(coef, np.log(hi)))
+        slope[g] = zl - zs
+        # inverted only if the bonds themselves show it, not just the line: the median Z of the shortest third
+        # above that of the longest third, with at least 4 bonds (one odd bond, e.g. an unflagged Tier 2, can tip a line)
+        kept = sorted((t, v) for (t, v), k in zip(p, keep) if k)
+        third = max(1, len(kept) // 3)
+        gap = statistics.median(v for _, v in kept[:third]) - statistics.median(v for _, v in kept[-third:])
+        row = rows[first[g]]
+        # a credit signal only for corporates and for sovereigns with real credit spread; for SSA, regions and
+        # covered bonds the slope against the AAA curve mostly mirrors the shape of that curve
+        credit = row[c["sector"]] in ("CORP_FIN", "CORP_NONFIN") or (row[c["sector"]] == "SOV" and min(zs, zl) > 50)
+        out.append(dict(issuer=row[c["issuer"]], sector=row[c["sector"]], cty=row[c["cty"]], ccy=row[c["ccy"]],
+                        sub=row[c["sub"]], n=len(kept), t0=r(lo, 1), t1=r(hi, 1), z0=r(zs, 1), z1=r(zl, 1),
+                        slope=r(zl - zs, 1), inv=bool(credit and zl - zs < -inv_bp and gap > inv_bp and len(kept) >= 4)))
+    inv = {g for g, x in zip(slope, out) if x["inv"]}
+    for row, g in zip(rows, groups):
+        row += [r(slope.get(g), 1), 1 if g in inv else None]
+    cols += ["cslope", "cinv"]
+    out.sort(key=lambda x: (not x["inv"], x["slope"]))
+    return out
 
 
 def index_durations(rows, cols, settle, min_n=200):
@@ -285,11 +349,12 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
         flags.append(quote_flags(mid, x.bid_px, x.ask_px, rows[-1][12]))
         # issuer curves per currency, fitted on firm fixed-coupon quotes without quality flags
         lei = x.issuer_lei if pd.notna(x.issuer_lei) else x.issuer
-        keys.append((f"{ccy}|{lei}|{int(bool(x.subordinated))}" + ("|FRN" if is_frn else ""), years, firm and not flags[-1] and not is_frn))
+        # one curve per issuer, currency, seniority and sector: a bank's covered bonds (same LEI) are not its senior debt
+        keys.append((f"{ccy}|{lei}|{int(bool(x.subordinated))}|{x.sector}" + ("|FRN" if is_frn else ""), years, firm and not flags[-1] and not is_frn))
         rcurves.append(None if is_frn else curves[ccy])
     cols = ["isin", "issuer", "name", "sector", "sub", "cpn", "mat", "amt", "bid", "ask", "firm", "ytm", "z",
             "mdur", "acc", "bench", "freq", "unit", "ccy", "frn", "sdur", "cty"]
-    add_relative_value(rows, cols, keys, rcurves)
+    icurves = add_relative_value(rows, cols, keys, rcurves)
     irv = cols.index("rv")
     for row, f in zip(rows, flags):         # far off the issuer's own curve: more likely a bad quote than value
         if row[irv] is not None and abs(row[irv]) > 150:
@@ -356,7 +421,7 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
                 ust=dict(date=ust.date, par={str(k): v for k, v in ust.par.items()}) if ust else None,
                 curves={k: dict(date=c.date, src=getattr(c, "src", None), spot={t: r(c.spot(t), 4) for t in (1, 2, 5, 10, 20, 30)},
                                 rmse=r(getattr(c, "rmse_bp", None), 1), n=getattr(c, "n", None)) for k, c in curves.items() if c is not None},
-                fxh=fxh, idx=idx, cols=cols, bonds=rows, futures=futures, vol=vol, stir=stirs)
+                fxh=fxh, idx=idx, cols=cols, bonds=rows, futures=futures, vol=vol, stir=stirs, icurves=icurves)
 
 
 # repo haircuts (% of market value) for the book's capital use: the ECB's own haircut for bonds on its list,
@@ -733,6 +798,57 @@ def weekly(data, hist_dir, top=15):
     return out
 
 
+def new_issues(data, hist_dir, days=30, min_amt=250):
+    """How new bonds trade against their issuer's curve, from the first quote on: bonds of at least min_amt million
+    issued in the last `days` days (ECB list issue date) or quoted for the first time in that window (when the history reaches back before
+    it). Per bond: first-quote day and the lag after issue, Z-spread and rich/cheap (rv = the premium over the
+    issuer's fitted curve) at the first quote and now. This is not the new-issue concession at pricing: the reoffer
+    spread is not in the free data, and Börse Frankfurt often starts quoting a few days after issue."""
+    asof = dt.date.fromisoformat(data["asof"])
+    start = (asof - dt.timedelta(days=days)).isoformat()
+    hdays = sorted(os.path.basename(p)[:10] for p in glob.glob(os.path.join(hist_dir, "*.csv.gz")))
+    window, prior = [d for d in hdays if start <= d <= data["asof"]], [d for d in hdays if d < start][-20:]
+    seen = set()
+    for d in prior:
+        seen |= set(read_history(os.path.join(hist_dir, f"{d}.csv.gz")))
+    c = {k: i for i, k in enumerate(data["cols"])}
+    cand = {}
+    for row in data["bonds"]:
+        iss = row[c["iss"]] if "iss" in c else None
+        if (row[c["amt"]] or 0) < min_amt:   # primary-market deals, not small retail and structured notes
+            continue
+        if (iss is not None and start <= iss <= data["asof"]) or (prior and row[c["isin"]] not in seen):
+            cand[row[c["isin"]]] = row
+    first = {}
+    for d in window:                      # first day each candidate has a Z-spread in the history
+        if len(first) == len(cand):
+            break
+        h = read_history(os.path.join(hist_dir, f"{d}.csv.gz"))
+        for isin in cand:
+            if isin not in first and h.get(isin, {}).get("z") is not None:
+                first[isin] = (d, h[isin])
+    out = []
+    for isin, row in cand.items():
+        if isin not in first:
+            continue
+        d0, h0 = first[isin]
+        iss = row[c["iss"]] if "iss" in c else None
+        z = row[c["z"]]
+        # issued before the history starts and seen on its first day: the real first quote is unknown
+        known = not (d0 == hdays[0] and (iss is None or iss < hdays[0]))
+        out.append(dict(isin=isin, name=row[c["name"]], issuer=row[c["issuer"]], sector=row[c["sector"]], amt=row[c["amt"]],
+                        mat=row[c["mat"]], ccy=row[c["ccy"]], iss=iss, first=d0 if known else None,
+                        lag=(dt.date.fromisoformat(d0) - dt.date.fromisoformat(iss)).days if iss and known else None,
+                        z0=h0["z"] if known else None, rv0=h0["rv"] if known else None, z=z, rv=row[c["rv"]],
+                        dz=r(z - h0["z"], 1) if z is not None and known else None,
+                        ecb=row[c["ecb"]] if "ecb" in c else None))
+    out.sort(key=lambda x: (x["first"] or "", x["iss"] or "", x["amt"] or 0), reverse=True)
+    med = lambda xs: r(statistics.median(xs), 1) if xs else None
+    return dict(days=days, start=start, history_from=hdays[0] if hdays else None, n=len(out), rows=out[:60],
+                prem0=med([x["rv0"] for x in out if x["rv0"] is not None]),
+                dz=med([x["dz"] for x in out if x["dz"] is not None and x["first"] and x["first"] < data["asof"]]))
+
+
 def as_document(page):
     """The template is written as page content (title, style, markup); wrap it in a standalone document for GitHub Pages."""
     m = re.match(r"\s*(<title>.*?</title>)", page, re.S)
@@ -763,6 +879,7 @@ if __name__ == "__main__":
     if a.history:
         write_history(data, a.history)
         data["week"] = weekly(data, a.history)
+        data["newiss"] = new_issues(data, a.history)
         stir_changes(data, a.history)
         hist_changes(data, a.history)
         ic = data["cols"].index("ccy")

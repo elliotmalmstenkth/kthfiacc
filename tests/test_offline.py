@@ -1,5 +1,5 @@
 """Offline tests (no network access): synthetic data in place of ECB/ESMA/Deutsche Börse."""
-import datetime as dt, gzip, io, json, math, os, sys, types, zipfile
+import csv, datetime as dt, gzip, io, json, math, os, sys, types, zipfile
 from collections import namedtuple
 
 import pytest
@@ -821,7 +821,7 @@ def test_limit_orders_fill_expire_and_become_positions(tmp_path):
                "tradingDateAndTime": f"2026-10-02T1{i}:00:00.000Z"} for i, p in enumerate([121.0, 120.95, 120.89])]
     base = dict(by="t", at="2026-10-02T07:00:00Z", day="2026-10-02", status="working")
     doc = {"positions": [], "orders": [
-        dict(base, id="o1", kind="bond", isin="B1", qty=100000, limit=99.2, expires="2026-10-02"),
+        dict(base, id="o1", kind="bond", isin="B1", qty=100000, limit=99.2, expires="2026-10-02", j={"thesis": "cheap vs curve", "unit": "z", "target": 60, "stop": 90}),
         dict(base, id="o2", kind="bond", isin="B2", qty=-100000, limit=101.5, expires="2026-10-02"),      # bid never reaches: expires
         dict(base, id="o3", kind="bond", isin="B2", qty=-100000, limit=101.5, expires="2026-10-09"),      # still working
         dict(base, id="o4", kind="future", code="FGBL", contract="2026-12-08", qty=5, limit=120.90, expires="2026-10-02"),
@@ -831,6 +831,72 @@ def test_limit_orders_fill_expire_and_become_positions(tmp_path):
     assert st == {"o1": "filled", "o2": "expired", "o3": "working", "o4": "filled", "o5": "expired"} and (nf, ne) == (2, 2)
     pos = {p["order"]: p for p in new["positions"]}
     assert pos["o1"]["price"] == 99.15 and pos["o1"]["settle"] == "2026-10-06" and pos["o4"]["price"] == 120.90   # futures fill at the limit
+    assert pos["o1"]["j"]["thesis"] == "cheap vs curve" and "j" not in pos["o4"]     # the journal follows the order
+
+
+def _site_build():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    return build
+
+
+def test_issuer_curve_slope_and_inversion():
+    import numpy as np
+    build = _site_build()
+    cols = ["isin", "issuer", "sector", "cty", "ccy", "sub"]
+    T = [1.5, 3.0, 5.0, 8.0]
+    normal = [40 + 10 * np.log(t) for t in T]            # upward: long end wider
+    inverted = [300 - 40 * np.log(t) for t in T]         # stress: short end wider
+    groups, years, z, firm, rows = [], [], [], [], []
+    for g, zs in (("N", normal), ("I", inverted)):
+        for t, v in zip(T, zs):
+            groups.append(g); years.append(t); z.append(v); firm.append(True); rows.append([f"{g}{t}", g, "CORP_NONFIN", "DE", "EUR", 0])
+    groups += ["T", "T"]; years += [2.0, 6.0]; z += [50.0, 60.0]; firm += [True, True]   # thin issuer: two bonds
+    rows += [["T2", "T", "CORP_FIN", "FR", "EUR", 0], ["T6", "T", "CORP_FIN", "FR", "EUR", 0]]
+    out = {x["issuer"]: x for x in build.issuer_curves(rows, list(cols), groups, years, z, firm)}
+    assert set(out) == {"N", "I"}                                    # T has too few bonds
+    assert out["N"]["slope"] == pytest.approx(10 * np.log(8 / 1.5), abs=0.1) and not out["N"]["inv"]
+    assert out["I"]["slope"] < -10 and out["I"]["inv"] and (out["I"]["t0"], out["I"]["t1"]) == (1.5, 8.0)
+    assert rows[0][-2] == out["N"]["slope"] and rows[-1][-2] is None   # per-bond cslope column
+    assert rows[4][-1] == 1 and rows[0][-1] is None                    # cinv: bonds of the inverted issuer
+    # small retail notes are left out of the slope: with an amount column, bonds under EUR 300m do not count
+    rows2 = [r_[:-2] + [100.0] for r_ in rows]
+    assert build.issuer_curves(rows2, cols + ["amt"], groups, years, z, firm) == []
+
+
+def test_new_issue_tracker_from_history(tmp_path):
+    build = _site_build()
+    h = tmp_path / "h"
+    h.mkdir()
+
+    def day(d, rows):
+        with gzip.open(h / f"{d}.csv.gz", "wt", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["id", "mid", "ytm", "z", "rv", "ecb"])
+            for r_ in rows:
+                w.writerow(r_)
+    old = ["OLD", 99, 3, 80, 1, ""]
+    day("2026-08-20", [old])                                            # before the 30-day window
+    day("2026-09-28", [old])
+    day("2026-09-30", [old, ["NEW", 100, 3.5, 95, 12.0, "3"]])          # first quote two days after issue
+    day("2026-10-02", [old, ["NEW", 100.2, 3.4, 88, 6.0, "3"], ["FRESH", 99.5, 3, 70, 3.0, ""]])
+    cols = ["isin", "name", "issuer", "sector", "amt", "mat", "ccy", "iss", "z", "rv", "ecb"]
+    bonds = [["OLD", "OLD 1 30", "A", "CORP_NONFIN", 500, "2030-01-01", "EUR", "2024-01-10", 80, 1, None],
+             ["NEW", "NEW 3 31", "B", "CORP_NONFIN", 750, "2031-01-01", "EUR", "2026-09-28", 88, 6.0, "3"],
+             ["FRESH", "FR 2 29", "C", "CORP_FIN", 500, "2029-01-01", "EUR", None, 70, 3.0, None]]
+    out = build.new_issues(dict(asof="2026-10-02", cols=cols, bonds=bonds), str(h))
+    got = {x["isin"]: x for x in out["rows"]}
+    assert set(got) == {"NEW", "FRESH"}                                 # OLD was quoted before the window
+    assert got["NEW"]["first"] == "2026-09-30" and got["NEW"]["lag"] == 2 and got["NEW"]["rv0"] == 12.0 and got["NEW"]["dz"] == -7.0
+    assert got["FRESH"]["iss"] is None and got["FRESH"]["first"] == "2026-10-02"
+    # issued before the history starts: listed, but its first quote is unknown
+    day0 = h / "2026-08-20.csv.gz"; day0.unlink()
+    bonds2 = bonds + [["PRE", "PRE 1 33", "D", "CORP_FIN", 600, "2033-01-01", "EUR", "2026-09-10", 90, 1.0, None]]
+    with gzip.open(h / "2026-09-28.csv.gz", "wt", newline="") as f:
+        csv.writer(f).writerows([["id", "mid", "ytm", "z", "rv", "ecb"], old, ["PRE", 99, 3.6, 92, 2.0, ""]])
+    pre = {x["isin"]: x for x in build.new_issues(dict(asof="2026-10-02", cols=cols, bonds=bonds2), str(h))["rows"]}["PRE"]
+    assert pre["first"] is None and pre["rv0"] is None and pre["lag"] is None
+    assert out["prem0"] == pytest.approx((12.0 + 3.0) / 2) and out["dz"] == -7.0   # move: only bonds first quoted before today
 
 
 def test_fx_hedge_from_the_eurusd_calendar_spread():

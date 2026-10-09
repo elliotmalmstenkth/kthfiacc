@@ -87,6 +87,8 @@ def run(doc, day, bond_files, fut_trades, now=None):
             px, ts = fills[o["id"]]
             o.update(status="filled", fill_px=px, fill_at=ts)
             base = dict(id=f"{o['id']}f", qty=o["qty"], price=px, date=day, by=o.get("by"), at=ts[:19] + "Z", order=o["id"])
+            if o.get("j"):   # the trade journal (thesis, target, stop, catalyst) follows the order to the position
+                base["j"] = o["j"]
             positions.append({**base, "kind": "bond", "isin": o["isin"], "settle": settle} if o["kind"] == "bond"
                              else {**base, "kind": "future", "code": o["code"], "contract": o.get("contract")})
         elif o.get("status") == "working" and o.get("expires", "") <= day:
