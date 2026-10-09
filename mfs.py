@@ -139,14 +139,19 @@ def _gzip_ok(path):
         return False
 
 
-def download(fname, path, notation=None):
-    """Downloads one file. notation=2 keeps bond rows only (priceNotation 2)."""
+def download(fname, path, notation=None, tries=3):
+    """Downloads one file. notation=2 keeps bond rows only (priceNotation 2).
+    A truncated transfer (corrupt gzip) is downloaded again, up to `tries` times."""
     tmp = f"{path}.{os.getpid()}.part"  # unique per process: two concurrent syncs never collide
-    with _open(f"{BASE}/download/{fname}", timeout=300) as r, open(tmp, "wb") as f:
-        shutil.copyfileobj(r, f, 1 << 20)
-    if not _gzip_ok(tmp):
+    for attempt in range(1, tries + 1):
+        with _open(f"{BASE}/download/{fname}", timeout=300) as r, open(tmp, "wb") as f:
+            shutil.copyfileobj(r, f, 1 << 20)
+        if _gzip_ok(tmp):
+            break
         os.remove(tmp)
-        raise RuntimeError(f"corrupt gzip: {fname}")
+        if attempt == tries:
+            raise RuntimeError(f"corrupt gzip: {fname} ({tries} attempts)")
+        time.sleep(2 * attempt)
     if notation is not None:
         tag = re.compile(rb'"priceNotation"\s*:\s*%d\s*[,}]' % notation)
         with gzip.open(tmp, "rb") as src, gzip.open(tmp + "2", "wb", compresslevel=6) as dst:

@@ -15,7 +15,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 | `ust_curve.py` | US Treasury constant-maturity yields (FRED) | Zero curve bootstrapped from the par yields, for the dollar bonds' Z-spreads |
 | `frn.py` | Euribor forwards from `stir.py` | Floating-rate notes on 3M Euribor: discount margin, rates duration (to the next reset) and spread duration |
 | `country.py` | ECB eligible list, GLEIF LEI register | Country of risk per bond (guarantor, parent of a financing vehicle, issuer); GLEIF answers cached in `data/history/lei_country.csv` |
-| `orders.py` | Deutsche Börse minute files (archive) | Limit orders in `portfolio/positions.json`: matched each evening (bonds: a firm quote through the limit; futures: a trade through it), filled into positions or expired |
+| `orders.py` | Deutsche Börse minute files (archive) | Limit orders in `portfolio/positions.json`: matched in each daily run (bonds: a firm quote through the limit; futures: a trade through it), filled into positions or expired |
 | `govt_curves.py` | Bank of England yield curve files; Börse Frankfurt quotes | Sterling zero curve (BoE nominal spot curve) and a Swiss franc curve fitted (Nelson-Siegel) to the Confederation bonds, as the SNB's daily curve is no longer published |
 | `firds.py` | ESMA FIRDS (FULINS) | Reference data per ISIN → SQLite (`--cat D` debt, `--cat F` futures) |
 | `classify.py` | FIRDS + DFRA pre-trade | Sector classification (sovereign, covered, financial/non-financial corporate …) and coverage summary |
@@ -31,7 +31,7 @@ Free euro-market data for a rates and credit paper portfolio with hedging. Pytho
 ```bash
 pip install -r requirements.txt
 
-# every business day, evening (files expire at midnight of the next business day)
+# every business day, the next morning (files expire at midnight of the next business day)
 python mfs.py sync --bonds-only                 # DFRA-pretrade (bond rows only), DFRA-posttrade, DEUR-posttrade
 python mfs.py marks 2026-10-02 --snap 17:30     # snapshot times in CET/CEST
 python eurex.py daily 2026-10-02 --show
@@ -63,7 +63,7 @@ through the ICE BofA US HY OAS.
 Trading desk tools: the ticket shows the trade's impact on the book (DV01, CS01, VaR, capital, largest country)
 before booking, takes limit orders (DAY or one week) and sets alerts (kept in the viewer's browser). Risk has stress
 tests (rates ±100, steepener/flattener, spreads × 1.5, BTP − Bund +100, risk-off); Holdings shows the book's P&L
-per evening against the FECX index (return on gross, excess return, Sharpe, drawdown) and the working orders; the
+per day against the FECX index (return on gross, excess return, Sharpe, drawdown) and the working orders; the
 KPI CAPITAL USED applies repo haircuts (the ECB's where available) and approximate futures margins against a
 EUR 1m budget. Eurex EUR/USD futures give the cost of hedging dollars (hedged yields of dollar bonds, the
 cross-currency basis), VSTOXX futures the volatility curve and EURO STOXX Banks futures the bank-share side of
@@ -140,8 +140,9 @@ Relative value:
 
 ## Automation (GitHub Actions)
 
-`.github/workflows/daily.yml` runs `ci.py` every business day at 22:37 UTC, with a fallback run at 05:17 UTC
-Tue–Sat and a FIRDS snapshot on Sundays. Each business day becomes a **draft release** `data-<date>` (visible only
+`.github/workflows/daily.yml` runs `ci.py` Tuesday to Saturday at 05:17 UTC for the previous business day, with a
+retry at 08:47 UTC, and a FIRDS snapshot on Sundays. (Deutsche Börse lists a finished day's post-trade files only
+after the night, so an evening run finds no Eurex files.) A truncated download is fetched again up to three times. Each business day becomes a **draft release** `data-<date>` (visible only
 to collaborators): marks at 12:00/17:25/close, bond classification, Eurex futures, and raw data (bond rows from
 DFRA-pretrade ~340 MB, post-trade ~75 MB, Eurex option implied vols, and Xetra's daily trade file ~17 MB, kept for
 the bond ETFs). Every run also saves a dated copy of the sources that only publish their latest version (ECB
@@ -153,7 +154,7 @@ so rating-step changes, label changes and the OAS history beyond FRED's three ye
 half day (GitHub schedules cannot run every minute) reads each new minute file and force-pushes `live.json` (one
 commit, no history) to the branch `live`. The page polls the branch every minute when signed in (every two minutes
 otherwise, for GitHub's anonymous API limit) and marks bonds and futures at the intraday prices; yields and Z-spreads
-are moved by −Δprice / (dirty × modified duration) from the evening's analytics. Free MiFID data is delayed.
+are moved by −Δprice / (dirty × modified duration) from the previous day's analytics. Free MiFID data is delayed.
 
 Download a day: `gh release download data-2026-10-02 -D dl/` (requires write access, as releases are drafts).
 

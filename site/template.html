@@ -1650,7 +1650,7 @@ const pct = (v, n = 3) => v == null ? "–" : fmt(v, n) + "%";
 const qLbl = (q) => `${mmmYY(q.start)}–${mmmYY(q.end)}`;
 function stirPanel() {
   const S = DATA.stir;
-  if (!S) return `<div class="empty">No money-market futures in this build. The evening run adds them from the next trading day.</div>`;
+  if (!S) return `<div class="empty">No money-market futures in this build. The daily run adds them from the next trading day.</div>`;
   const nx = S.next, last = S.estr_q.at(-1), yr = S.estr_q.find(q => q.start >= addMonthsIso(S.asof, 12)) || last;
   const head = `<div class="sect"><dl class="kv">
       <dt>ECB deposit rate</dt><dd class="big">${pct(S.dfr, 2)}</dd><dt>€STR</dt><dd>${pct(S.estr)} <span class="muted">${S.estr_date ? dTerm(S.estr_date) : ""} · ${S.spread != null ? fmt(S.spread * 100, 1) + " bp under the DFR" : ""}</span></dd>
@@ -1691,7 +1691,7 @@ function stirChart(S, w, h = 260) {
 const VOL_NAME = { FGBS: "Schatz (2Y)", FGBM: "Bobl (5Y)", FGBL: "Bund (10Y)" };
 function volPanel() {
   const V = DATA.vol;
-  if (!V) return `<div class="empty">No option data in this build. The evening run adds it from the next trading day.</div>`;
+  if (!V) return `<div class="empty">No option data in this build. The daily run adds it from the next trading day.</div>`;
   const codes = ["FGBS", "FGBM", "FGBL"].filter(c => V[c]);
   if (!state.volCode || !V[state.volCode]) state.volCode = codes.includes("FGBL") ? "FGBL" : codes[0];
   const X = V[state.volCode], exps = X.expiries;
@@ -1916,7 +1916,7 @@ function weekChg(s, mon) {   // series change from the last value before Monday 
   const a = s.v[i], b = s.v.at(-1);
   return s.unit === "%" ? (b - a) * 100 : s.unit === "" ? (b / a - 1) * 100 : b - a;
 }
-const needBase = () => `<div class="empty"><p>Needs a trading day before this week in the history${W()?.history_from ? ` (it starts ${dTerm(W().history_from)})` : ""}. This section fills from next week, as the evening runs add one day at a time.</p></div>`;
+const needBase = () => `<div class="empty"><p>Needs a trading day before this week in the history${W()?.history_from ? ` (it starts ${dTerm(W().history_from)})` : ""}. This section fills from next week, as the daily runs add one day at a time.</p></div>`;
 const ecbTxt = (q) => ECB_LBL[q] || "–";
 function bondTable(rows, cols) {
   if (rows == null) return needBase();
@@ -2090,9 +2090,9 @@ function renderGuide() {
     ["Curves", "ECB AAA and all-govt Svensson curves", "daily, published at noon the next business day"],
     ["€STR, EUR/USD", "ECB data portal", "daily"], ["SOFR", "New York Fed", "daily"],
     ["Credit indices, VIX", "FRED (ICE BofA OAS, CBOE)", "daily"],
-    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"], ["Rates implied vol", "Eurex option trades (DEUR post-trade)", "daily, evening run"], ["ECB path", "Eurex €STR and Euribor futures; ECB meeting calendar and deposit rate", "daily, evening run"], ["FX hedge, VSTOXX, bank shares", "Eurex EUR/USD, VSTOXX and EURO STOXX Banks futures", "daily, evening run"], ["US Treasury curve", "US Treasury constant-maturity yields via FRED", "daily, one day behind"], ["UK gilt curve, SONIA", "Bank of England (yield curve files, database)", "daily, one day behind"], ["Swiss curve, SARON", "fitted to Confederation bonds on Börse Frankfurt; SARON monthly from the SNB", "daily / monthly"], ["Country", "ECB list (residence, guarantor), GLEIF LEI register", "daily; GLEIF for new issuers"]];
+    ["Credit quality", "ECB list of eligible assets", "daily"], ["ESG labels", "Euronext ESG bond list", "as Euronext updates it"], ["Rates implied vol", "Eurex option trades (DEUR post-trade)", "daily"], ["ECB path", "Eurex €STR and Euribor futures; ECB meeting calendar and deposit rate", "daily"], ["FX hedge, VSTOXX, bank shares", "Eurex EUR/USD, VSTOXX and EURO STOXX Banks futures", "daily"], ["US Treasury curve", "US Treasury constant-maturity yields via FRED", "daily, one day behind"], ["UK gilt curve, SONIA", "Bank of England (yield curve files, database)", "daily, one day behind"], ["Swiss curve, SARON", "fitted to Confederation bonds on Börse Frankfurt; SARON monthly from the SNB", "daily / monthly"], ["Country", "ECB list (residence, guarantor), GLEIF LEI register", "daily; GLEIF for new issuers"]];
   const data = `<table class="t"><thead><tr><th>DATA</th><th>SOURCE</th><th>UPDATED</th></tr></thead><tbody>${src.map(r => `<tr><td>${r[0]}</td><td class="dim">${r[1]}</td><td class="dim">${r[2]}</td></tr>`).join("")}</tbody></table>
-    <p class="note pad">GitHub Actions collects the files every business day (22:37 UTC, retry 05:17 UTC), builds the analytics and publishes this site. The Deutsche Börse files are free for non-commercial use.</p>`;
+    <p class="note pad">GitHub Actions collects the previous business day's files every morning (05:17 UTC, retry 08:47 UTC), builds the analytics and publishes this site. The Deutsche Börse files are free for non-commercial use.</p>`;
   const L = D.log || [], ok = (x, lo) => +x >= lo ? "" : "neg";
   const log = L.length ? `<table class="t"><thead><tr><th>DAY</th><th class="n">PRE-TRADE</th><th class="n">POST-TRADE</th><th class="n">EUREX</th><th class="n">ISINS AT CLOSE</th><th class="n">FIRM TWO-WAY</th></tr></thead><tbody>` +
     L.slice().reverse().map(x => `<tr><td>${dTerm(x.date)}</td><td class="n ${ok(x.pretrade_files, 1200)}">${fmt(+x.pretrade_files, 0)}</td><td class="n ${ok(x.posttrade_files, 1200)}">${fmt(+x.posttrade_files, 0)}</td><td class="n">${fmt(+x.eurex_files, 0)}</td><td class="n">${fmt(+x.isin_close, 0)}</td><td class="n">${fmt(+x.two_sided_firm_close, 0)}</td></tr>`).join("") + `</tbody></table>` : `<div class="empty">No collection log in this build.</div>`;

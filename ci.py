@@ -211,7 +211,7 @@ def process_orders(day, archive, dry_run=False, path="portfolio/positions.json")
         print(f"{day}: {nf} limit orders filled, {ne} expired", file=sys.stderr)
         if dry_run or not (nf or ne):
             return nf, ne
-        body = json.dumps({"message": f"Portfolio: {nf} limit order(s) filled, {ne} expired on {day} (evening run)", "branch": branch,
+        body = json.dumps({"message": f"Portfolio: {nf} limit order(s) filled, {ne} expired on {day} (daily run)", "branch": branch,
                            "sha": j["sha"], "content": base64.b64encode((json.dumps(new, indent=1) + "\n").encode()).decode()})
         r = subprocess.run(["gh", "api", "-X", "PUT", f"repos/{repo}/contents/{path}", "--input", "-"], input=body, capture_output=True, text=True)
         if r.returncode == 0:

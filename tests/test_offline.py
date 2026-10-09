@@ -946,3 +946,20 @@ def test_nelson_siegel_fit_and_points_curve():
     assert gc.fit(pts[:4], "2026-10-02", "test") is None                     # too few bonds
     p = gc.Points("d", [1, 2], [4.0, 5.0], "x")
     assert p.spot(1.5) == pytest.approx(4.5) and p.spot(0.1) == 4.0 and p.spot(9) == 5.0
+
+
+def test_download_retries_a_truncated_file(tmp_path, monkeypatch):
+    good = gzip.compress(b'{"priceNotation":2,"x":1}\n')
+    bodies = [good[:10], good]                       # first transfer cut off, second complete
+
+    class R(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(mfs, "_open", lambda url, timeout=0: R(bodies.pop(0)))
+    monkeypatch.setattr(mfs.time, "sleep", lambda s: None)
+    out = tmp_path / "f.json.gz"
+    mfs.download("f.json.gz", str(out))
+    assert gzip.decompress(out.read_bytes()) == b'{"priceNotation":2,"x":1}\n' and not bodies
+    bodies[:] = [good[:10]] * 3
+    with pytest.raises(RuntimeError, match="3 attempts"):
+        mfs.download("f.json.gz", str(tmp_path / "g.json.gz"))
