@@ -84,17 +84,30 @@ def index_durations(rows, cols, settle, min_n=200):
     grade = on the ECB list of eligible collateral (steps 1-3): that leaves out IG issuers from outside the EEA,
     and the index's ESG exclusions are not applied, so this is an estimate. Flagged quotes are left out.
     The euro high-yield (FEHY), sterling, US dollar and EM indices are not estimated: we have no ratings to
-    pick high yield, and no bonds in those currencies."""
+    pick high yield, and no bonds in those currencies.
+    Also the index's spread and DTS, measured like the bonds' (Z-spread vs the ECB AAA curve), so a DTS-neutral
+    hedge compares like with like: spr = market-value-weighted Z-spread (bp), dts = market-value-weighted
+    spread duration × Z-spread / 100 (years × %), over the same bonds that have a Z-spread."""
     c = {k: i for i, k in enumerate(cols)}
     one_year = (settle + dt.timedelta(days=365)).isoformat()
     tot = n = dsum = 0.0
+    ztot = zsum = dtsum = 0.0
     for b in rows:
         if (b[c["sector"]] in ("CORP_FIN", "CORP_NONFIN") and b[c["ecb"]] in ("1-2", "3") and (b[c["amt"]] or 0) >= 300
                 and ("ccy" not in c or b[c["ccy"]] == "EUR") and not ("frn" in c and b[c["frn"]] is not None)
                 and b[c["mat"]] >= one_year and not b[c["dq"]] and b[c["mdur"]] and b[c["bid"]] and b[c["ask"]]):
             mv = b[c["amt"]] * ((b[c["bid"]] + b[c["ask"]]) / 2 + (b[c["acc"]] or 0))
             tot += mv; dsum += mv * b[c["mdur"]]; n += 1
-    return {"FECX": dict(dur=round(dsum / tot, 2), n=int(n))} if n >= min_n else {}
+            z = b[c["z"]] if "z" in c else None
+            if z is not None:
+                sd = (b[c["sdur"]] if "sdur" in c else None) or b[c["mdur"]]
+                ztot += mv; zsum += mv * z; dtsum += mv * sd * z / 100
+    if n < min_n:
+        return {}
+    out = dict(dur=round(dsum / tot, 2), n=int(n))
+    if ztot:
+        out.update(spr=round(zsum / ztot, 1), dts=round(dtsum / ztot, 3))
+    return {"FECX": out}
 
 
 FRN_NAME = re.compile(r"\bFloat\b|\bFLR\b|Floater|\bFRN\b", re.I)
@@ -317,6 +330,8 @@ def build(day, ecb_db, bonds_csv=None, quotes_csv=None, futures_csv=None, option
             e = idur.get(code)
             item["dur"] = e["dur"] if e else INDEX_DURATION.get(code)
             item["dur_src"] = f"estimated from {e['n']:,} bonds" if e else "assumed"
+            if e and e.get("spr") is not None:   # index Z-spread and DTS (only where the index is replicated)
+                item.update(spr=e["spr"], dts=e["dts"])
         futures.append(item)
 
     estr = None

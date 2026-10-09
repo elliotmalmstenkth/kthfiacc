@@ -715,6 +715,22 @@ def test_index_duration_estimate_applies_the_index_rules():
     e = build.index_durations(rows, cols, dt.date(2026, 10, 6))["FECX"]
     assert e["n"] == 200 and e["dur"] == pytest.approx((150 * 500 * 4.0 + 50 * 1000 * 5.5) / (150 * 500 + 50 * 1000), abs=0.01)
     assert build.index_durations(rows[:10], cols, dt.date(2026, 10, 6)) == {}    # too few bonds: keep the assumption
+    assert "spr" not in e                                                         # no Z-spreads given: no index spread
+
+
+def test_index_spread_and_dts_like_the_bonds():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site"))
+    import build
+    cols = ["sector", "ecb", "amt", "mat", "dq", "mdur", "bid", "ask", "acc", "z", "sdur"]
+    rows = [["CORP_NONFIN", "3", 500, "2030-01-01", None, 4.0, 100.0, 100.0, 0.0, 80.0, 4.1]] * 150 \
+         + [["CORP_FIN", "1-2", 1000, "2032-01-01", None, 5.5, 100.0, 100.0, 0.0, 120.0, None]] * 50 \
+         + [["CORP_FIN", "1-2", 1000, "2032-01-01", None, 5.5, 100.0, 100.0, 0.0, None, None]] * 10   # no Z: in the duration only
+    e = build.index_durations(rows, cols, dt.date(2026, 10, 6))["FECX"]
+    w1, w2 = 150 * 500, 50 * 1000                                                   # market values (price 100)
+    assert e["n"] == 210
+    assert e["spr"] == pytest.approx((w1 * 80 + w2 * 120) / (w1 + w2), abs=0.05)
+    # DTS = spread duration × spread / 100, market-value weighted; no spread duration -> modified duration
+    assert e["dts"] == pytest.approx((w1 * 4.1 * 0.80 + w2 * 5.5 * 1.20) / (w1 + w2), abs=0.001)
 
 
 @pytest.mark.parametrize("fisn,want", [("THE REPUBLIC OF/4.875 BD 20320119", "SOV"), ("ARAB REPUBLIC O/6.375EMTN 20310411", "SOV"),

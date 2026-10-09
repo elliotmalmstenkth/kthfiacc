@@ -437,6 +437,19 @@ const bucketOf = (dur) => BUCKETS.find(([, , lo, hi]) => dur >= lo && dur < hi)[
 const indexDur = (code) => (state.dur[code] ?? FUT.get(code)?.dur ?? null);
 // where an index duration comes from: the user's input, the screener estimate (site/build.py) or an assumption
 const durSrc = (code) => state.dur[code] != null ? "your input" : FUT.get(code)?.dur_src || "assumed";
+// The index's spread and DTS (spread duration × spread / 100, years × %), measured like the bonds' (Z-spread vs the
+// ECB AAA curve), for DTS-neutral hedges: site/build.py estimates them for FECX from the screener; the user can type
+// a spread. With an input or a typed duration, DTS = duration × spread / 100.
+const indexSpr = (code) => state.spr[code] ?? FUT.get(code)?.spr ?? null;
+const sprSrc = (code) => state.spr[code] != null ? "your input" : FUT.get(code)?.spr != null ? FUT.get(code).dur_src : "no estimate: type the index spread";
+function indexDts(code) {
+  const f = FUT.get(code);
+  if (state.spr[code] == null && state.dur[code] == null && f?.dts != null) return f.dts;
+  const d = indexDur(code), s = indexSpr(code);
+  return d != null && s != null ? d * s / 100 : null;
+}
+// a bond's spread duration and DTS; none for bonds without credit risk (home-currency government bonds)
+const bondDts = (b) => noCredit(b) || b.z == null ? null : (b.sdur ?? b.mdur) * b.z / 100;
 
 function risk(p) {
   if (p.kind === "bond") {
@@ -446,7 +459,8 @@ function risk(p) {
     const dirty = b.mid + b.acc, mv = p.qty * dirty / 100 / fx;
     const dv01 = mv * b.mdur * 1e-4, cs01 = noCredit(b) ? 0 : mv * (b.sdur ?? b.mdur) * 1e-4;
     const pnl = p.qty * (b.mid - p.price) / 100 / fx, carry = carryOf(p, b).total / fx;
-    return { b, mv, dv01, cs01, pnl, carry, tot: pnl + carry, now: b.mid, y: b.ytm, z: b.z, dur: b.mdur, notional: p.qty, capital: Math.abs(mv) * (b.hc ?? 20) / 100,
+    return { b, mv, dv01, cs01, pnl, carry, tot: pnl + carry, now: b.mid, y: b.ytm, z: b.z, dur: b.mdur, notional: p.qty,
+             sdur: noCredit(b) ? null : b.sdur ?? b.mdur, dts: bondDts(b), capital: Math.abs(mv) * (b.hc ?? 20) / 100,
              bucket: b.ccy === "EUR" ? bucketOf(b.mdur) : null, ust: b.ccy !== "EUR" ? fxBucket(b.ccy, b.mdur) : null };
   }
   const f = FUT.get(p.code);
@@ -458,7 +472,8 @@ function risk(p) {
   const capital = Math.abs(notional) / fx * futMargin(f) / 100;
   if (f.type === "credit") {
     const d = indexDur(f.code), dv = d ? notional / fx * d * 1e-4 : null;
-    return { f, mv: 0, notional, dv01: dv, cs01: dv, pnl, carry: 0, tot: pnl, now: f.last, bucket: d && f.ccy === "EUR" ? bucketOf(d) : null, dur: d, capital };
+    return { f, mv: 0, notional, dv01: dv, cs01: dv, pnl, carry: 0, tot: pnl, now: f.last, bucket: d && f.ccy === "EUR" ? bucketOf(d) : null, dur: d, capital,
+             z: indexSpr(f.code), sdur: d, dts: indexDts(f.code) };
   }
   return { f, mv: 0, notional, dv01: f.dv01 != null ? p.qty * f.dv01 : null, cs01: 0, pnl, carry: 0, tot: pnl, now: f.last,
            bucket: f.dv01 != null ? f.code : null, y: f.ctd?.ytm, capital };
@@ -701,7 +716,7 @@ const state = {
   view: store("view") || "dash",
   tab: TABS.some(t => t.k === store("tab")) ? store("tab") : "corp", bench: store("bench") ?? true,
   firm: store("firm") ?? false, esgOnly: store("esgOnly") ?? false, hideDq: store("hideDq") ?? false, ecbOff: new Set(store("ecbOff") || []), mat: store("mat") || "all", sort: (store("sort")?.[0] === "isin" ? null : store("sort")) || ["amt", -1],
-  dur: store("dur") || {}, cf: store("cf") || {}, noSlb: store("noSlb") ?? false, ccy: ["USD", "GBP", "CHF"].includes(store("ccy")) ? store("ccy") : "EUR", typeOff: new Set(store("typeOff") || []), hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
+  dur: store("dur") || {}, spr: store("spr") || {}, cf: store("cf") || {}, noSlb: store("noSlb") ?? false, ccy: ["USD", "GBP", "CHF"].includes(store("ccy")) ? store("ccy") : "EUR", typeOff: new Set(store("typeOff") || []), hedgeIdx: store("hedgeIdx") || "FECX", hedgePct: store("hedgePct") ?? 0,
   sel: store("sel") || null, cvd: store("cvd") ?? false, side: 1, nominal: 1e6, lots: 1,
   mode: store("mode") || "single", legs: store("legs") || [], slot: 0, pairSide: 1, flyDir: 1, stratNom: 1e6, stratLots: 10,
   repo: store("repo") ?? DATA.estr?.rate ?? 2.0, special: store("special") ?? 0, stratSel: null, stratName: "",
@@ -1084,6 +1099,12 @@ function curveChart(bk, W = 600, H = 230) {
 }
 
 // ------------------------------------------------------------------ HOLDINGS & P&L
+// gross-market-value-weighted average over the credit bonds (those with a DTS)
+function creditAvg(bk, k) {
+  const xs = bk.bonds.filter(x => x.r.dts != null && x.r[k] != null), w = xs.reduce((s, x) => s + Math.abs(x.r.mv), 0);
+  return w ? xs.reduce((s, x) => s + Math.abs(x.r.mv) * x.r[k], 0) / w : null;
+}
+
 function renderHold() {
   const bk = book();
   const showClosed = state.blotTab === "closed", C = state.closed.slice().sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
@@ -1091,7 +1112,7 @@ function renderHold() {
   const nWork = O.filter(o => o.status === "working").length;
   const tools = `<span class="chips" id="blotTab"><button data-bt="open" aria-pressed="${!showClosed && !showOrders}">OPEN ${bk.rows.length}</button><button data-bt="orders" aria-pressed="${showOrders}">ORDERS ${nWork}</button><button data-bt="closed" aria-pressed="${showClosed}">CLOSED ${C.length}</button></span>` +
     `<button class="btn" id="csvBook" ${(showClosed ? C.length : bk.rows.length) ? "" : "disabled"}>EXPORT CSV</button><a class="btn" href="${HISTORY}" target="_blank" rel="noopener">TRADE HISTORY</a>`;
-  const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">TOTAL</th><th class="n">YTM</th><th class="n">Z BP</th><th class="n">MOD DUR</th><th class="n">DV01</th><th class="n">CS01</th><th>STRATEGY</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
+  const blot = bk.rows.length ? `<table class="t"><thead><tr><th>SIDE</th><th>INSTRUMENT</th><th>ISIN / CONTRACT</th><th>SECTOR</th><th class="n">NOMINAL / LOTS</th><th class="n">TRADE PX</th><th class="n">MARK</th><th class="n">ΔPX</th><th class="n">MKT VALUE</th><th class="n">WEIGHT</th><th class="n">CLEAN P&amp;L</th><th class="n">CARRY</th><th class="n">TOTAL</th><th class="n">YTM</th><th class="n" title="Z-spread vs the ECB AAA curve (FRNs: discount margin); credit futures: the index's">Z BP</th><th class="n">MOD DUR</th><th class="n" title="spread duration; credit futures: the index's">SPR DUR</th><th class="n" title="duration times spread = spread duration × Z-spread / 100 (years × %); credit futures: the index's. DTS-neutral hedge: contracts = MV × DTS / (futures price × multiplier × index DTS)">DTS</th><th class="n">DV01</th><th class="n">CS01</th><th>STRATEGY</th><th>TRADER</th><th>TRADE DATE</th><th></th></tr></thead><tbody>` +
     bk.rows.map(({ p, r }) => `<tr class="click" data-pick="${esc(p.kind === "bond" ? p.isin : p.code)}" data-kind="${p.kind === "bond" ? "bond" : "fut"}">
       <td>${sideTag(p.qty)}</td><td class="nm">${instr(p, r)}</td><td class="dim">${esc(p.kind === "bond" ? p.isin : (p.contract || ""))}</td>
       <td class="dim">${p.kind === "bond" ? esc(SECT[r.b?.sector] || "–") : (r.f?.type === "credit" ? "Credit fut." : "Govt fut.")}</td>
@@ -1100,13 +1121,15 @@ function renderHold() {
       <td class="n">${p.kind === "bond" ? fmt(r.mv, 0) : `<span class="muted" title="notional">${fmt(r.notional, 0)}</span>`}</td>
       <td class="n">${p.kind === "bond" && bk.gross ? fmt(r.mv / bk.gross * 100, 1) + "%" : "–"}</td>
       <td class="n ${cls(r.pnl)}">${fmtS(r.pnl, 0)}</td><td class="n ${cls(r.carry)}">${fmtS(r.carry, 0)}</td><td class="n ${cls(r.tot)}">${fmtS(r.tot, 0)}</td>
-      <td class="n">${fmt(r.y, 2)}</td><td class="n">${fmt(r.z, 0)}</td><td class="n">${fmt(r.dur, 2)}</td>
+      <td class="n">${fmt(r.y, 2)}</td><td class="n">${fmt(r.z, r.f ? 1 : 0)}</td><td class="n">${p.kind === "bond" ? fmt(r.dur, 2) : "–"}</td>
+      <td class="n">${fmt(r.sdur, 2)}</td><td class="n">${fmt(r.dts, 2)}</td>
       <td class="n ${cls(r.dv01)}">${fmtS(r.dv01, 0)}</td><td class="n ${cls(r.cs01)}">${fmtS(r.cs01, 0)}</td>
       <td class="strat-tag">${esc(p.strat?.name || "")}</td><td class="who">${esc(p.by || "")}</td><td class="dim">${esc((p.at || "").slice(0, 10))}</td>
       <td>${state.canWrite && !p.strat ? `<button class="btn x" data-del="${esc(p.id)}">CLOSE</button>` : ""}</td></tr>`).join("") +
     `</tbody><tfoot><tr><td colspan="8">TOTAL</td><td class="n">${fmt(bk.mv, 0)}</td><td class="n">100%</td><td class="n ${cls(bk.pnl)}">${fmtS(bk.pnl, 0)}</td>
       <td class="n ${cls(bk.carry)}">${fmtS(bk.carry, 0)}</td><td class="n ${cls(bk.tot)}">${fmtS(bk.tot, 0)}</td>
       <td class="n">${fmt(bk.wavg("y"), 2)}</td><td class="n">${fmt(bk.wavg("z"), 0)}</td><td class="n">${fmt(bk.wavg("dur"), 2)}</td>
+      <td class="n" title="credit bonds, gross market-value weighted">${fmt(creditAvg(bk, "sdur"), 2)}</td><td class="n" title="credit bonds, gross market-value weighted">${fmt(creditAvg(bk, "dts"), 2)}</td>
       <td class="n ${cls(bk.dv01)}">${fmtS(bk.dv01, 0)}</td><td class="n ${cls(bk.cs01)}">${fmtS(bk.cs01, 0)}</td><td colspan="4"></td></tr></tfoot></table>` : emptyBook();
 
   const cname = (x) => x.kind === "bond" ? esc(BY_ISIN.get(x.isin)?.name || x.isin) : `${esc(x.code)} ${mmmYY(x.contract)}`;
@@ -1167,9 +1190,9 @@ function renderHold() {
   $("#csvBook")?.addEventListener("click", () => showClosed ? csv(`kthficc-closed-${DATA.asof}.csv`,
     ["side", "kind", "instrument", "isin_or_contract", "qty", "entry_px", "exit_px", "clean_pnl", "carry", "realized_pnl", "strategy", "trader", "opened", "closed", "closed_by"],
     C.map(x => [x.qty >= 0 ? "long" : "short", x.kind, x.kind === "bond" ? BY_ISIN.get(x.isin)?.name : x.code, x.kind === "bond" ? x.isin : x.contract, x.qty, x.price, x.exit, x.pnl, x.carry, x.tot, x.strat?.name, x.by, x.at, x.closedAt, x.closedBy])) : csv(`kthficc-book-${DATA.asof}.csv`,
-    ["side", "kind", "instrument", "isin_or_contract", "sector", "qty", "trade_px", "mark", "market_value", "clean_pnl", "carry", "total_pnl", "ytm", "z_bp", "mod_dur", "dv01", "cs01", "strategy", "trader", "trade_time"],
+    ["side", "kind", "instrument", "isin_or_contract", "sector", "qty", "trade_px", "mark", "market_value", "clean_pnl", "carry", "total_pnl", "ytm", "z_bp", "mod_dur", "spread_dur", "dts", "dv01", "cs01", "strategy", "trader", "trade_time"],
     bk.rows.map(({ p, r }) => [p.qty >= 0 ? "long" : "short", p.kind, p.kind === "bond" ? r.b?.name : p.code, p.kind === "bond" ? p.isin : p.contract,
-      p.kind === "bond" ? SECT[r.b?.sector] : r.f?.type, p.qty, p.price, r.now, p.kind === "bond" ? r.mv : r.notional, r.pnl, r.carry, r.tot, r.y, r.z, r.dur, r.dv01, r.cs01, p.strat?.name, p.by, p.at])));
+      p.kind === "bond" ? SECT[r.b?.sector] : r.f?.type, p.qty, p.price, r.now, p.kind === "bond" ? r.mv : r.notional, r.pnl, r.carry, r.tot, r.y, r.z, p.kind === "bond" ? r.dur : null, r.sdur, r.dts, r.dv01, r.cs01, p.strat?.name, p.by, p.at])));
 }
 
 // The club book over time (site/build.py pnl_history): clean P&L of the open positions at each evening's marks plus
@@ -1645,8 +1668,8 @@ function renderCredit() {
   const M = DATA.mkt || {}, F = (c) => FUT.get(c);
   marketsLive();
   const spreads = mktRows([[M.BAMLHE00EHYIOAS, "Euro HY OAS (≈ iTraxx Crossover)"], [M.BAMLC0A0CM, "US IG OAS (≈ CDX IG)"], [M.BAMLH0A0HYM2, "US HY OAS (≈ CDX HY)"]]) +
-    `<table class="t"><thead><tr><th>EUREX CREDIT FUTURE</th><th class="n">LAST</th><th class="n">TRADES</th><th class="n">CS01/LOT</th></tr></thead><tbody>` +
-    ["FECX", "FEHY", "FGBC", "FUIG", "FUHY"].filter(F).map(c => { const f = F(c), d = indexDur(c); return `<tr class="click" data-pick="${c}" data-kind="fut"><td><span class="amb">${c}</span> <span class="muted">${esc(f.name)}</span></td><td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${d ? fmt(f.last * f.mult * d * 1e-4, 1) : "–"}</td></tr>`; }).join("") + `</tbody></table>
+    `<table class="t"><thead><tr><th>EUREX CREDIT FUTURE</th><th class="n">LAST</th><th class="n">TRADES</th><th class="n">CONTRACT VALUE</th><th class="n">CS01/LOT</th><th class="n">INDEX DUR</th><th class="n" title="index Z-spread vs the ECB AAA curve (the bonds' measure); edit on the Trade futures board">INDEX SPREAD</th><th class="n">INDEX DTS</th></tr></thead><tbody>` +
+    ["FECX", "FEHY", "FGBC", "FUIG", "FUHY"].filter(F).map(c => { const f = F(c), d = indexDur(c); return `<tr class="click" data-pick="${c}" data-kind="fut"><td><span class="amb">${c}</span> <span class="muted">${esc(f.name)}</span></td><td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(f.last * f.mult, 0)} ${f.ccy}</td><td class="n">${d ? fmt(f.last * f.mult * d * 1e-4, 1) : "–"}</td><td class="n" title="${esc(durSrc(c))}">${fmt(d, 2)}</td><td class="n" title="${esc(sprSrc(c))}">${fmt(indexSpr(c), 1)}</td><td class="n">${fmt(indexDts(c), 2)}</td></tr>`; }).join("") + `</tbody></table>
     <p class="note pad">iTraxx and CDX spreads are licensed (S&amp;P Global) and not free; the cash-bond OAS indices and Eurex credit index futures are the public proxies.</p>`;
   $("#v-credit").innerHTML =
     panel("spreads", "Credit indices", spreads, { sub: "OAS in bp" }) +
@@ -1785,7 +1808,7 @@ const GLOSSARY = [
   ["Pair / fly", "Relative-value trades. Pair: long one bond, short another for zero DV01. Fly: body against two wings (50/50 DV01)."],
   ["Level", "Strategy level in bp of yield: pair = long − short; fly = 2 × body − wings."],
   ["VaR / ES", "Value at risk: the loss not exceeded on 99% of the last 500 days. Expected shortfall (CVaR): the average loss beyond it."],
-  ["DTS", "Duration times spread: spreads move in proportion to their level, so a 300 bp bond moves more than a 60 bp one."],
+  ["DTS", "Duration times spread = spread duration × spread / 100 (years × %; spread = Z-spread vs the ECB AAA curve, for bonds and index alike). Spreads move in proportion to their level, so a 300 bp bond moves more than a 60 bp one. DTS-neutral hedge: contracts = market value × DTS / (futures price × multiplier × index DTS)."],
   ["ECB ≥A− / BBB", "Eurosystem credit quality step from the ECB collateral list: steps 1–2 (A− or better) or 3 (BBB). Not on the list ≠ high yield."],
   ["GRN / SOC / SUS / SLB", "Green, social, sustainability, sustainability-linked bond (Euronext ESG list)."],
   ["⚠", "Closing quote failed a check: very wide bid-offer, implausible price, extreme spread or far off the issuer curve."],
@@ -2067,17 +2090,25 @@ function emptyMsg(tab, counts) {
 
 function renderFutures() {
   const selCode = state.sel?.kind === "fut" ? state.sel.id : null;
-  $("#futBody").innerHTML = `<table class="t"><thead><tr><th>CONTRACT</th><th>NAME</th><th>EXPIRY</th><th class="n">LAST</th><th class="n">LOW</th><th class="n">HIGH</th><th class="n">TRADES</th><th class="n">VOLUME</th><th class="n">BLOCK</th><th class="n">CONTRACT VALUE</th><th class="n">DV01/CS01</th><th>INDEX DUR</th><th>CTD</th></tr></thead><tbody>` +
+  $("#futBody").innerHTML = `<table class="t"><thead><tr><th>CONTRACT</th><th>NAME</th><th>EXPIRY</th><th class="n">LAST</th><th class="n">LOW</th><th class="n">HIGH</th><th class="n">TRADES</th><th class="n">VOLUME</th><th class="n">BLOCK</th><th class="n">CONTRACT VALUE</th><th class="n">DV01/CS01</th><th>INDEX DUR</th><th title="index Z-spread vs the ECB AAA curve, bp (the bonds' measure)">INDEX SPREAD</th><th class="n" title="index duration × spread / 100 (years × %)">INDEX DTS</th><th>CTD</th></tr></thead><tbody>` +
     DATA.futures.map(f => {
       const d = f.type === "credit" ? indexDur(f.code) : null;
       const per = f.type === "credit" ? (d ? f.last * f.mult * d * 1e-4 : null) : f.dv01;
       const durIn = f.type === "credit" ? `<input class="num" style="width:4.5em" data-dur="${f.code}" value="${fmt(d, 2)}" aria-label="Index duration ${f.code}" title="${esc(durSrc(f.code))}">` : "";
+      const sprIn = f.type === "credit" ? `<input class="num" style="width:4.5em" data-spr="${f.code}" value="${indexSpr(f.code) == null ? "" : fmt(indexSpr(f.code), 1)}" placeholder="bp" aria-label="Index spread ${f.code}" title="${esc(sprSrc(f.code))}">` : "";
+      const dts = f.type === "credit" ? indexDts(f.code) : null;
       const ctd = f.ctd ? `${esc(f.ctd.name)} <span class="muted">CF ${fmt(f.ctd.cf, 4)} · basis ${fmt(f.ctd.basis, 3)}</span>` : `<span class="muted">${f.type === "credit" ? "cash-settled" : "–"}</span>`;
       return `<tr class="click${f.code === selCode ? " sel" : ""}" data-pick="${f.code}" data-kind="fut"><td class="amb">${f.code}</td><td class="desc">${esc(f.name)}</td><td>${f.contract}</td>
         <td class="n">${fmt(f.last, 3)}</td><td class="n">${fmt(f.low, 3)}</td><td class="n">${fmt(f.high, 3)}</td><td class="n">${fmt(f.trades, 0)}</td><td class="n">${fmt(f.lots, 0)}</td><td class="n">${fmt(f.block, 0)}</td>
-        <td class="n">${fmt(f.last * f.mult, 0)} ${f.ccy}</td><td class="n">${fmt(per, 1)}</td><td>${durIn}</td><td>${ctd}</td></tr>`;
+        <td class="n">${fmt(f.last * f.mult, 0)} ${f.ccy}</td><td class="n">${fmt(per, 1)}</td><td>${durIn}</td><td>${sprIn}</td><td class="n">${f.type === "credit" ? fmt(dts, 2) : ""}</td><td>${ctd}</td></tr>`;
     }).join("") + `</tbody></table>`;
   document.querySelectorAll("[data-dur]").forEach(inp => inp.onchange = () => { const v = Number(inp.value.replace(",", ".")); if (v > 0) { state.dur[inp.dataset.dur] = v; store("dur", state.dur); } render(); });
+  // index spread: a number overrides the estimate; an empty field goes back to it
+  document.querySelectorAll("[data-spr]").forEach(inp => inp.onchange = () => {
+    const t = inp.value.trim(), v = Number(t.replace(",", "."));
+    if (!t) delete state.spr[inp.dataset.spr]; else if (v > 0) state.spr[inp.dataset.spr] = v;
+    store("spr", state.spr); render();
+  });
 }
 
 function select(kind, id) {
