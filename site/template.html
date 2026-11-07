@@ -749,8 +749,16 @@ const b64ToUtf8 = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.rep
 const gh = {
   token: store("ghToken"), login: store("ghLogin"), sha: null,
   headers(json) { const h = { Accept: "application/vnd.github+json" }; if (this.token) h.Authorization = "Bearer " + this.token; if (json) h["Content-Type"] = "application/json"; return h; },
+  // A stored token GitHub no longer accepts (expired or revoked) gets 401 even on public reads: sign out and read
+  // without it, so the book and the feed keep working.
+  async read(url) {
+    const r = await fetch(url, { headers: this.headers(), cache: "no-store" });
+    if (r.status !== 401 || !this.token) return r;
+    dropToken("Your GitHub token has expired or was revoked, so you are signed out. Sign in with a new token to trade.");
+    return fetch(url, { headers: this.headers(), cache: "no-store" });
+  },
   async load() {
-    const r = await fetch(`${FILE}?ref=${encodeURIComponent(REPO.branch)}`, { headers: this.headers(), cache: "no-store" });
+    const r = await this.read(`${FILE}?ref=${encodeURIComponent(REPO.branch)}`);
     if (r.status === 404) { this.sha = null; return { positions: [], closed: [], orders: [] }; }
     if (!r.ok) throw Object.assign(new Error("load " + r.status), { status: r.status });
     const j = await r.json();
@@ -855,8 +863,9 @@ const closeStrategy = (sid, btn, review) => {
   const legs = state.positions.filter(x => x.strat?.id === sid);
   return closeWhere(p => p.strat?.id === sid, `${legs[0]?.strat?.name || "strategy"}: ${legs.map(describe).join(", ")}`, btn, review);
 };
+function dropToken(msg) { gh.token = gh.login = null; store("ghToken", null); store("ghLogin", null); state.canWrite = false; toast(msg); }
 function writeError(e) {
-  if (e?.status === 401) { toast("Your GitHub token is no longer valid. Please sign in again."); gh.token = null; store("ghToken", null); state.canWrite = false; render(); }
+  if (e?.status === 401) { dropToken("Your GitHub token is no longer valid. Please sign in again."); render(); }
   else if (e?.status === 403 || e?.status === 404) toast("Your GitHub account cannot write to the repo. Ask Elliot to add you as a collaborator.");
   else toast("Could not save the trade. Please try again.");
 }
@@ -895,7 +904,7 @@ function applyLive(j) {
 async function pollLive() {
   if (!document.hidden) {
     try {
-      const r = await fetch(`${API}/git/ref/heads/live`, { headers: gh.headers(), cache: "no-store" });
+      const r = await gh.read(`${API}/git/ref/heads/live`);
       if (r.ok) {
         const sha = (await r.json()).object.sha;
         if (sha !== LIVE.sha) {
